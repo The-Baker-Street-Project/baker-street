@@ -1,0 +1,32 @@
+{
+  "teams": {
+    "security": {
+      "name": "Security",
+      "paths": ["services/brain/src", "services/gateway/src", "services/ui", "k8s"]
+    },
+    "mcp-infrastructure": {
+      "name": "MCP Infrastructure",
+      "paths": ["services/brain/src", "packages/shared/src"]
+    },
+    "model-router": {
+      "name": "Model Router",
+      "paths": ["services/brain/src", "services/worker/src", "packages/shared/src"]
+    }
+  },
+  "sharedPackage": "packages/shared",
+  "sourceRoots": [
+    "packages/*/src",
+    "services/*/src",
+    "plugins/*/src"
+  ],
+  "specialists": {
+    "typescript-quality": { "enabled": true },
+    "api-patterns": { "enabled": true },
+    "security": { "enabled": true },
+    "test-quality": { "enabled": true },
+    "ui-design-compliance": {
+      "enabled": true,
+      "scope": ["services/ui/src/**/*.tsx"]
+    }
+  }
+}

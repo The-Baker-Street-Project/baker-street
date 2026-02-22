@@ -1,0 +1,104 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: bakerst
+
+resources:
+  - ../../nats
+  - ../../qdrant
+  - ../../brain
+  - ../../task
+  - ../../worker
+  - ../../ui
+  - ../../gateway
+
+patches:
+  # Inject BAKERST_MODE=dev into brain-blue (brain container)
+  - target:
+      kind: Deployment
+      name: brain-blue
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: brain-blue
+      spec:
+        template:
+          spec:
+            containers:
+              - name: brain
+                env:
+                  - name: BAKERST_MODE
+                    value: "dev"
+
+  # Inject BAKERST_MODE=dev into brain-green (brain container)
+  - target:
+      kind: Deployment
+      name: brain-green
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: brain-green
+      spec:
+        template:
+          spec:
+            containers:
+              - name: brain
+                env:
+                  - name: BAKERST_MODE
+                    value: "dev"
+
+  # Inject BAKERST_MODE=dev into worker
+  - target:
+      kind: Deployment
+      name: worker
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: worker
+      spec:
+        template:
+          spec:
+            containers:
+              - name: worker
+                env:
+                  - name: BAKERST_MODE
+                    value: "dev"
+
+  # Inject BAKERST_MODE=dev into gateway
+  - target:
+      kind: Deployment
+      name: gateway
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: gateway
+      spec:
+        template:
+          spec:
+            containers:
+              - name: gateway
+                env:
+                  - name: BAKERST_MODE
+                    value: "dev"
+
+  # Inject BAKERST_MODE=dev into ui
+  - target:
+      kind: Deployment
+      name: ui
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ui
+      spec:
+        template:
+          spec:
+            containers:
+              - name: ui
+                env:
+                  - name: BAKERST_MODE
+                    value: "dev"

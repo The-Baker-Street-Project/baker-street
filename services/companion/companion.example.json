@@ -1,0 +1,12 @@
+{
+  "id": "mycroft",
+  "nats": {
+    "url": "nats://192.168.4.94:7422"
+  },
+  "capabilities": ["filesystem", "docker", "zfs", "systemctl"],
+  "paths": ["/diogenes", "/data", "/home/gary"],
+  "maxConcurrent": 2,
+  "anthropic": {
+    "apiKey": "${ANTHROPIC_API_KEY}"
+  }
+}

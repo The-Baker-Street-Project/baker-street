@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: bakerst
+  labels:
+    app: gateway
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: fix-data-ownership
+          image: alpine:3
+          command: ["chown", "-R", "1000:1000", "/data"]
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: gateway
+          image: bakerst-gateway:latest
+          imagePullPolicy: Never
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: BRAIN_URL
+              value: "http://brain.bakerst.svc.cluster.local:3000"
+            - name: DATA_DIR
+              value: "/data"
+          envFrom:
+            - secretRef:
+                name: bakerst-gateway-secrets
+                optional: true
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "250m"
+      volumes:
+        - name: data
+          hostPath:
+            path: /Users/gary/bakerst-data/gateway
+            type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}

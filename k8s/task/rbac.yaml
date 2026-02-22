@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bakerst-task
+  namespace: bakerst
+---
+# Task pods get no RBAC permissions — they don't need K8s API access

@@ -1,0 +1,17 @@
+:8080 {
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy brain.irene2.svc.cluster.local:3000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			flush_interval -1
+		}
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
+	}
+}

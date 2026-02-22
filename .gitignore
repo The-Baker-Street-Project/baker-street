@@ -1,0 +1,25 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Secrets
+k8s/secrets.yaml
+.env
+.env-*
+
+# npm (prevent accidental npm use)
+package-lock.json
+
+# Code review artifacts (config.json is tracked)
+.code-review/review-*.json
+.code-review/abort-reason.md
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Git worktrees (inside project for sandbox compatibility)
+.worktrees/

@@ -1,0 +1,9 @@
+# This file is a placeholder. The actual configmap is generated
+# by scripts/deploy.sh from operating_system/ files.
+# To manually create: kubectl create configmap bakerst-os --from-file=operating_system/ -n bakerst
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bakerst-os
+  namespace: bakerst
+data: {}
