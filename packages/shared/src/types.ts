@@ -127,3 +127,23 @@ export interface CompanionTaskResult {
   durationMs: number;
   traceId?: string;
 }
+
+// --- Extensions Protocol ---
+
+export interface ExtensionAnnounce {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  mcpUrl: string;
+  transport?: 'streamable-http' | 'http';
+  tools?: string[];
+  tags?: string[];
+}
+
+export interface ExtensionHeartbeat {
+  id: string;
+  timestamp: string;
+  uptime: number;
+  activeRequests: number;
+}

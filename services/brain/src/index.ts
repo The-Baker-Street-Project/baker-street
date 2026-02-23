@@ -27,6 +27,7 @@ import { SkillRegistry } from './skill-registry.js';
 import { createUnifiedToolRegistry } from './plugin-bridge.js';
 import { BrainStateMachine } from './brain-state.js';
 import { CompanionManager } from './companion-manager.js';
+import { ExtensionManager } from './extension-manager.js';
 import { TransferHandler } from './transfer.js';
 import { TaskPodManager } from './task-pod-manager.js';
 import type { BrainState } from '@bakerst/shared';
@@ -170,8 +171,15 @@ async function main() {
     await companionManager.start();
   }
 
+  // Initialize extension manager
+  let extensionManager: ExtensionManager | undefined;
+  if (features.isEnabled('extensions') && skillRegistry) {
+    extensionManager = new ExtensionManager(nc, skillRegistry, mcpClientManager);
+    await extensionManager.start();
+  }
+
   const agent = createAgent(dispatcher, statusTracker, memoryService, pluginRegistry, modelRouter, unifiedRegistry, skillRegistry, startTime, '0.1.0', taskPodManager, companionManager);
-  const app = createApi(dispatcher, statusTracker, agent, memoryService, pluginRegistry, skillRegistry, mcpClientManager, modelRouter, nc, scheduleManager, stateMachine, startTime, taskPodManager, companionManager);
+  const app = createApi(dispatcher, statusTracker, agent, memoryService, pluginRegistry, skillRegistry, mcpClientManager, modelRouter, nc, scheduleManager, stateMachine, startTime, taskPodManager, companionManager, extensionManager);
   const port = parseInt(process.env.PORT ?? '3000', 10);
   const server = app.listen(port, () => {
     log.info({ port }, 'brain API listening');
@@ -195,6 +203,7 @@ async function main() {
     taskPodManager?.shutdown();
     scheduleManager?.stopAll();
     companionManager?.shutdown();
+    extensionManager?.shutdown();
     await unifiedRegistry.shutdown();
     statusTracker.close();
     server.close();

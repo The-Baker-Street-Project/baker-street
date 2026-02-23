@@ -12,6 +12,50 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@24.10.13)(jiti@2.6.1)(lightningcss@1.30.2)
 
+  examples/extension-hello-world:
+    dependencies:
+      '@bakerst/extension-sdk':
+        specifier: workspace:*
+        version: link:../../packages/extension-sdk
+      '@bakerst/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.11
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/extension-sdk:
+    dependencies:
+      '@bakerst/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.26.0
+        version: 1.26.0(zod@4.3.6)
+      express:
+        specifier: ^4.21.0
+        version: 4.22.1
+      nats:
+        specifier: ^2.28.0
+        version: 2.29.3
+    devDependencies:
+      '@types/express':
+        specifier: ^5.0.0
+        version: 5.0.6
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.11
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   packages/shared:
     dependencies:
       '@anthropic-ai/sdk':

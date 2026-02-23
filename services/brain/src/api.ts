@@ -15,6 +15,7 @@ import type { McpClientManager } from './mcp-client.js';
 import type { ScheduleManager } from './schedule-manager.js';
 import type { BrainStateMachine } from './brain-state.js';
 import type { CompanionManager } from './companion-manager.js';
+import type { ExtensionManager } from './extension-manager.js';
 import { listConversations, getConversation, getMessages, listSkills, getSkill, upsertSkill, deleteSkill as deleteSkillDb, getDb, getModelConfigValue, setModelConfigValue, type ScheduleRow } from './db.js';
 import { getSecrets, updateSecrets, restartDeployment } from './k8s-client.js';
 import { reloadInstructionSkills } from './skill-loader.js';
@@ -75,6 +76,7 @@ export function createApi(
   startTime?: number,
   taskPodManager?: TaskPodManager,
   companionManager?: CompanionManager,
+  extensionManager?: ExtensionManager,
 ) {
   const effectiveStartTime = startTime ?? Date.now();
   const app = express();
@@ -1197,6 +1199,17 @@ export function createApi(
     const id = req.params.id as string;
     const tasks = companionManager.getCompanionTasks(id);
     res.json(tasks);
+  });
+
+  // --- Extensions ---
+
+  app.get('/extensions', (_req: Request, res: Response) => {
+    if (!extensionManager) {
+      res.status(503).json({ error: 'Extensions not enabled' });
+      return;
+    }
+    const extensions = extensionManager.getExtensions();
+    res.json(extensions);
   });
 
 

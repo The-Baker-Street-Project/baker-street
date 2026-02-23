@@ -37,6 +37,7 @@ graph TB
         subgraph Skills["Skill Layer (MCP)"]
             FS["Filesystem<br/><i>Stdio (Tier 1)</i>"]
             MCP3["Custom Services<br/><i>HTTP (Tier 2/3)</i>"]
+            EXT["Extensions<br/><i>Pod-based (Tier 3)</i>"]
         end
     end
 
@@ -76,6 +77,8 @@ graph TB
 
     BRAIN <-->|MCP Stdio| FS
     BRAIN <-->|MCP HTTP| MCP3
+    BRAIN <-->|MCP HTTP| EXT
+    EXT -->|Announce/Heartbeat| NATS
 
     BRAIN -.->|OTLP| OTEL
     WORKER -.->|OTLP| OTEL
@@ -118,6 +121,7 @@ graph TB
         NATS["NATS :4222"]
         QDRANT["Qdrant :6333"]
         TASK["Task Pod"]
+        EXTPOD["Extension :8080"]
         OTEL["OTel Collector :4317/4318"]
         TEMPO["Tempo :3200/:4317"]
         LOKI["Loki :3100"]
@@ -138,6 +142,8 @@ graph TB
     WORKER -->|"allow"| NATS
     TASK -.->|"egress only"| NATS
 
+    BRAIN -->|"allow (only brain)"| EXTPOD
+    EXTPOD -->|"egress only"| NATS
     BRAIN -->|"allow (only brain)"| QDRANT
 
     BRAIN -.->|"allow"| OTEL
@@ -154,6 +160,7 @@ graph TB
     style WORKER fill:#2d4059,color:#eee
     style QDRANT fill:#8B0000,color:#eee
     style TASK fill:#8B4513,color:#eee
+    style EXTPOD fill:#2d4059,color:#eee
 ```
 
 The cluster enforces **default-deny ingress** on every pod, with explicit NetworkPolicy rules whitelisting only the connections that are actually needed:
@@ -161,7 +168,8 @@ The cluster enforces **default-deny ingress** on every pod, with explicit Networ
 - **Qdrant** (the vector database holding your memories) is accessible **only from the brain** — no other pod can reach it
 - **Workers have zero inbound access** — they pull work exclusively from the NATS message queue
 - **Task pods are fully locked down** — zero ingress, egress limited to NATS port 4222 only (see [Task Pod Isolation](#task-pod-isolation))
-- **NATS is sealed** to brain and worker pods only (plus task pod egress)
+- **Extensions are network-isolated** — only brain can reach them (port 8080); extensions can only reach NATS (port 4222). They cannot reach each other, Qdrant, the internet, or any other service
+- **NATS is sealed** to brain, worker, and extension pods only (plus task pod egress)
 - **Observability traffic** is isolated in a separate namespace (`bakerst-telemetry`) with cross-namespace policies restricting access to only the brain and worker
 - **Prometheus** is accessible only from Grafana; **kube-state-metrics** is accessible only from Prometheus
 
@@ -410,6 +418,41 @@ graph TB
 
 **Self-management**: The agent can create, update, enable, disable, and delete its own Tier 0 and Tier 1 skills, and browse the public MCP registry to discover new ones.
 
+### Extensions — Pod-Based Tool Plugins
+
+Extensions let developers add tool capabilities by deploying a Kubernetes pod. No brain restarts, no config changes — deploy a pod and the agent gains new tools automatically.
+
+```mermaid
+sequenceDiagram
+    participant E as Extension Pod
+    participant N as NATS
+    participant B as Brain
+
+    E->>N: Announce (id, name, mcpUrl, tools)
+    N->>B: deliver
+    B->>E: Connect MCP (tools/list)
+    E->>B: Tool definitions
+    Note over B: Tools now available to agent
+
+    loop Every 30 seconds
+        E->>N: Heartbeat (uptime, activeRequests)
+        N->>B: deliver
+    end
+
+    Note over E: Pod deleted
+    Note over B: 90s timeout → tools removed
+
+    Note over E: Pod redeployed
+    E->>N: Announce
+    Note over B: Tools restored
+```
+
+Each extension serves tools via an MCP HTTP endpoint and announces itself on NATS. The brain discovers tools via `tools/list`, makes them directly available to the agent's LLM, and monitors health via heartbeats. The `@bakerst/extension-sdk` package provides a one-liner setup; any language can implement the protocol directly.
+
+**Security note:** The platform provides network isolation (only brain can reach extensions, extensions can only reach NATS) but each extension is responsible for its own input validation, authorization, rate limiting, and output sanitization. The brain trusts tool results — a poorly written extension can leak data or cause unintended side effects. See `docs/extensions.md` for the full security model.
+
+- **Feature-flagged** — enable with `FEATURE_EXTENSIONS=true`
+
 ### Companions — Distributed Agent Network
 
 Companions are lightweight autonomous agent daemons that run on bare metal, NAS boxes, or VMs outside the Kubernetes cluster. They extend the agent's reach to machines that don't run inside K8s.
@@ -598,7 +641,8 @@ The deploy script walks through prerequisite checks, secret configuration, TypeS
 ```
 bakerst/
 ├── packages/
-│   └── shared/             # Types, NATS subjects, model router, feature flags
+│   ├── shared/             # Types, NATS subjects, model router, feature flags
+│   └── extension-sdk/      # SDK for building pod-based extensions
 ├── services/
 │   ├── brain/              # Agent orchestrator (Express + Claude + NATS)
 │   ├── worker/             # Job execution (NATS consumer + Claude)
@@ -607,6 +651,8 @@ bakerst/
 │   └── ui/                 # React SPA (Vite + Tailwind + Caddy)
 ├── plugins/
 │   └── filesystem/         # Sandboxed file access (stdio MCP)
+├── examples/
+│   └── extension-hello-world/ # Example extension (hello_greet, hello_time)
 ├── operating_system/       # Personality files (SOUL.md, BRAIN.md, etc.)
 ├── k8s/                    # Kubernetes manifests (Kustomize)
 │   ├── brain/              # Blue-green deployments, RBAC, service

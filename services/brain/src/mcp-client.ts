@@ -61,10 +61,16 @@ export class McpClientManager {
       env: env ? { ...process.env, ...env } as Record<string, string> : undefined,
     });
 
-    // Handle transport errors to prevent unhandled exceptions crashing the process
+    // Handle transport errors. SSE stream disconnections are common and transient —
+    // the client can still make tool calls via POST. Don't remove the client on
+    // errors; let callTool failures handle truly broken connections instead.
     client.onerror = (err) => {
-      log.error({ err, skillId }, 'MCP client error, cleaning up connection');
-      this.clients.delete(skillId);
+      const current = this.clients.get(skillId);
+      if (current && current.client === client) {
+        log.warn({ err, skillId }, 'MCP client error (connection kept)');
+      } else {
+        log.debug({ err, skillId }, 'MCP client error on stale connection (ignoring)');
+      }
     };
 
     try {
@@ -105,10 +111,16 @@ export class McpClientManager {
       transport = new StreamableHTTPClientTransport(new URL(url), { requestInit });
     }
 
-    // Handle transport errors to prevent unhandled exceptions crashing the process
+    // Handle transport errors. SSE stream disconnections are common and transient —
+    // the client can still make tool calls via POST. Don't remove the client on
+    // errors; let callTool failures handle truly broken connections instead.
     client.onerror = (err) => {
-      log.error({ err, skillId }, 'MCP client error, cleaning up connection');
-      this.clients.delete(skillId);
+      const current = this.clients.get(skillId);
+      if (current && current.client === client) {
+        log.warn({ err, skillId }, 'MCP client error (connection kept)');
+      } else {
+        log.debug({ err, skillId }, 'MCP client error on stale connection (ignoring)');
+      }
     };
 
     try {

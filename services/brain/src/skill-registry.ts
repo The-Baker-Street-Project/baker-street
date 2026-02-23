@@ -311,6 +311,7 @@ export class SkillRegistry {
 
     const systemSkills = allSkills.filter((s) => (s.owner ?? 'system') === 'system');
     const agentSkills = allSkills.filter((s) => s.owner === 'agent');
+    const extensionSkills = allSkills.filter((s) => s.owner === 'extension');
 
     const lines: string[] = [];
 
@@ -331,6 +332,12 @@ export class SkillRegistry {
       if (lines.length > 0) lines.push('');
       lines.push('Agent-Installed Skills:');
       for (const s of agentSkills) lines.push(formatSkill(s));
+    }
+
+    if (extensionSkills.length > 0) {
+      if (lines.length > 0) lines.push('');
+      lines.push('Extension Skills:');
+      for (const s of extensionSkills) lines.push(formatSkill(s));
     }
 
     lines.push('');
