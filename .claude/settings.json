@@ -6,5 +6,18 @@
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:github.com)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash(git commit:*)",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "A commit was just made. Review the committed changes. If they introduced new patterns, commands, architecture changes, or gotchas that should be documented in CLAUDE.md, update it now. Otherwise do nothing."
+          }
+        ]
+      }
+    ]
   }
 }

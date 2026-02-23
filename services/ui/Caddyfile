@@ -1,7 +1,7 @@
 :8080 {
 	handle /api/* {
 		uri strip_prefix /api
-		reverse_proxy brain.irene2.svc.cluster.local:3000 {
+		reverse_proxy brain.bakerst.svc.cluster.local:3000 {
 			header_up X-Real-IP {remote_host}
 			header_up X-Forwarded-For {remote_host}
 			flush_interval -1

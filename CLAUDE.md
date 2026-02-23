@@ -43,6 +43,21 @@ scripts/secrets.sh              # create k8s secrets (auto-loads .env-secrets)
 scripts/deploy.sh               # kubectl apply all manifests
 ```
 
+### Windows (PowerShell)
+
+```powershell
+# Double-click scripts\deploy.bat, or from PowerShell:
+.\scripts\Deploy-BakerStreet.ps1
+
+# With options:
+.\scripts\Deploy-BakerStreet.ps1 -SkipTelemetry        # skip telemetry stack
+.\scripts\Deploy-BakerStreet.ps1 -SkipBuild             # skip pnpm + docker builds
+.\scripts\Deploy-BakerStreet.ps1 -SkipSecrets           # use existing .env-secrets
+.\scripts\Deploy-BakerStreet.ps1 -Yes                   # non-interactive
+```
+
+Prerequisites: Docker Desktop (with Kubernetes enabled) and WSL2.
+
 ## Access
 
 ```bash
