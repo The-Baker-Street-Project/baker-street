@@ -176,12 +176,26 @@ Subject: `bakerst.extensions.<id>.heartbeat`
 
 ## Security Model
 
+### Network Isolation
+
 Network policies restrict extension pods to:
 
 - **Ingress**: Only brain can reach extensions (port 8080)
 - **Egress**: Extensions can only reach NATS (port 4222)
 
 Extensions cannot reach other services, the internet, or each other. If your extension needs external access, you'll need to add custom network policies.
+
+### Extension Responsibility
+
+**Extensions must implement their own security controls.** The platform provides network isolation and discovery, but each extension is responsible for:
+
+- **Input validation** — The agent sends arbitrary user-influenced input to your tools. Validate and sanitize all arguments before acting on them.
+- **Authorization** — If your tool accesses sensitive resources (files, APIs, databases), enforce access controls within the tool. The platform does not restrict what a tool can do once called.
+- **Rate limiting** — The agent may call your tool repeatedly in a single conversation turn. Protect expensive or destructive operations with rate limits or confirmation logic.
+- **Output sanitization** — Do not leak secrets, credentials, or internal paths in tool responses. The agent includes tool output in its response to the user.
+- **Least privilege** — Request only the Kubernetes permissions and network access your extension actually needs. Avoid running as root or mounting host paths.
+
+The brain trusts tool results and forwards them to the LLM. A malicious or poorly written extension can leak data, exhaust resources, or cause unintended side effects. Treat each extension as an attack surface.
 
 ## Building Without the SDK
 

@@ -109,3 +109,4 @@ Telemetry (OTel Collector, Tempo, Loki, Grafana, Prometheus, kube-state-metrics)
 - **Network Policies**: `k8s/network-policies.yaml` — default-deny ingress, per-service allow rules
 - **Pod Security**: All deployments use `seccompProfile: RuntimeDefault`, `readOnlyRootFilesystem: true`, drop all capabilities, `runAsNonRoot: true`
 - **Auth**: Bearer token auth on Brain API (see AUTH_TOKEN above)
+- **Extensions**: Network-isolated (brain→extension only, extension→NATS only), but each extension must implement its own input validation, authorization, and output sanitization (see `docs/extensions.md`)
