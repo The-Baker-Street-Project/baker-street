@@ -15,6 +15,7 @@ const FLAG_REGISTRY = {
   telemetry:        { prod: true,  dev: false, desc: 'OpenTelemetry tracing' },
   taskPods:         { prod: false, dev: false, desc: 'K8s Job-based task pod system' },
   companions:       { prod: false, dev: false, desc: 'Distributed Companions agent network' },
+  extensions:       { prod: false, dev: false, desc: 'Pod-based extension system' },
 } as const;
 
 // ---------------------------------------------------------------------------

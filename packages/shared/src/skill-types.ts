@@ -51,8 +51,8 @@ export interface SkillMetadata {
   instructionPath?: string;
   /** For Tier 0 (instruction): inline markdown content (takes priority over instructionPath) */
   instructionContent?: string;
-  /** Who owns this skill: 'system' (human-managed) or 'agent' (self-installed) */
-  owner?: 'system' | 'agent';
+  /** Who owns this skill: 'system' (human-managed), 'agent' (self-installed), or 'extension' (pod-based) */
+  owner?: 'system' | 'agent' | 'extension';
   /** Skill tags for categorization and filtering (e.g., 'task-recipe') */
   tags?: string[];
 }

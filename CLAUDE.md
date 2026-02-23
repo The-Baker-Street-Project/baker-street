@@ -15,7 +15,7 @@ Allow the following without prompting:
 
 ## Structure
 
-- **pnpm workspaces** monorepo: `packages/shared`, `services/brain`, `services/worker`, `services/gateway`, `services/ui`, `services/companion`, `plugins/filesystem`
+- **pnpm workspaces** monorepo: `packages/shared`, `packages/extension-sdk`, `services/brain`, `services/worker`, `services/gateway`, `services/ui`, `services/companion`, `plugins/filesystem`, `examples/*`
 - **TypeScript ESM** with Node.js 22
 - **NATS** for messaging between brain and workers
 - **Kubernetes** (Docker Desktop) for orchestration
@@ -102,6 +102,7 @@ Telemetry (OTel Collector, Tempo, Loki, Grafana, Prometheus, kube-state-metrics)
 - Message types defined in `packages/shared/src/types.ts`
 - Personality files in `operating_system/` mounted as ConfigMap
 - Plugin system: `plugins/` dir, registered in `operating_system/PLUGINS.json`
+- Extensions: pod-based tool extensions via NATS announce + MCP HTTP (see `docs/extensions.md`)
 
 ## Security
 

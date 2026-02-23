@@ -88,6 +88,8 @@ spec:
               value: "active"
             - name: BRAIN_VERSION
               value: ""
+            - name: FEATURE_EXTENSIONS
+              value: "true"
           envFrom:
             - secretRef:
                 name: bakerst-brain-secrets

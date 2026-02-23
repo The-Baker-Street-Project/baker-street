@@ -53,6 +53,13 @@ export const Subjects = {
   companionCapabilities(id: string): string {
     return `bakerst.companions.${id}.capabilities`;
   },
+
+  // Extensions
+  EXTENSION_ANNOUNCE: 'bakerst.extensions.announce',
+
+  extensionHeartbeat(id: string): string {
+    return `bakerst.extensions.${id}.heartbeat`;
+  },
 } as const;
 
 export const JetStream = {
