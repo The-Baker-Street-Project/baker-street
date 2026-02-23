@@ -61,10 +61,17 @@ export class McpClientManager {
       env: env ? { ...process.env, ...env } as Record<string, string> : undefined,
     });
 
-    // Handle transport errors to prevent unhandled exceptions crashing the process
+    // Handle transport errors to prevent unhandled exceptions crashing the process.
+    // Only remove if this client is still the active one for this skillId — a newer
+    // connection may have replaced it, and we must not clobber the replacement.
     client.onerror = (err) => {
-      log.error({ err, skillId }, 'MCP client error, cleaning up connection');
-      this.clients.delete(skillId);
+      const current = this.clients.get(skillId);
+      if (current && current.client === client) {
+        log.error({ err, skillId }, 'MCP client error, cleaning up connection');
+        this.clients.delete(skillId);
+      } else {
+        log.warn({ err, skillId }, 'MCP client error on stale connection (ignoring)');
+      }
     };
 
     try {
@@ -105,10 +112,17 @@ export class McpClientManager {
       transport = new StreamableHTTPClientTransport(new URL(url), { requestInit });
     }
 
-    // Handle transport errors to prevent unhandled exceptions crashing the process
+    // Handle transport errors to prevent unhandled exceptions crashing the process.
+    // Only remove if this client is still the active one for this skillId — a newer
+    // connection may have replaced it, and we must not clobber the replacement.
     client.onerror = (err) => {
-      log.error({ err, skillId }, 'MCP client error, cleaning up connection');
-      this.clients.delete(skillId);
+      const current = this.clients.get(skillId);
+      if (current && current.client === client) {
+        log.error({ err, skillId }, 'MCP client error, cleaning up connection');
+        this.clients.delete(skillId);
+      } else {
+        log.warn({ err, skillId }, 'MCP client error on stale connection (ignoring)');
+      }
     };
 
     try {
