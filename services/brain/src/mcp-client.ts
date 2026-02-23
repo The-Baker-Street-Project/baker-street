@@ -61,16 +61,15 @@ export class McpClientManager {
       env: env ? { ...process.env, ...env } as Record<string, string> : undefined,
     });
 
-    // Handle transport errors to prevent unhandled exceptions crashing the process.
-    // Only remove if this client is still the active one for this skillId — a newer
-    // connection may have replaced it, and we must not clobber the replacement.
+    // Handle transport errors. SSE stream disconnections are common and transient —
+    // the client can still make tool calls via POST. Don't remove the client on
+    // errors; let callTool failures handle truly broken connections instead.
     client.onerror = (err) => {
       const current = this.clients.get(skillId);
       if (current && current.client === client) {
-        log.error({ err, skillId }, 'MCP client error, cleaning up connection');
-        this.clients.delete(skillId);
+        log.warn({ err, skillId }, 'MCP client error (connection kept)');
       } else {
-        log.warn({ err, skillId }, 'MCP client error on stale connection (ignoring)');
+        log.debug({ err, skillId }, 'MCP client error on stale connection (ignoring)');
       }
     };
 
@@ -112,16 +111,15 @@ export class McpClientManager {
       transport = new StreamableHTTPClientTransport(new URL(url), { requestInit });
     }
 
-    // Handle transport errors to prevent unhandled exceptions crashing the process.
-    // Only remove if this client is still the active one for this skillId — a newer
-    // connection may have replaced it, and we must not clobber the replacement.
+    // Handle transport errors. SSE stream disconnections are common and transient —
+    // the client can still make tool calls via POST. Don't remove the client on
+    // errors; let callTool failures handle truly broken connections instead.
     client.onerror = (err) => {
       const current = this.clients.get(skillId);
       if (current && current.client === client) {
-        log.error({ err, skillId }, 'MCP client error, cleaning up connection');
-        this.clients.delete(skillId);
+        log.warn({ err, skillId }, 'MCP client error (connection kept)');
       } else {
-        log.warn({ err, skillId }, 'MCP client error on stale connection (ignoring)');
+        log.debug({ err, skillId }, 'MCP client error on stale connection (ignoring)');
       }
     };
 
