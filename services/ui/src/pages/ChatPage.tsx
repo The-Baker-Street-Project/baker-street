@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useChat } from '../hooks/useChat';
+import { useVoiceChat } from '../hooks/useVoiceChat';
 import { MessageList } from '../components/chat/MessageList';
 import { ChatInput } from '../components/chat/ChatInput';
 import { getConversations } from '../api/client';
@@ -9,9 +10,63 @@ import type { Conversation } from '../api/types';
 export function ChatPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { messages, isStreaming, conversationId, sendMessage, stopStreaming, loadConversation, newChat } = useChat(id);
+  const {
+    messages, isStreaming, conversationId,
+    sendMessage, stopStreaming, loadConversation, newChat,
+    setMessages, setConversationId,
+  } = useChat(id);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+
+  const voice = useVoiceChat({
+    conversationId,
+    onTranscript: (text) => {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'user', content: text },
+        { role: 'assistant', content: '', toolCalls: [] },
+      ]);
+    },
+    onDelta: (text) => {
+      setMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const last = { ...prev[prev.length - 1] };
+        last.content += text;
+        return [...prev.slice(0, -1), last];
+      });
+    },
+    onToolCall: (tool, input) => {
+      setMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const last = { ...prev[prev.length - 1] };
+        const toolCalls = [...(last.toolCalls ?? []), { name: tool, input }];
+        return [...prev.slice(0, -1), { ...last, toolCalls }];
+      });
+    },
+    onToolResult: (summary) => {
+      setMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const last = { ...prev[prev.length - 1] };
+        const toolCalls = [...(last.toolCalls ?? [])];
+        const lastIdx = toolCalls.length - 1;
+        if (lastIdx >= 0) {
+          toolCalls[lastIdx] = { ...toolCalls[lastIdx], result: summary };
+        }
+        return [...prev.slice(0, -1), { ...last, toolCalls }];
+      });
+    },
+    onDone: (convId) => {
+      if (convId) setConversationId(convId);
+    },
+    onError: (message) => {
+      setMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const last = { ...prev[prev.length - 1] };
+        last.content += (last.content ? '\n\n' : '') + `[Error: ${message}]`;
+        return [...prev.slice(0, -1), last];
+      });
+    },
+  });
 
   useEffect(() => {
     if (id && id !== conversationId) {
@@ -53,8 +108,15 @@ export function ChatPage() {
             New Chat
           </button>
         </div>
-        <MessageList messages={messages} isStreaming={isStreaming} />
-        <ChatInput onSend={sendMessage} onStop={stopStreaming} isStreaming={isStreaming} />
+        <MessageList messages={messages} isStreaming={isStreaming || voice.state === 'processing'} />
+        <ChatInput
+          onSend={sendMessage}
+          onStop={stopStreaming}
+          isStreaming={isStreaming}
+          voiceState={voice.state}
+          onVoiceStart={voice.startRecording}
+          onVoiceStop={voice.stopRecording}
+        />
       </div>
 
       {showHistory && (

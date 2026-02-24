@@ -140,7 +140,11 @@ app.post('/voice/chat', upload.single('audio'), (req, res) => {
 
   // Create abort controller for client disconnect cleanup
   const controller = new AbortController();
-  req.on('close', () => controller.abort());
+  res.on('close', () => {
+    if (!res.writableFinished) {
+      controller.abort();
+    }
+  });
 
   handleVoiceChat(stt, tts, config.brainUrl, config.authToken, file.buffer, mimeType, conversationId, res, controller.signal).catch((err) => {
     log.error({ err }, 'unhandled voice handler error');

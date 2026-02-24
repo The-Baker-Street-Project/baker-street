@@ -106,6 +106,6 @@ export function useChat(initialConversationId?: string) {
     setConversationId(undefined);
   }, []);
 
-  return { messages, isStreaming, conversationId, sendMessage, stopStreaming, loadConversation, newChat };
+  return { messages, isStreaming, conversationId, sendMessage, stopStreaming, loadConversation, newChat, setMessages, setConversationId };
 }
 

@@ -23,8 +23,9 @@ export class OpenAITtsAdapter implements TtsAdapter {
     this.model = config.model ?? defaults.model!;
     this.voice = config.voice ?? defaults.voice!;
 
-    if (!this.apiKey) {
-      throw new Error('OpenAI TTS requires an API key');
+    const isCloudUrl = this.baseUrl.includes('api.openai.com');
+    if (!this.apiKey && isCloudUrl) {
+      throw new Error('OpenAI TTS requires an API key when using api.openai.com');
     }
   }
 
@@ -37,7 +38,7 @@ export class OpenAITtsAdapter implements TtsAdapter {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
+        ...(this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {}),
       },
       body: JSON.stringify({
         model: this.model,

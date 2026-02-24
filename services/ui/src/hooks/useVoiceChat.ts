@@ -129,6 +129,14 @@ export function useVoiceChat(options: UseVoiceChatOptions) {
 
   const startRecording = useCallback(async () => {
     try {
+      // Check for available audio input devices
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const hasAudioInput = devices.some((d) => d.kind === 'audioinput');
+      if (!hasAudioInput) {
+        options.onError('No microphone found. Connect a microphone and reload the page.');
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       chunksRef.current = [];
@@ -164,9 +172,25 @@ export function useVoiceChat(options: UseVoiceChatOptions) {
       mediaRecorder.start();
       setState('recording');
     } catch (err) {
-      options.onError(
-        err instanceof Error ? err.message : 'Failed to access microphone',
-      );
+      let message = 'Failed to access microphone';
+      if (err instanceof DOMException) {
+        switch (err.name) {
+          case 'NotFoundError':
+            message = 'No microphone found. Check that a mic is connected and allowed in Windows Settings > Privacy > Microphone.';
+            break;
+          case 'NotAllowedError':
+            message = 'Microphone access denied. Allow microphone access in your browser when prompted.';
+            break;
+          case 'NotReadableError':
+            message = 'Microphone is busy. Close other apps using the mic and try again.';
+            break;
+          default:
+            message = err.message;
+        }
+      } else if (err instanceof Error) {
+        message = err.message;
+      }
+      options.onError(message);
     }
   }, [processAudio, options]);
 
