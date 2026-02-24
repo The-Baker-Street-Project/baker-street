@@ -9,7 +9,7 @@ spec:
   policyTypes:
     - Ingress
 ---
-# Brain: accepts traffic from gateway, ui (via nginx proxy), and worker
+# Brain: accepts traffic from gateway, ui (via nginx proxy), worker, and voice
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -32,6 +32,9 @@ spec:
         - podSelector:
             matchLabels:
               app: worker
+        - podSelector:
+            matchLabels:
+              app: bakerst-voice
       ports:
         - protocol: TCP
           port: 3000
@@ -194,4 +197,76 @@ spec:
               app: nats
       ports:
         - port: 4222
+          protocol: TCP
+---
+# Voice: accepts traffic from UI and external (port-forward)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: voice-ingress
+  namespace: bakerst
+spec:
+  podSelector:
+    matchLabels:
+      app: bakerst-voice
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: brain
+      ports:
+        - protocol: TCP
+          port: 3001
+    - ports:
+        - protocol: TCP
+          port: 3001
+---
+# Voice: allow egress to brain, local STT/TTS hosts, DNS, and cloud APIs
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: voice-egress
+  namespace: bakerst
+spec:
+  podSelector:
+    matchLabels:
+      app: bakerst-voice
+  policyTypes:
+    - Egress
+  egress:
+    # Brain API
+    - to:
+        - podSelector:
+            matchLabels:
+              app: brain
+      ports:
+        - port: 3000
+          protocol: TCP
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Local STT/TTS services (host.docker.internal range)
+    - to:
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - port: 8083
+          protocol: TCP
+        - port: 8084
+          protocol: TCP
+    # Cloud STT/TTS APIs (HTTPS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
           protocol: TCP

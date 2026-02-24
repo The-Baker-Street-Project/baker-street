@@ -111,4 +111,30 @@ kubectl create secret generic bakerst-gateway-secrets \
   -n bakerst \
   --dry-run=client -o yaml | kubectl apply -f -
 
+# --- Voice secrets ---
+# Needs: AUTH_TOKEN, optional OPENAI_API_KEY, ELEVENLABS_API_KEY for cloud STT/TTS
+
+VOICE_ARGS=()
+VOICE_ARGS+=(--from-literal="AUTH_TOKEN=$AUTH_TOKEN")
+
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  VOICE_ARGS+=(--from-literal="STT_API_KEY=$OPENAI_API_KEY")
+  VOICE_ARGS+=(--from-literal="TTS_API_KEY=$OPENAI_API_KEY")
+elif [ -n "${STT_API_KEY:-}" ]; then
+  VOICE_ARGS+=(--from-literal="STT_API_KEY=$STT_API_KEY")
+fi
+
+if [ -n "${TTS_API_KEY:-}" ]; then
+  # Explicit TTS_API_KEY overrides the OPENAI_API_KEY fallback for TTS
+  VOICE_ARGS+=(--from-literal="TTS_API_KEY=$TTS_API_KEY")
+elif [ -n "${ELEVENLABS_API_KEY:-}" ]; then
+  VOICE_ARGS+=(--from-literal="TTS_API_KEY=$ELEVENLABS_API_KEY")
+fi
+
+echo "==> Creating bakerst-voice-secrets"
+kubectl create secret generic bakerst-voice-secrets \
+  "${VOICE_ARGS[@]}" \
+  -n bakerst \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 echo "==> All scoped secrets created/updated in namespace bakerst"
