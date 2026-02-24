@@ -1,4 +1,4 @@
-import type { Conversation, Message, ChatResponse, JobStatus, MemoryEntry, SecretEntry, SecretsUpdateResponse, RestartResponse, Skill, SkillDetail, SkillTool, Model, ModelConfig, SystemHealth, SkillStatus, RegistrySearchResult, Schedule, PingResponse, Toolbox } from './types';
+import type { Conversation, Message, ChatResponse, JobStatus, MemoryEntry, SecretEntry, SecretsUpdateResponse, RestartResponse, Skill, SkillDetail, SkillTool, Model, ModelConfig, SystemHealth, SkillStatus, RegistrySearchResult, Schedule, PingResponse, Toolbox, VoiceProviderConfig } from './types';
 import { TOKEN_KEY } from './constants';
 
 const BASE = '/api';
@@ -206,6 +206,20 @@ export function buildToolbox(name: string): Promise<{ status: string }> {
 
 export function getToolboxStatus(name: string): Promise<{ status: string }> {
   return json(`/toolboxes/${name}/status`);
+}
+
+// --- Voice Config ---
+
+export function getVoiceConfig(): Promise<VoiceProviderConfig> {
+  return json('/voice-config');
+}
+
+export function updateVoiceConfig(updates: VoiceProviderConfig): Promise<{ ok: boolean }> {
+  return json('/voice-config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
 }
 
 // --- Skill upload ---

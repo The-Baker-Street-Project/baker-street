@@ -182,6 +182,24 @@ export interface Schedule {
   updated_at: string;
 }
 
+export interface VoiceProviderConfig {
+  stt?: {
+    provider?: 'whisper' | 'openai';
+    baseUrl?: string;
+    apiKey?: string;
+    model?: string;
+    language?: string;
+  };
+  tts?: {
+    provider?: 'coqui' | 'openai' | 'elevenlabs';
+    baseUrl?: string;
+    apiKey?: string;
+    model?: string;
+    voice?: string;
+    language?: string;
+  };
+}
+
 export interface PingResponse {
   status: string;
   service: string;

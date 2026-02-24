@@ -1,5 +1,5 @@
 import express from 'express';
-import type { Request, Response, NextFunction } from 'express';
+import type { Express, Request, Response, NextFunction } from 'express';
 import { timingSafeEqual } from 'node:crypto';
 import { trace } from '@opentelemetry/api';
 import type { NatsConnection } from 'nats';
@@ -77,7 +77,7 @@ export function createApi(
   taskPodManager?: TaskPodManager,
   companionManager?: CompanionManager,
   extensionManager?: ExtensionManager,
-) {
+): Express {
   const effectiveStartTime = startTime ?? Date.now();
   const app = express();
   app.use(express.json());
@@ -879,6 +879,92 @@ export function createApi(
     } catch (err) {
       log.error({ err }, 'update model config error');
       res.status(500).json({ error: 'failed to update model config' });
+    }
+  });
+
+  // --- Voice Config API ---
+
+  app.get('/voice-config', (_req, res) => {
+    try {
+      const raw = getModelConfigValue('voice_config');
+      if (!raw) {
+        res.json({});
+        return;
+      }
+
+      const config = JSON.parse(raw) as Record<string, Record<string, unknown>>;
+
+      // Mask API keys
+      if (config.stt && typeof config.stt.apiKey === 'string') {
+        const key = config.stt.apiKey;
+        config.stt.apiKey = key.length > 4 ? key.slice(0, 2) + '...' + key.slice(-2) : '****';
+      }
+      if (config.tts && typeof config.tts.apiKey === 'string') {
+        const key = config.tts.apiKey;
+        config.tts.apiKey = key.length > 4 ? key.slice(0, 2) + '...' + key.slice(-2) : '****';
+      }
+
+      res.json(config);
+    } catch (err) {
+      log.error({ err }, 'get voice config error');
+      res.status(500).json({ error: 'failed to get voice config' });
+    }
+  });
+
+  app.put('/voice-config', (req, res) => {
+    try {
+      const update = req.body;
+      if (!update || typeof update !== 'object') {
+        res.status(400).json({ error: 'request body must be a JSON object' });
+        return;
+      }
+
+      // Merge with existing config
+      const raw = getModelConfigValue('voice_config');
+      const existing = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+
+      // Deep merge stt/tts sections
+      const merged = { ...existing } as Record<string, Record<string, unknown>>;
+      if (update.stt && typeof update.stt === 'object') {
+        merged.stt = { ...(merged.stt ?? {}), ...update.stt };
+      }
+      if (update.tts && typeof update.tts === 'object') {
+        merged.tts = { ...(merged.tts ?? {}), ...update.tts };
+      }
+
+      setModelConfigValue('voice_config', JSON.stringify(merged));
+      log.info({ stt: merged.stt?.provider, tts: merged.tts?.provider }, 'voice config updated');
+
+      // Fire-and-forget: tell voice service to reload
+      const voiceUrl = process.env.VOICE_URL ?? 'http://voice.bakerst.svc.cluster.local:3001';
+      const authToken = process.env.AUTH_TOKEN;
+      fetch(`${voiceUrl}/voice/reload`, {
+        method: 'POST',
+        headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
+        signal: AbortSignal.timeout(5_000),
+      }).catch((err) => {
+        log.warn({ err }, 'failed to notify voice service of config reload');
+      });
+
+      res.json({ ok: true });
+    } catch (err) {
+      log.error({ err }, 'update voice config error');
+      res.status(500).json({ error: 'failed to update voice config' });
+    }
+  });
+
+  // Unmasked config for voice service internal use
+  app.get('/voice-config/raw', (_req, res) => {
+    try {
+      const raw = getModelConfigValue('voice_config');
+      if (!raw) {
+        res.json({});
+        return;
+      }
+      res.json(JSON.parse(raw));
+    } catch (err) {
+      log.error({ err }, 'get raw voice config error');
+      res.status(500).json({ error: 'failed to get voice config' });
     }
   });
 
