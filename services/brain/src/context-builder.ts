@@ -7,9 +7,14 @@ import {
 import { MEMORY_CONFIG } from './memory-config.js';
 import type { MemorySearchResult } from './memory.js';
 
+/** TextBlockParam with optional cache_control for prompt caching */
+type CacheableTextBlock = Anthropic.Messages.TextBlockParam & {
+  cache_control?: { type: 'ephemeral' };
+};
+
 export interface BuiltContext {
   /** System blocks for the prompt (stable prefix + per-turn tail) */
-  systemBlocks: Anthropic.Messages.TextBlockParam[];
+  systemBlocks: CacheableTextBlock[];
   /** Recent messages for the conversation tail */
   messages: Anthropic.Messages.MessageParam[];
   /** Whether the observer should run after this turn */
@@ -25,29 +30,39 @@ export function buildContext(
   opts: { useOAuth: boolean; channel?: string },
 ): BuiltContext {
   // --- Stable prefix (cacheable) ---
-  const systemBlocks: Anthropic.Messages.TextBlockParam[] = [];
+  const systemBlocks: CacheableTextBlock[] = [];
 
+  // Block 1: Claude Code identity (if OAuth) — stable across all conversations
   if (opts.useOAuth) {
     systemBlocks.push({
       type: 'text',
       text: "You are Claude Code, Anthropic's official CLI for Claude.",
     });
   }
+
+  // Block 2: SOUL.md + BRAIN.md system prompt — stable across all conversations
   if (systemPrompt) {
     systemBlocks.push({ type: 'text', text: systemPrompt });
   }
 
-  // Observation log — stable within a conversation, changes only after observer/reflector
+  // Block 3: Observation log — stable within conversation, changes only after observer/reflector
   const obsLog = getActiveObservationLog(conversationId);
   if (obsLog && obsLog.text) {
     systemBlocks.push({
       type: 'text',
       text: `## Conversation Context (Observations)\nThe following observations were automatically extracted from this conversation. They capture key decisions, preferences, facts, and outcomes.\n\n${obsLog.text}`,
+      cache_control: { type: 'ephemeral' },
     });
   }
 
-  // --- Per-turn blocks (not cached) ---
+  // If there's no observation log, put the cache breakpoint on the last stable block
+  if (!obsLog?.text && systemBlocks.length > 0) {
+    systemBlocks[systemBlocks.length - 1].cache_control = { type: 'ephemeral' };
+  }
 
+  // --- Per-turn blocks (not cached — change every request) ---
+
+  // Block 4: Long-term memories (Qdrant) — changes per turn
   if (relevantMemories.length > 0) {
     const lines = relevantMemories.map(
       (m) => `- [${m.category}] ${m.content} (id: ${m.id})`,
@@ -58,6 +73,7 @@ export function buildContext(
     });
   }
 
+  // Block 5: Channel hint — changes per request
   if (opts.channel && opts.channel !== 'web') {
     systemBlocks.push({
       type: 'text',

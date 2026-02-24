@@ -10,6 +10,7 @@ const FLAG_REGISTRY = {
   mcp:              { prod: true,  dev: false, desc: 'MCP plugin infrastructure' },
   scheduler:        { prod: true,  dev: false, desc: 'Cron schedule manager' },
   observer:         { prod: true,  dev: true,  desc: 'Post-turn memory compression' },
+  reflector:        { prod: true,  dev: true,  desc: 'Observation log compaction' },
   memory:           { prod: true,  dev: true,  desc: 'Qdrant + Voyage vector memory' },
   transferProtocol: { prod: true,  dev: false, desc: 'Blue/green transfer protocol' },
   telemetry:        { prod: true,  dev: false, desc: 'OpenTelemetry tracing' },

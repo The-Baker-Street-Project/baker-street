@@ -20,10 +20,12 @@ import {
 } from './db.js';
 import { buildContext } from './context-builder.js';
 import { runObserver } from './observer.js';
+import { runReflector } from './reflector.js';
 import { loadInstructionSkills } from './skill-loader.js';
 import { executeSelfManagementTool, type SystemInfo } from './self-management.js';
 import type { TaskPodManager, TaskPodRequest } from './task-pod-manager.js';
 import type { CompanionManager } from './companion-manager.js';
+import { noopGuardrailHook, noopAuditSink, type GuardrailHook, type AuditSink } from '@bakerst/core';
 
 const log = logger.child({ module: 'agent' });
 
@@ -543,7 +545,11 @@ export function createAgent(
   brainVersion?: string,
   taskPodManager?: TaskPodManager,
   companionManager?: CompanionManager,
+  guardrailHook?: GuardrailHook,
+  auditSink?: AuditSink,
 ): Agent {
+  const guardrail = guardrailHook ?? noopGuardrailHook;
+  const audit = auditSink ?? noopAuditSink;
   const useOAuth = modelRouter.useOAuth;
 
   /** Build fresh SystemInfo for each tool call */
@@ -609,8 +615,8 @@ export function createAgent(
       if (shouldObserve && features.isEnabled('observer')) {
         await runObserver(conversationId, modelRouter);
       }
-      if (shouldReflect) {
-        log.info({ conversationId }, 'reflector threshold crossed — will trigger in Phase 3');
+      if (shouldReflect && features.isEnabled('reflector')) {
+        await runReflector(conversationId, modelRouter);
       }
     })().catch((err) =>
       log.error({ err, conversationId }, 'memory worker failed'),
@@ -657,6 +663,23 @@ export function createAgent(
         });
       });
 
+      // Log prompt cache stats when available
+      if (response.usage) {
+        const { cacheCreationInputTokens, cacheReadInputTokens } = response.usage;
+        if (cacheCreationInputTokens || cacheReadInputTokens) {
+          log.info(
+            {
+              conversationId,
+              iteration: i,
+              cacheCreated: cacheCreationInputTokens ?? 0,
+              cacheRead: cacheReadInputTokens ?? 0,
+              inputTokens: response.usage.inputTokens,
+            },
+            'prompt cache stats',
+          );
+        }
+      }
+
       if (response.stopReason === 'end_turn') {
         const text = response.content
           .filter((block): block is ChatContentBlock & { type: 'text' } => block.type === 'text')
@@ -680,6 +703,30 @@ export function createAgent(
             toolCallCount++;
             log.info({ tool: block.name, input: block.input }, 'executing tool call');
 
+            // Guardrail: check before execution
+            const guardrailCtx = {
+              conversationId,
+              toolName: block.name,
+              toolInput: block.input,
+            };
+            const guardrailCheck = await guardrail.beforeToolExecution(guardrailCtx);
+            if (!guardrailCheck.allow) {
+              log.warn({ tool: block.name, reason: guardrailCheck.reason }, 'tool execution blocked by guardrail');
+              audit.emit({
+                timestamp: new Date().toISOString(),
+                category: 'tool',
+                action: 'blocked',
+                actor: 'guardrail',
+                detail: { tool: block.name, reason: guardrailCheck.reason },
+              });
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: block.id,
+                content: `Tool execution blocked: ${guardrailCheck.reason ?? 'policy violation'}`,
+              });
+              continue;
+            }
+
             const { result, jobId } = await withSpan(`tool.${block.name}`, {
               'tool.name': block.name,
             }, async () => {
@@ -697,12 +744,23 @@ export function createAgent(
               );
             });
 
+            // Guardrail: post-execution hook (can transform result)
+            const finalResult = await guardrail.afterToolExecution(guardrailCtx, result) as string;
+
+            audit.emit({
+              timestamp: new Date().toISOString(),
+              category: 'tool',
+              action: 'executed',
+              actor: 'agent',
+              detail: { tool: block.name, jobId },
+            });
+
             if (jobId) jobIds.push(jobId);
 
             toolResults.push({
               type: 'tool_result',
               tool_use_id: block.id,
-              content: sanitizeToolOutput(result),
+              content: sanitizeToolOutput(finalResult),
             });
           }
         }
@@ -806,6 +864,30 @@ export function createAgent(
               toolCallCount++;
               yield { type: 'thinking', tool: block.name, input: block.input as Record<string, unknown> };
 
+              // Guardrail: check before execution
+              const guardrailCtx = {
+                conversationId,
+                toolName: block.name,
+                toolInput: block.input,
+              };
+              const guardrailCheck = await guardrail.beforeToolExecution(guardrailCtx);
+              if (!guardrailCheck.allow) {
+                log.warn({ tool: block.name, reason: guardrailCheck.reason }, 'tool execution blocked by guardrail');
+                audit.emit({
+                  timestamp: new Date().toISOString(),
+                  category: 'tool',
+                  action: 'blocked',
+                  actor: 'guardrail',
+                  detail: { tool: block.name, reason: guardrailCheck.reason },
+                });
+                toolResults.push({
+                  type: 'tool_result',
+                  tool_use_id: block.id,
+                  content: `Tool execution blocked: ${guardrailCheck.reason ?? 'policy violation'}`,
+                });
+                continue;
+              }
+
               const { result, jobId } = await withSpan(`tool.${block.name}`, {
                 'tool.name': block.name,
               }, async () => {
@@ -823,8 +905,19 @@ export function createAgent(
                 );
               });
 
+              // Guardrail: post-execution hook
+              const finalResult = await guardrail.afterToolExecution(guardrailCtx, result) as string;
+
+              audit.emit({
+                timestamp: new Date().toISOString(),
+                category: 'tool',
+                action: 'executed',
+                actor: 'agent',
+                detail: { tool: block.name, jobId },
+              });
+
               if (jobId) jobIds.push(jobId);
-              const sanitized = sanitizeToolOutput(result);
+              const sanitized = sanitizeToolOutput(finalResult);
               const summary = sanitized.length > 200 ? sanitized.slice(0, 200) + '...' : sanitized;
               yield { type: 'tool_result', tool: block.name, summary };
 

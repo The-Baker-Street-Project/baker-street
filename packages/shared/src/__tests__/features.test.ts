@@ -133,11 +133,13 @@ describe('features', () => {
         mcp: true,
         scheduler: true,
         observer: true,
+        reflector: true,
         memory: true,
         transferProtocol: true,
         telemetry: true,
         taskPods: false,
         companions: false,
+        extensions: false,
       });
     });
 
@@ -154,11 +156,13 @@ describe('features', () => {
         mcp: false,
         scheduler: false,
         observer: true,
+        reflector: true,
         memory: false,         // overridden
         transferProtocol: false,
         telemetry: false,
         taskPods: false,
         companions: false,
+        extensions: false,
       });
     });
   });

@@ -16,8 +16,9 @@ import type { ScheduleManager } from './schedule-manager.js';
 import type { BrainStateMachine } from './brain-state.js';
 import type { CompanionManager } from './companion-manager.js';
 import type { ExtensionManager } from './extension-manager.js';
-import { listConversations, getConversation, getMessages, listSkills, getSkill, upsertSkill, deleteSkill as deleteSkillDb, getDb, getModelConfigValue, setModelConfigValue, type ScheduleRow } from './db.js';
+import { listConversations, getConversation, getMessages, listSkills, getSkill, upsertSkill, deleteSkill as deleteSkillDb, getDb, getModelConfigValue, setModelConfigValue, getMemoryState, getObservations, getActiveObservationLog, getReflections, type ScheduleRow } from './db.js';
 import { getSecrets, updateSecrets, restartDeployment } from './k8s-client.js';
+import { noopAuditSink, type AuditSink } from '@bakerst/core';
 import { reloadInstructionSkills } from './skill-loader.js';
 import { clearSystemPromptCache, clearToolsCache } from './agent.js';
 import multer from 'multer';
@@ -32,33 +33,49 @@ function safeCompare(a: string, b: string): boolean {
   return timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
-function authMiddleware(req: Request, res: Response, next: NextFunction): void {
-  // Health checks bypass auth
-  if (req.path === '/ping') {
+function createAuthMiddleware(audit: AuditSink) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    // Health checks bypass auth
+    if (req.path === '/ping') {
+      next();
+      return;
+    }
+
+    const configuredToken = process.env.AUTH_TOKEN;
+    if (!configuredToken) {
+      log.warn('AUTH_TOKEN not configured - running without authentication');
+      next();
+      return;
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      audit.emit({
+        timestamp: new Date().toISOString(),
+        category: 'auth',
+        action: 'rejected',
+        actor: req.ip ?? 'unknown',
+        detail: { path: req.path, reason: 'missing_token' },
+      });
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    const providedToken = authHeader.slice(7);
+
+    if (!safeCompare(providedToken, configuredToken)) {
+      audit.emit({
+        timestamp: new Date().toISOString(),
+        category: 'auth',
+        action: 'rejected',
+        actor: req.ip ?? 'unknown',
+        detail: { path: req.path, reason: 'invalid_token' },
+      });
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+
     next();
-    return;
-  }
-
-  const configuredToken = process.env.AUTH_TOKEN;
-  if (!configuredToken) {
-    log.warn('AUTH_TOKEN not configured - running without authentication');
-    next();
-    return;
-  }
-
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'unauthorized' });
-    return;
-  }
-  const providedToken = authHeader.slice(7);
-
-  if (!safeCompare(providedToken, configuredToken)) {
-    res.status(401).json({ error: 'unauthorized' });
-    return;
-  }
-
-  next();
+  };
 }
 
 export function createApi(
@@ -77,7 +94,9 @@ export function createApi(
   taskPodManager?: TaskPodManager,
   companionManager?: CompanionManager,
   extensionManager?: ExtensionManager,
+  auditSink?: AuditSink,
 ): Express {
+  const audit = auditSink ?? noopAuditSink;
   const effectiveStartTime = startTime ?? Date.now();
   const app = express();
   app.use(express.json());
@@ -112,7 +131,7 @@ export function createApi(
   });
 
   // Auth middleware — after CORS (so preflight OPTIONS pass), before routes
-  app.use(authMiddleware);
+  app.use(createAuthMiddleware(audit));
 
   app.get('/ping', (_req, res) => {
     if (stateMachine && !stateMachine.isReady()) {
@@ -1164,6 +1183,48 @@ export function createApi(
       const msg = err instanceof Error ? err.message : 'failed to trigger schedule';
       log.error({ err }, 'trigger schedule error');
       res.status(400).json({ error: msg });
+    }
+  });
+
+  // --- Memory Diagnostics ---
+
+  app.get('/conversations/:id/memory', (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const conversation = getConversation(id);
+      if (!conversation) {
+        res.status(404).json({ error: 'conversation not found' });
+        return;
+      }
+
+      const memoryState = getMemoryState(id);
+      const observationLog = getActiveObservationLog(id);
+      const observations = getObservations(id);
+      const reflections = getReflections(id);
+
+      const totalObservationTokens = observations.reduce((sum, o) => sum + o.token_count, 0);
+
+      res.json({
+        memoryState: memoryState ? {
+          observedCursorMessageId: memoryState.observed_cursor_message_id,
+          unobservedTokenCount: memoryState.unobserved_token_count,
+          observationTokenCount: memoryState.observation_token_count,
+          lastObserverRun: memoryState.last_observer_run,
+          lastReflectorRun: memoryState.last_reflector_run,
+          lockVersion: memoryState.lock_version,
+        } : null,
+        observationLog: observationLog ? {
+          version: observationLog.version,
+          tokenCount: observationLog.token_count,
+          createdAt: observationLog.created_at,
+        } : null,
+        observationCount: observations.length,
+        totalObservationTokens,
+        reflectionCount: reflections.length,
+      });
+    } catch (err) {
+      log.error({ err }, 'memory diagnostics error');
+      res.status(500).json({ error: 'failed to retrieve memory diagnostics' });
     }
   });
 

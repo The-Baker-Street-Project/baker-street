@@ -133,14 +133,24 @@ function createAnthropicAdapter(providerCfg: AnthropicProviderConfig): { adapter
         throw new Error('anthropic adapter: invalid response shape from API');
       }
 
+      const usage: ChatResponse['usage'] = {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+      };
+      // Propagate prompt cache stats if present
+      const rawUsage = response.usage as unknown as Record<string, unknown>;
+      if (typeof rawUsage.cache_creation_input_tokens === 'number') {
+        usage.cacheCreationInputTokens = rawUsage.cache_creation_input_tokens;
+      }
+      if (typeof rawUsage.cache_read_input_tokens === 'number') {
+        usage.cacheReadInputTokens = rawUsage.cache_read_input_tokens;
+      }
+
       return {
         content: validateContentBlocks(response.content),
         stopReason: response.stop_reason ?? 'end_turn',
         model: response.model,
-        usage: {
-          inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens,
-        },
+        usage,
       };
     },
 
@@ -167,16 +177,25 @@ function createAnthropicAdapter(providerCfg: AnthropicProviderConfig): { adapter
         throw new Error('anthropic adapter: invalid final message shape from stream');
       }
 
+      const streamUsage: ChatResponse['usage'] = {
+        inputTokens: finalMessage.usage.input_tokens,
+        outputTokens: finalMessage.usage.output_tokens,
+      };
+      const rawStreamUsage = finalMessage.usage as unknown as Record<string, unknown>;
+      if (typeof rawStreamUsage.cache_creation_input_tokens === 'number') {
+        streamUsage.cacheCreationInputTokens = rawStreamUsage.cache_creation_input_tokens;
+      }
+      if (typeof rawStreamUsage.cache_read_input_tokens === 'number') {
+        streamUsage.cacheReadInputTokens = rawStreamUsage.cache_read_input_tokens;
+      }
+
       yield {
         type: 'message_done',
         response: {
           content: validateContentBlocks(finalMessage.content),
           stopReason: finalMessage.stop_reason ?? 'end_turn',
           model: finalMessage.model,
-          usage: {
-            inputTokens: finalMessage.usage.input_tokens,
-            outputTokens: finalMessage.usage.output_tokens,
-          },
+          usage: streamUsage,
         },
       };
     },

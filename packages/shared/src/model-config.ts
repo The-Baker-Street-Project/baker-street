@@ -72,6 +72,7 @@ function defaultRoles(): ModelRoles {
   return {
     agent: 'sonnet-4',
     observer: 'haiku-4.5',
+    reflector: 'sonnet-4',
   };
 }
 
@@ -167,6 +168,27 @@ function applyEnvOverrides(config: ModelRouterConfig): ModelRouterConfig {
       config.roles.observer = adHocId;
     }
     log.info({ observerModel, observerRole: config.roles.observer }, 'OBSERVER_MODEL override applied');
+  }
+
+  // REFLECTOR_MODEL overrides the reflector role
+  const reflectorModel = process.env.REFLECTOR_MODEL;
+  if (reflectorModel) {
+    const existing = config.models.find(
+      (m) => m.id === reflectorModel || m.modelName === reflectorModel,
+    );
+    if (existing) {
+      config.roles.reflector = existing.id;
+    } else {
+      const adHocId = `custom-reflector`;
+      config.models.push({
+        id: adHocId,
+        modelName: reflectorModel,
+        provider: guessProvider(reflectorModel, config),
+        maxTokens: 4096,
+      });
+      config.roles.reflector = adHocId;
+    }
+    log.info({ reflectorModel, reflectorRole: config.roles.reflector }, 'REFLECTOR_MODEL override applied');
   }
 
   // OPENROUTER_API_KEY — ensure provider entry exists

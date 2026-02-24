@@ -583,6 +583,40 @@ export function upsertObservationLog(
   `).run(conversationId, version, text, tokenCount, now);
 }
 
+// --- Reflections ---
+
+export interface ReflectionRow {
+  id: string;
+  conversation_id: string;
+  created_at: string;
+  replaces_version: number;
+  output_text: string;
+  token_count: number;
+}
+
+export function addReflection(
+  conversationId: string,
+  replacesVersion: number,
+  outputText: string,
+  tokenCount: number,
+): ReflectionRow {
+  const db = getDb();
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO reflections (id, conversation_id, created_at, replaces_version, output_text, token_count)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, conversationId, now, replacesVersion, outputText, tokenCount);
+  return { id, conversation_id: conversationId, created_at: now, replaces_version: replacesVersion, output_text: outputText, token_count: tokenCount };
+}
+
+export function getReflections(conversationId: string): ReflectionRow[] {
+  const db = getDb();
+  return db.prepare(
+    'SELECT * FROM reflections WHERE conversation_id = ? ORDER BY created_at ASC',
+  ).all(conversationId) as ReflectionRow[];
+}
+
 // --- Skills (MCP infrastructure) ---
 
 export interface SkillRow {
