@@ -26,23 +26,11 @@ spec:
               value: "3001"
             - name: BRAIN_URL
               value: "http://brain.bakerst.svc.cluster.local:3000"
-            # Provider selection (env vars override DB config)
-            - name: STT_PROVIDER
-              value: ""
-            - name: TTS_PROVIDER
-              value: ""
-            # STT config
+            # Default STT/TTS URLs (local Whisper + Coqui)
             - name: WHISPER_URL
               value: "http://host.docker.internal:8083"
-            - name: STT_MODEL
-              value: ""
-            # TTS config
             - name: TTS_URL
               value: "http://host.docker.internal:8084"
-            - name: TTS_MODEL
-              value: ""
-            - name: TTS_VOICE
-              value: ""
             # Secrets
             - name: AUTH_TOKEN
               valueFrom:
