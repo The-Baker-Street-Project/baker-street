@@ -6,10 +6,18 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { logger } from '@bakerst/shared';
 import type { SecretData, K8sSecretClient } from './k8s-secret-client.js';
 
-const log = logger.child({ module: 'k8s-secret-client' });
+/** Minimal logger interface so core has zero external dependencies */
+interface Logger {
+  info(obj: Record<string, unknown>, msg: string): void;
+  error(obj: Record<string, unknown>, msg: string): void;
+}
+
+const defaultLogger: Logger = {
+  info(obj, msg) { console.log(JSON.stringify({ level: 'info', module: 'k8s-secret-client', msg, ...obj })); },
+  error(obj, msg) { console.error(JSON.stringify({ level: 'error', module: 'k8s-secret-client', msg, ...obj })); },
+};
 
 const SA_TOKEN_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/token';
 const SA_NS_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/namespace';
@@ -30,31 +38,32 @@ function apiBase(): string {
   return 'https://kubernetes.default.svc';
 }
 
-async function k8sFetch(path: string, init?: RequestInit): Promise<Response> {
-  const url = `${apiBase()}${path}`;
-  const token = getToken();
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    log.error({ status: res.status, body, path }, 'k8s API error');
-    throw new Error(`k8s API ${res.status}: ${body}`);
-  }
-  return res;
-}
-
 /**
  * Create a K8sSecretClient backed by the Kubernetes API.
  *
  * @param secretName - Name of the K8s Secret to manage (default: 'bakerst-secrets')
+ * @param log - Optional logger (defaults to JSON stdout/stderr)
  */
-export function createK8sSecretClient(secretName = 'bakerst-secrets'): K8sSecretClient {
+export function createK8sSecretClient(secretName = 'bakerst-secrets', log: Logger = defaultLogger): K8sSecretClient {
+  async function k8sFetch(path: string, init?: RequestInit): Promise<Response> {
+    const url = `${apiBase()}${path}`;
+    const token = getToken();
+    const res = await fetch(url, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        ...init?.headers,
+      },
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      log.error({ status: res.status, body, path }, 'k8s API error');
+      throw new Error(`k8s API ${res.status}: ${body}`);
+    }
+    return res;
+  }
+
   return {
     async getSecrets(): Promise<SecretData> {
       const ns = getNamespace();

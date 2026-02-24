@@ -12,10 +12,10 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
-  "dependencies": {
-    "@bakerst/shared": "workspace:*"
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

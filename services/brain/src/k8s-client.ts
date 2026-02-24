@@ -6,10 +6,12 @@
  */
 
 import { createK8sSecretClient, type SecretData } from '@bakerst/core';
+import { logger } from '@bakerst/shared';
 
 export type { SecretData };
 
-const client = createK8sSecretClient('bakerst-secrets');
+const log = logger.child({ module: 'k8s-secret-client' });
+const client = createK8sSecretClient('bakerst-secrets', log);
 
 export const getSecrets = client.getSecrets.bind(client);
 export const updateSecrets = client.updateSecrets.bind(client);
