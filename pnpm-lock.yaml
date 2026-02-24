@@ -50,6 +50,19 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  packages/core:
+    dependencies:
+      '@bakerst/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.11
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   packages/extension-sdk:
     dependencies:
       '@bakerst/shared':
@@ -121,6 +134,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.39.0
         version: 0.39.0
+      '@bakerst/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@bakerst/shared':
         specifier: workspace:*
         version: link:../../packages/shared

@@ -77,6 +77,8 @@ export interface ModelRoles {
   agent: string;
   /** Observer model (cheaper, used for observation extraction) */
   observer: string;
+  /** Reflector model (needs judgment — Sonnet-class for compaction quality) */
+  reflector?: string;
   /** Optional: worker-specific override; falls back to agent */
   worker?: string;
 }
@@ -157,6 +159,10 @@ export interface ChatResponse {
   usage?: {
     inputTokens: number;
     outputTokens: number;
+    /** Tokens written to prompt cache this request (Anthropic only) */
+    cacheCreationInputTokens?: number;
+    /** Tokens read from prompt cache this request (Anthropic only) */
+    cacheReadInputTokens?: number;
   };
 }
 

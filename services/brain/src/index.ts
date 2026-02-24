@@ -31,12 +31,17 @@ import { ExtensionManager } from './extension-manager.js';
 import { TransferHandler } from './transfer.js';
 import { TaskPodManager } from './task-pod-manager.js';
 import type { BrainState } from '@bakerst/shared';
+import type { GuardrailHook, AuditSink } from '@bakerst/core';
 
 const log = logger.child({ module: 'brain' });
 const startTime = Date.now();
 
 async function main() {
   log.info('starting brain service');
+
+  // Optional enterprise hooks — injected by enterprise entrypoint, undefined for consumer
+  const guardrailHook: GuardrailHook | undefined = undefined;
+  const auditSink: AuditSink | undefined = undefined;
 
   // Initialize SQLite
   getDb();
@@ -178,8 +183,8 @@ async function main() {
     await extensionManager.start();
   }
 
-  const agent = createAgent(dispatcher, statusTracker, memoryService, pluginRegistry, modelRouter, unifiedRegistry, skillRegistry, startTime, '0.1.0', taskPodManager, companionManager);
-  const app = createApi(dispatcher, statusTracker, agent, memoryService, pluginRegistry, skillRegistry, mcpClientManager, modelRouter, nc, scheduleManager, stateMachine, startTime, taskPodManager, companionManager, extensionManager);
+  const agent = createAgent(dispatcher, statusTracker, memoryService, pluginRegistry, modelRouter, unifiedRegistry, skillRegistry, startTime, '0.1.0', taskPodManager, companionManager, guardrailHook, auditSink);
+  const app = createApi(dispatcher, statusTracker, agent, memoryService, pluginRegistry, skillRegistry, mcpClientManager, modelRouter, nc, scheduleManager, stateMachine, startTime, taskPodManager, companionManager, extensionManager, auditSink);
   const port = parseInt(process.env.PORT ?? '3000', 10);
   const server = app.listen(port, () => {
     log.info({ port }, 'brain API listening');
