@@ -18,6 +18,7 @@ param(
     [switch]$SkipImages,
     [switch]$SkipTelemetry,
     [switch]$SkipExtensions,
+    [switch]$NoCache,
     [switch]$Dev,
     [string]$Version,
     [switch]$Yes
@@ -344,6 +345,7 @@ if ($SkipBuild)     { $bashArgs += '--skip-build' }
 if ($SkipImages)    { $bashArgs += '--skip-images' }
 if ($SkipTelemetry)  { $bashArgs += '--skip-telemetry' }
 if ($SkipExtensions) { $bashArgs += '--skip-extensions' }
+if ($NoCache)        { $bashArgs += '--no-cache' }
 if ($Dev)            { $bashArgs += '--dev' }
 if ($Version)       { $bashArgs += '--version'; $bashArgs += $Version }
 
