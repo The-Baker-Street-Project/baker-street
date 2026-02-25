@@ -88,6 +88,14 @@ export class ExtensionManager {
   }
 
   private async handleAnnounce(announce: ExtensionAnnounce): Promise<void> {
+    const existing = this.extensions.get(announce.id);
+
+    // If already connected, just update lastSeen (extensions re-announce periodically)
+    if (existing?.connected && existing.online) {
+      existing.lastSeen = Date.now();
+      return;
+    }
+
     const sid = this.skillId(announce.id);
 
     // Build skill metadata for this extension

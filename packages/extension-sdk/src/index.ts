@@ -154,9 +154,13 @@ export function createExtension(config: ExtensionConfig): Extension {
     nc.publish(Subjects.EXTENSION_ANNOUNCE, codec.encode(announce));
     console.log(`[${config.name}] Announced on NATS`);
 
-    // Start heartbeat loop
+    // Start heartbeat loop (re-announces on each heartbeat so the brain
+    // picks up extensions even if it missed the initial announcement)
     heartbeatTimer = setInterval(() => {
       if (!nc || nc.isClosed()) return;
+
+      // Re-announce so brain discovers us if it started after us
+      nc.publish(Subjects.EXTENSION_ANNOUNCE, codec.encode(announce));
 
       const hb: ExtensionHeartbeat = {
         id: config.id,
