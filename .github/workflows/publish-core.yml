@@ -29,9 +29,8 @@ jobs:
       - name: Build core
         run: pnpm --filter @bakerst/core build
 
+      - name: Configure npm auth
+        run: echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > "$NPM_CONFIG_USERCONFIG"
+
       - name: Publish
-        run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
-          pnpm --filter @bakerst/core publish --no-git-checks
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm --filter @bakerst/core publish --no-git-checks
