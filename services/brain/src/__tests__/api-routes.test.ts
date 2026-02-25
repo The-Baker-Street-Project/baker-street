@@ -58,6 +58,7 @@ vi.mock('../skill-loader.js', () => ({
 
 vi.mock('../agent.js', () => ({
   clearSystemPromptCache: vi.fn(),
+  clearToolsCache: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
