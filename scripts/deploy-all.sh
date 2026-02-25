@@ -13,6 +13,7 @@ set -euo pipefail
 #   --skip-images      Skip Docker image builds only
 #   --skip-secrets     Skip secrets configuration
 #   --skip-telemetry   Skip telemetry stack (OTel, Grafana, Prometheus, etc.)
+#   --skip-extensions  Skip extension pods (utilities, etc.)
 #   --dev              Use dev overlay (sets BAKERST_MODE=dev)
 #   --version <tag>    Version tag for images (default: git short hash)
 #   --help, -h         Show this help
@@ -37,7 +38,9 @@ SKIP_BUILD=false
 SKIP_IMAGES=false
 SKIP_SECRETS=false
 SKIP_TELEMETRY=false
+SKIP_EXTENSIONS=false
 DEPLOY_TELEMETRY=false
+DEPLOY_EXTENSIONS=false
 USE_DEV=false
 VERSION=""
 PROMETHEUS_MODE=""  # "local" or "external"
@@ -55,6 +58,7 @@ while [[ $# -gt 0 ]]; do
     --skip-images)     SKIP_IMAGES=true; shift ;;
     --skip-secrets)    SKIP_SECRETS=true; shift ;;
     --skip-telemetry)  SKIP_TELEMETRY=true; shift ;;
+    --skip-extensions) SKIP_EXTENSIONS=true; shift ;;
     --dev)             USE_DEV=true; shift ;;
     --version)         VERSION="$2"; shift 2 ;;
     --help|-h)
@@ -280,6 +284,38 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Step 2c: Extension pods
+# ---------------------------------------------------------------------------
+if [[ "$SKIP_EXTENSIONS" == false ]]; then
+  step "Extensions"
+
+  # Check if any extension examples exist
+  EXTENSIONS_DIR="$REPO_ROOT/examples"
+  if [[ -d "$EXTENSIONS_DIR" ]]; then
+    EXT_COUNT=$(find "$EXTENSIONS_DIR" -maxdepth 1 -mindepth 1 -type d | wc -l)
+    info "Found ${EXT_COUNT} extension(s) in examples/:"
+    for ext_dir in "$EXTENSIONS_DIR"/*/; do
+      ext_name=$(basename "$ext_dir")
+      info "  - ${ext_name}"
+    done
+    echo ""
+    info "Extensions add extra tool capabilities (time/date, DNS lookups,"
+    info "HTTP fetch, etc.) by deploying additional pods."
+    if confirm_no_default "Deploy extension pods?"; then
+      DEPLOY_EXTENSIONS=true
+    else
+      DEPLOY_EXTENSIONS=false
+      info "Extensions will not be deployed."
+    fi
+  else
+    info "No extensions found in examples/."
+    DEPLOY_EXTENSIONS=false
+  fi
+else
+  step "Skipping extensions (--skip-extensions)"
+fi
+
+# ---------------------------------------------------------------------------
 # Step 3: Secrets configuration
 # ---------------------------------------------------------------------------
 if [[ "$SKIP_SECRETS" == false ]]; then
@@ -463,6 +499,18 @@ if [[ "$SKIP_BUILD" == false && "$SKIP_IMAGES" == false ]]; then
   docker build -t bakerst-gateway:latest \
     -f "$REPO_ROOT/services/gateway/Dockerfile" "$REPO_ROOT"
 
+  # Extension images
+  if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
+    for ext_dir in "$REPO_ROOT/examples"/*/; do
+      ext_name=$(basename "$ext_dir")
+      if [[ -f "${ext_dir}Dockerfile" ]]; then
+        step "Building bakerst-ext-${ext_name#extension-}..."
+        docker build -t "bakerst-ext-${ext_name#extension-}:latest" \
+          -f "${ext_dir}Dockerfile" "$REPO_ROOT"
+      fi
+    done
+  fi
+
   step "Images built:"
   docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | grep bakerst
 else
@@ -568,6 +616,21 @@ if [[ "$USE_DEV" == true ]]; then
   kubectl apply -k "$REPO_ROOT/k8s/overlays/dev/"
 else
   kubectl apply -k "$REPO_ROOT/k8s/"
+fi
+
+# ---------------------------------------------------------------------------
+# Step 7a: Deploy extensions (conditional)
+# ---------------------------------------------------------------------------
+if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
+  step "Deploying extension pods..."
+  for ext_dir in "$REPO_ROOT/examples"/*/; do
+    ext_name=$(basename "$ext_dir")
+    k8s_dir="${ext_dir}k8s"
+    if [[ -d "$k8s_dir" ]]; then
+      info "Applying ${ext_name} manifests..."
+      kubectl apply -f "$k8s_dir/" -n "$NAMESPACE"
+    fi
+  done
 fi
 
 # ---------------------------------------------------------------------------
@@ -695,6 +758,26 @@ for deploy in "${APP_DEPLOYMENTS[@]}"; do
   fi
 done
 
+if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
+  for ext_dir in "$REPO_ROOT/examples"/*/; do
+    ext_name=$(basename "$ext_dir")
+    k8s_dir="${ext_dir}k8s"
+    if [[ -d "$k8s_dir" ]]; then
+      # Extract deployment name from the K8s manifest
+      deploy_name=$(grep -m1 'name:' "$k8s_dir/deployment.yaml" 2>/dev/null | awk '{print $2}' || true)
+      if [[ -n "$deploy_name" ]]; then
+        echo -n "    ${deploy_name} (extension)... "
+        if kubectl rollout status "deployment/${deploy_name}" -n "$NAMESPACE" --timeout=120s &>/dev/null; then
+          echo -e "${GREEN}ready${NC}"
+        else
+          echo -e "${RED}failed${NC}"
+          FAILED+=("${deploy_name}(extension)")
+        fi
+      fi
+    fi
+  done
+fi
+
 if [[ "$DEPLOY_TELEMETRY" == true ]]; then
   TELEMETRY_DEPLOYMENTS=(otel-collector tempo loki grafana)
   if [[ "$PROMETHEUS_MODE" == "local" ]]; then
@@ -746,6 +829,11 @@ info "Telegram:    $(if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then echo "configure
 info "Discord:     $(if [[ -n "${DISCORD_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
 info "Agent name:  ${AGENT_NAME:-Baker}"
 info "Auth token:  ****${AUTH_TOKEN: -4}"
+if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
+  info "Extensions:  deployed"
+else
+  info "Extensions:  not deployed"
+fi
 if [[ "$DEPLOY_TELEMETRY" == true ]]; then
   info "Telemetry:   deployed (Prometheus: ${PROMETHEUS_MODE})"
 else

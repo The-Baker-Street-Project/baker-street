@@ -8,7 +8,7 @@
 
 .EXAMPLE
     .\Deploy-BakerStreet.ps1
-    .\Deploy-BakerStreet.ps1 -SkipSecrets -SkipTelemetry
+    .\Deploy-BakerStreet.ps1 -SkipSecrets -SkipTelemetry -SkipExtensions
     .\Deploy-BakerStreet.ps1 -Yes
 #>
 [CmdletBinding()]
@@ -17,6 +17,7 @@ param(
     [switch]$SkipBuild,
     [switch]$SkipImages,
     [switch]$SkipTelemetry,
+    [switch]$SkipExtensions,
     [switch]$Dev,
     [string]$Version,
     [switch]$Yes
@@ -341,8 +342,9 @@ $bashArgs = @('--skip-secrets', '-y')
 
 if ($SkipBuild)     { $bashArgs += '--skip-build' }
 if ($SkipImages)    { $bashArgs += '--skip-images' }
-if ($SkipTelemetry) { $bashArgs += '--skip-telemetry' }
-if ($Dev)           { $bashArgs += '--dev' }
+if ($SkipTelemetry)  { $bashArgs += '--skip-telemetry' }
+if ($SkipExtensions) { $bashArgs += '--skip-extensions' }
+if ($Dev)            { $bashArgs += '--dev' }
 if ($Version)       { $bashArgs += '--version'; $bashArgs += $Version }
 
 # Escape single quotes in path for bash
