@@ -148,7 +148,7 @@ describe('SkillRegistry', () => {
       mockListTools.mockResolvedValue([]);
 
       await registry.loadFromDatabase();
-      expect(mockConnectHttp).toHaveBeenCalledWith('sidecar-skill', 'http://localhost:3001', 'streamable-http');
+      expect(mockConnectHttp).toHaveBeenCalledWith('sidecar-skill', 'http://localhost:3001', 'streamable-http', undefined);
     });
 
     it('continues on connection failure', async () => {
