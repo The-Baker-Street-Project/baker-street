@@ -1,4 +1,4 @@
-FROM node:22-slim AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/shared/package.json packages/shared/
@@ -8,7 +8,7 @@ COPY packages/shared packages/shared
 COPY services/companion services/companion
 RUN pnpm -r build
 
-FROM node:22-slim
+FROM node:22-alpine
 WORKDIR /app
 RUN corepack enable
 COPY --from=build /app/packages/shared/dist packages/shared/dist
