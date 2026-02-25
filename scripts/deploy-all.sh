@@ -287,11 +287,12 @@ if [[ "$SKIP_TELEMETRY" == false ]]; then
       DEPLOY_TELEMETRY=true
 
       # Ask about Prometheus mode
-      if confirm_no_default "Do you have an external Prometheus server?"; then
+      info "A local Prometheus instance will be deployed by default."
+      if confirm_no_default "Use an external Prometheus instead?"; then
         PROMETHEUS_MODE="external"
         PROMETHEUS_EXTERNAL_URL=$(ask "Prometheus remote-write URL" "${PROMETHEUS_EXTERNAL_URL:-}")
         if [[ -z "$PROMETHEUS_EXTERNAL_URL" ]]; then
-          warn "No URL provided — falling back to local Prometheus."
+          warn "No URL provided — using local Prometheus."
           PROMETHEUS_MODE="local"
         else
           if confirm_no_default "Does the external Prometheus require authentication?"; then
