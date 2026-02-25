@@ -166,8 +166,8 @@ importers:
         specifier: ^0.39.0
         version: 0.39.0
       '@bakerst/core':
-        specifier: workspace:*
-        version: link:../../packages/core
+        specifier: ^0.1.2
+        version: 0.1.2
       '@bakerst/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -469,6 +469,9 @@ packages:
   '@babel/types@7.29.0':
     resolution: {integrity: sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A==}
     engines: {node: '>=6.9.0'}
+
+  '@bakerst/core@0.1.2':
+    resolution: {integrity: sha512-rrEu1JSbYrqs9AjaYUKLQlMxSDoV9ZOUEYnJbk/Zxdc4WhRwOQKFq5971Q9FtQJWPV/gLhDlt60JGxvmZM4fNQ==}
 
   '@discordjs/builders@1.13.1':
     resolution: {integrity: sha512-cOU0UDHc3lp/5nKByDxkmRiNZBpdp0kx55aarbiAfakfKJHlxv/yFW1zmIqCAmwH5CRlrH9iMFKJMpvW4DPB+w==}
@@ -3518,6 +3521,8 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
+
+  '@bakerst/core@0.1.2': {}
 
   '@discordjs/builders@1.13.1':
     dependencies:

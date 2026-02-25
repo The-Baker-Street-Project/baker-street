@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "@bakerst/core": "workspace:*",
+    "@bakerst/core": "^0.1.2",
     "@bakerst/shared": "workspace:*",
     "@kubernetes/client-node": "^1.4.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
