@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ext-obsidian
+  namespace: bakerst
+  labels:
+    app: bakerst-extension
+    extension: obsidian
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bakerst-extension
+      extension: obsidian
+  template:
+    metadata:
+      labels:
+        app: bakerst-extension
+        extension: obsidian
+    spec:
+      containers:
+        - name: obsidian
+          image: bakerst-ext-obsidian:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NATS_URL
+              value: nats://nats.bakerst.svc.cluster.local:4222
+            - name: OBSIDIAN_VAULT_PATH
+              value: /vault
+          volumeMounts:
+            - name: vault
+              mountPath: /vault
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+      volumes:
+        - name: vault
+          hostPath:
+            # Override this per-environment:
+            #   Mac mini: /Users/gary/Documents/Obsidian/Savviety (or wherever Syncthing drops it)
+            #   WSL:      /data/obsidian
+            path: /data/obsidian
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ext-obsidian
+  namespace: bakerst
+  labels:
+    app: bakerst-extension
+    extension: obsidian
+spec:
+  selector:
+    app: bakerst-extension
+    extension: obsidian
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
