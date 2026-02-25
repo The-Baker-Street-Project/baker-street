@@ -375,7 +375,7 @@ git commit -m "feat: add util_dns, util_geolocate, util_fetch tools"
 Create `examples/extension-utilities/Dockerfile`:
 
 ```dockerfile
-FROM node:22-slim AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY packages/shared/ packages/shared/
@@ -386,7 +386,7 @@ RUN corepack enable && pnpm install --frozen-lockfile && pnpm -r build
 # Prune to only the utilities deps
 RUN pnpm deploy --filter=@bakerst/extension-utilities --prod --legacy /app/pruned
 
-FROM node:22-slim
+FROM node:22-alpine
 WORKDIR /app
 COPY --from=builder /app/pruned/node_modules ./node_modules/
 COPY --from=builder /app/examples/extension-utilities/dist ./dist/
