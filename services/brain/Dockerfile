@@ -15,6 +15,7 @@ WORKDIR /app
 # Copy root workspace files
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY packages/shared/package.json packages/shared/
+COPY packages/core/package.json packages/core/
 COPY services/brain/package.json services/brain/
 
 # Install all deps
@@ -23,10 +24,11 @@ RUN pnpm install --frozen-lockfile
 # Copy source
 COPY tsconfig.base.json ./
 COPY packages/shared/ packages/shared/
+COPY packages/core/ packages/core/
 COPY services/brain/ services/brain/
 
-# Build shared first, then brain
-RUN pnpm --filter=@bakerst/shared build && pnpm --filter=@bakerst/brain build
+# Build shared and core first, then brain
+RUN pnpm --filter=@bakerst/shared build && pnpm --filter=@bakerst/core build && pnpm --filter=@bakerst/brain build
 
 # --- Production ---
 FROM node:22-alpine
@@ -42,6 +44,7 @@ WORKDIR /app
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY packages/shared/package.json packages/shared/
+COPY packages/core/package.json packages/core/
 COPY services/brain/package.json services/brain/
 
 # Tell node-gyp to use locally installed headers
@@ -53,6 +56,7 @@ RUN apk add --no-cache python3 make g++ && \
     apk del python3 make g++
 
 COPY --from=builder /app/packages/shared/dist packages/shared/dist
+COPY --from=builder /app/packages/core/dist packages/core/dist
 COPY --from=builder /app/services/brain/dist services/brain/dist
 COPY services/brain/entrypoint.sh entrypoint.sh
 
