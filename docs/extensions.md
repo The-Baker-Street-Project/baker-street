@@ -221,12 +221,12 @@ Response:
 ```json
 [
   {
-    "id": "hello-world",
-    "name": "Hello World",
+    "id": "utilities",
+    "name": "Utilities",
     "version": "0.1.0",
-    "description": "A minimal example extension",
+    "description": "Time/date utilities and network lookup tools",
     "online": true,
-    "skillId": "ext-hello-world"
+    "skillId": "ext-utilities"
   }
 ]
 ```
