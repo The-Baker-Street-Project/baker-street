@@ -14,6 +14,9 @@ package-lock.json
 .code-review/review-*.json
 .code-review/abort-reason.md
 
+# Deploy
+deploy.log
+
 # OS
 .DS_Store
 

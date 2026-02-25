@@ -23,6 +23,13 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NAMESPACE="bakerst"
 TELEMETRY_NAMESPACE="bakerst-telemetry"
 
+# ---------------------------------------------------------------------------
+# Deploy log — capture all output for debugging
+# ---------------------------------------------------------------------------
+DEPLOY_LOG="${REPO_ROOT}/deploy.log"
+exec > >(tee -a "$DEPLOY_LOG") 2>&1
+echo "=== Deploy started: $(date -Iseconds) ===" >> "$DEPLOY_LOG"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -185,6 +192,25 @@ if [[ ${#MISSING[@]} -gt 0 ]]; then
   fail "Missing required tools: ${MISSING[*]}"
 fi
 
+# Validate Node.js version (must be even/LTS >=22)
+NODE_VERSION=$(node --version | sed 's/^v//')
+NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
+if [[ "$NODE_MAJOR" -lt 22 ]]; then
+  fail "Node.js >= 22 required (found v${NODE_VERSION}). Install Node 22 LTS: https://nodejs.org"
+fi
+if (( NODE_MAJOR % 2 != 0 )); then
+  warn "Node.js v${NODE_VERSION} is an odd-numbered (unstable) release."
+  warn "Baker Street requires an even-numbered LTS release (22, 24, etc.)."
+  warn "Odd versions may cause ELIFECYCLE build failures."
+  fail "Switch to Node $(( NODE_MAJOR - 1 )) or $(( NODE_MAJOR + 1 )): nvm install $(( NODE_MAJOR - 1 ))"
+fi
+
+# Validate pnpm version (must be >=9)
+PNPM_MAJOR=$(pnpm --version | cut -d. -f1)
+if [[ "$PNPM_MAJOR" -lt 9 ]]; then
+  fail "pnpm >= 9 required (found $(pnpm --version)). Run: corepack enable && corepack prepare pnpm@latest --activate"
+fi
+
 # Check Docker is running
 if ! docker info &>/dev/null; then
   fail "Docker is not running. Start Docker Desktop first."
@@ -198,7 +224,7 @@ fi
 CLUSTER=$(kubectl config current-context 2>/dev/null || echo "unknown")
 info "Docker: $(docker --version | cut -d' ' -f3 | tr -d ',')"
 info "Kubectl context: ${CLUSTER}"
-info "Node: $(node --version)"
+info "Node: v${NODE_VERSION} (LTS)"
 info "pnpm: $(pnpm --version)"
 
 # ---------------------------------------------------------------------------
@@ -847,4 +873,5 @@ info "Brain API:   http://localhost:30000"
 if [[ "$DEPLOY_TELEMETRY" == true ]]; then
   info "Grafana:     http://localhost:30001"
 fi
+info "Deploy log:  ${DEPLOY_LOG}"
 echo ""
