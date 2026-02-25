@@ -1,4 +1,4 @@
-FROM node:22-slim AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY packages/shared/ packages/shared/
@@ -9,7 +9,7 @@ RUN corepack enable && pnpm install --frozen-lockfile && pnpm -r build
 # Prune to only the github extension deps
 RUN pnpm deploy --filter=@bakerst/extension-github --prod --legacy /app/pruned
 
-FROM node:22-slim
+FROM node:22-alpine
 WORKDIR /app
 COPY --from=builder /app/pruned/node_modules ./node_modules/
 COPY --from=builder /app/examples/extension-github/dist ./dist/
