@@ -652,7 +652,9 @@ bakerst/
 ├── plugins/
 │   └── filesystem/         # Sandboxed file access (stdio MCP)
 ├── examples/
-│   └── extension-hello-world/ # Example extension (hello_greet, hello_time)
+│   ├── extension-github/      # GitHub tools (repos, issues, PRs)
+│   ├── extension-obsidian/    # Obsidian vault tools (notes, search, links)
+│   └── extension-utilities/   # Time/date and network lookup tools
 ├── operating_system/       # Personality files (SOUL.md, BRAIN.md, etc.)
 ├── k8s/                    # Kubernetes manifests (Kustomize)
 │   ├── brain/              # Blue-green deployments, RBAC, service
