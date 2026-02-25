@@ -33,6 +33,7 @@ scripts/deploy-all.sh --skip-images      # skip docker builds only
 scripts/deploy-all.sh --skip-secrets     # use existing .env-secrets
 scripts/deploy-all.sh --skip-telemetry   # skip telemetry stack
 scripts/deploy-all.sh --skip-extensions  # skip extension pods
+scripts/deploy-all.sh --no-cache         # force fresh docker builds
 scripts/deploy-all.sh -y                 # non-interactive (use defaults)
 scripts/deploy-all.sh --version v1.2.3   # custom version tag
 

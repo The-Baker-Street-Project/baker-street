@@ -14,6 +14,7 @@ set -euo pipefail
 #   --skip-secrets     Skip secrets configuration
 #   --skip-telemetry   Skip telemetry stack (OTel, Grafana, Prometheus, etc.)
 #   --skip-extensions  Skip extension pods (utilities, etc.)
+#   --no-cache         Force fresh Docker builds (no layer cache)
 #   --dev              Use dev overlay (sets BAKERST_MODE=dev)
 #   --version <tag>    Version tag for images (default: git short hash)
 #   --help, -h         Show this help
@@ -27,8 +28,9 @@ TELEMETRY_NAMESPACE="bakerst-telemetry"
 # Deploy log — capture all output for debugging
 # ---------------------------------------------------------------------------
 DEPLOY_LOG="${REPO_ROOT}/deploy.log"
-exec > >(tee -a "$DEPLOY_LOG") 2>&1
-echo "=== Deploy started: $(date -Iseconds) ===" >> "$DEPLOY_LOG"
+: > "$DEPLOY_LOG"  # truncate previous log
+exec > >(tee "$DEPLOY_LOG") 2>&1
+echo "=== Deploy started: $(date '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null || date) ==="
 
 # Colors
 RED='\033[0;31m'
@@ -46,6 +48,7 @@ SKIP_IMAGES=false
 SKIP_SECRETS=false
 SKIP_TELEMETRY=false
 SKIP_EXTENSIONS=false
+NO_CACHE=false
 DEPLOY_TELEMETRY=false
 DEPLOY_EXTENSIONS=false
 USE_DEV=false
@@ -66,6 +69,7 @@ while [[ $# -gt 0 ]]; do
     --skip-secrets)    SKIP_SECRETS=true; shift ;;
     --skip-telemetry)  SKIP_TELEMETRY=true; shift ;;
     --skip-extensions) SKIP_EXTENSIONS=true; shift ;;
+    --no-cache)        NO_CACHE=true; shift ;;
     --dev)             USE_DEV=true; shift ;;
     --version)         VERSION="$2"; shift 2 ;;
     --help|-h)
@@ -508,21 +512,27 @@ fi
 if [[ "$SKIP_BUILD" == false && "$SKIP_IMAGES" == false ]]; then
   banner "Docker Images"
 
+  DOCKER_CACHE_FLAG=""
+  if [[ "$NO_CACHE" == true ]]; then
+    DOCKER_CACHE_FLAG="--no-cache"
+    info "Docker cache disabled (--no-cache)"
+  fi
+
   step "Building bakerst-brain (version: ${VERSION})..."
-  docker build -t bakerst-brain:latest -t "bakerst-brain:${VERSION}" \
+  docker build $DOCKER_CACHE_FLAG -t bakerst-brain:latest -t "bakerst-brain:${VERSION}" \
     --build-arg BRAIN_VERSION="$VERSION" \
     -f "$REPO_ROOT/services/brain/Dockerfile" "$REPO_ROOT"
 
   step "Building bakerst-worker..."
-  docker build -t bakerst-worker:latest \
+  docker build $DOCKER_CACHE_FLAG -t bakerst-worker:latest \
     -f "$REPO_ROOT/services/worker/Dockerfile" "$REPO_ROOT"
 
   step "Building bakerst-ui..."
-  docker build -t bakerst-ui:latest \
+  docker build $DOCKER_CACHE_FLAG -t bakerst-ui:latest \
     -f "$REPO_ROOT/services/ui/Dockerfile" "$REPO_ROOT"
 
   step "Building bakerst-gateway..."
-  docker build -t bakerst-gateway:latest \
+  docker build $DOCKER_CACHE_FLAG -t bakerst-gateway:latest \
     -f "$REPO_ROOT/services/gateway/Dockerfile" "$REPO_ROOT"
 
   # Extension images
@@ -531,7 +541,7 @@ if [[ "$SKIP_BUILD" == false && "$SKIP_IMAGES" == false ]]; then
       ext_name=$(basename "$ext_dir")
       if [[ -f "${ext_dir}Dockerfile" ]]; then
         step "Building bakerst-ext-${ext_name#extension-}..."
-        docker build -t "bakerst-ext-${ext_name#extension-}:latest" \
+        docker build $DOCKER_CACHE_FLAG -t "bakerst-ext-${ext_name#extension-}:latest" \
           -f "${ext_dir}Dockerfile" "$REPO_ROOT"
       fi
     done
