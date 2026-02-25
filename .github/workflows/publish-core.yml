@@ -30,6 +30,8 @@ jobs:
         run: pnpm --filter @bakerst/core build
 
       - name: Publish
-        run: pnpm --filter @bakerst/core publish --no-git-checks
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+          pnpm --filter @bakerst/core publish --no-git-checks
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
