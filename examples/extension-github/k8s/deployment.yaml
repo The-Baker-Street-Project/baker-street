@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ext-github
+  namespace: bakerst
+  labels:
+    app: bakerst-extension
+    extension: github
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bakerst-extension
+      extension: github
+  template:
+    metadata:
+      labels:
+        app: bakerst-extension
+        extension: github
+    spec:
+      containers:
+        - name: github
+          image: bakerst-ext-github:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NATS_URL
+              value: nats://nats.bakerst.svc.cluster.local:4222
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bakerst-github-secrets
+                  key: GITHUB_TOKEN
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ext-github
+  namespace: bakerst
+  labels:
+    app: bakerst-extension
+    extension: github
+spec:
+  selector:
+    app: bakerst-extension
+    extension: github
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP

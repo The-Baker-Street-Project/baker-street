@@ -199,6 +199,46 @@ spec:
         - port: 4222
           protocol: TCP
 ---
+# GitHub extension: allow egress to NATS + GitHub API (HTTPS) + DNS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: extension-github-egress
+  namespace: bakerst
+spec:
+  podSelector:
+    matchLabels:
+      app: bakerst-extension
+      extension: github
+  policyTypes:
+    - Egress
+  egress:
+    # NATS (announce/heartbeat)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: nats
+      ports:
+        - port: 4222
+          protocol: TCP
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # GitHub API (HTTPS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+---
 # Voice: accepts traffic from UI and external (port-forward)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

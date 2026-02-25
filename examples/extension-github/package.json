@@ -1,0 +1,21 @@
+{
+  "name": "@bakerst/extension-github",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "NODE_OPTIONS='--max-old-space-size=8192' tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@bakerst/shared": "workspace:*",
+    "@bakerst/extension-sdk": "workspace:*",
+    "@octokit/rest": "^21.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
