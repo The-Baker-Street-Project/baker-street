@@ -8,6 +8,18 @@
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git commit:*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /home/gary/repos/baker-street-project/baker-street && pnpm -r build --reporter=silent 2>&1 | tail -30",
+            "timeout": 60000
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Bash(git commit:*)",
