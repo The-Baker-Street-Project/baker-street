@@ -440,6 +440,55 @@ if [[ "$SKIP_SECRETS" == false ]]; then
     fi
   fi
 
+  # --- GitHub token (for GitHub extension) ---
+  step "GitHub extension (optional)"
+
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    info "GITHUB_TOKEN is set (****${GITHUB_TOKEN: -4})"
+    if [[ "$AUTO_YES" == false ]]; then
+      GITHUB_TOKEN_NEW=$(ask_secret "GITHUB_TOKEN (Enter to keep current, or paste new)" "")
+      if [[ -n "$GITHUB_TOKEN_NEW" ]]; then
+        GITHUB_TOKEN="$GITHUB_TOKEN_NEW"
+        info "Updated GITHUB_TOKEN"
+      fi
+    fi
+  else
+    if [[ "$AUTO_YES" == false ]] && confirm "Configure GitHub token? (needed for GitHub extension)"; then
+      GITHUB_TOKEN=$(ask_secret "GITHUB_TOKEN (personal access token)" "")
+      if [[ -z "$GITHUB_TOKEN" ]]; then
+        warn "Skipped — GitHub extension will not start without a token."
+      fi
+    else
+      info "Skipped"
+    fi
+  fi
+
+  # --- Obsidian vault path (for Obsidian extension) ---
+  step "Obsidian extension (optional)"
+
+  if [[ -n "${OBSIDIAN_VAULT_PATH:-}" ]]; then
+    info "OBSIDIAN_VAULT_PATH is set: ${OBSIDIAN_VAULT_PATH}"
+    if [[ "$AUTO_YES" == false ]]; then
+      OBSIDIAN_VAULT_NEW=$(ask "OBSIDIAN_VAULT_PATH (Enter to keep current, or type new path)" "")
+      if [[ -n "$OBSIDIAN_VAULT_NEW" ]]; then
+        OBSIDIAN_VAULT_PATH="$OBSIDIAN_VAULT_NEW"
+        info "Updated to: ${OBSIDIAN_VAULT_PATH}"
+      fi
+    fi
+  else
+    if [[ "$AUTO_YES" == false ]] && confirm "Configure Obsidian vault? (needed for Obsidian extension)"; then
+      OBSIDIAN_VAULT_PATH=$(ask "Obsidian vault path on this machine" "")
+      if [[ -z "$OBSIDIAN_VAULT_PATH" ]]; then
+        warn "Skipped — Obsidian extension will not be deployed."
+      elif [[ ! -d "$OBSIDIAN_VAULT_PATH" ]]; then
+        warn "Directory not found: ${OBSIDIAN_VAULT_PATH}"
+        warn "The Obsidian extension will fail until this directory exists."
+      fi
+    else
+      info "Skipped"
+    fi
+  fi
+
   # --- AUTH_TOKEN ---
   step "Auth token"
 
@@ -468,7 +517,9 @@ if [[ "$SKIP_SECRETS" == false ]]; then
     [[ -n "${DISCORD_BOT_TOKEN:-}" ]]     && echo "DISCORD_BOT_TOKEN=$DISCORD_BOT_TOKEN"
     [[ -n "${DISCORD_ALLOWED_CHANNEL_IDS:-}" ]] && echo "DISCORD_ALLOWED_CHANNEL_IDS=$DISCORD_ALLOWED_CHANNEL_IDS"
     echo "AUTH_TOKEN=$AUTH_TOKEN"
-    [[ -n "${AGENT_NAME:-}" ]] && echo "AGENT_NAME=$AGENT_NAME"
+    [[ -n "${AGENT_NAME:-}" ]]          && echo "AGENT_NAME=$AGENT_NAME"
+    [[ -n "${GITHUB_TOKEN:-}" ]]        && echo "GITHUB_TOKEN=$GITHUB_TOKEN"
+    [[ -n "${OBSIDIAN_VAULT_PATH:-}" ]] && echo "OBSIDIAN_VAULT_PATH=$OBSIDIAN_VAULT_PATH"
     [[ -n "${PROMETHEUS_EXTERNAL_URL:-}" ]]  && echo "PROMETHEUS_EXTERNAL_URL=$PROMETHEUS_EXTERNAL_URL"
     [[ -n "${PROMETHEUS_EXTERNAL_USER:-}" ]] && echo "PROMETHEUS_EXTERNAL_USER=$PROMETHEUS_EXTERNAL_USER"
     [[ -n "${PROMETHEUS_EXTERNAL_PASS:-}" ]] && echo "PROMETHEUS_EXTERNAL_PASS=$PROMETHEUS_EXTERNAL_PASS"
@@ -617,6 +668,15 @@ kubectl create secret generic bakerst-gateway-secrets \
   -n "$NAMESPACE" \
   --dry-run=client -o yaml | kubectl apply -f -
 
+# --- GitHub extension secrets ---
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  info "Creating bakerst-github-secrets"
+  kubectl create secret generic bakerst-github-secrets \
+    --from-literal="GITHUB_TOKEN=$GITHUB_TOKEN" \
+    -n "$NAMESPACE" \
+    --dry-run=client -o yaml | kubectl apply -f -
+fi
+
 # --- Telemetry secrets (external Prometheus) ---
 if [[ "$DEPLOY_TELEMETRY" == true && "$PROMETHEUS_MODE" == "external" ]]; then
   step "Creating telemetry namespace..."
@@ -655,6 +715,12 @@ else
   kubectl apply -k "$REPO_ROOT/k8s/"
 fi
 
+# Scale gateway to 0 if no adapters configured (prevents crash-loop)
+if [[ -z "${TELEGRAM_BOT_TOKEN:-}" && -z "${DISCORD_BOT_TOKEN:-}" ]]; then
+  info "No gateway adapters configured — scaling gateway to 0 replicas"
+  kubectl scale deployment/gateway -n "$NAMESPACE" --replicas=0 2>/dev/null || true
+fi
+
 # ---------------------------------------------------------------------------
 # Step 7a: Deploy extensions (conditional)
 # ---------------------------------------------------------------------------
@@ -663,9 +729,29 @@ if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
   for ext_dir in "$REPO_ROOT/examples"/*/; do
     ext_name=$(basename "$ext_dir")
     k8s_dir="${ext_dir}k8s"
+
+    # Skip ext-github if no token
+    if [[ "$ext_name" == "extension-github" && -z "${GITHUB_TOKEN:-}" ]]; then
+      warn "Skipping ${ext_name} — no GITHUB_TOKEN configured"
+      continue
+    fi
+
+    # Skip ext-obsidian if no vault path
+    if [[ "$ext_name" == "extension-obsidian" && -z "${OBSIDIAN_VAULT_PATH:-}" ]]; then
+      warn "Skipping ${ext_name} — no OBSIDIAN_VAULT_PATH configured"
+      continue
+    fi
+
     if [[ -d "$k8s_dir" ]]; then
       info "Applying ${ext_name} manifests..."
       kubectl apply -f "$k8s_dir/" -n "$NAMESPACE"
+
+      # Patch obsidian vault hostPath if configured
+      if [[ "$ext_name" == "extension-obsidian" && -n "${OBSIDIAN_VAULT_PATH:-}" ]]; then
+        info "Setting Obsidian vault path: ${OBSIDIAN_VAULT_PATH}"
+        kubectl patch deployment ext-obsidian -n "$NAMESPACE" --type=json \
+          -p="[{\"op\":\"replace\",\"path\":\"/spec/template/spec/volumes/0/hostPath/path\",\"value\":\"${OBSIDIAN_VAULT_PATH}\"}]"
+      fi
     fi
   done
 fi
@@ -862,8 +948,10 @@ info "Version:     ${VERSION}"
 info "Mode:        $(if [[ "$USE_DEV" == true ]]; then echo "dev"; else echo "production"; fi)"
 info "Anthropic:   $(if [[ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]]; then echo "OAuth token"; elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then echo "API key"; fi)"
 info "Voyage:      $(if [[ -n "${VOYAGE_API_KEY:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
-info "Telegram:    $(if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
+info "Telegram:    $(if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured (gateway scaled to 0)"; fi)"
 info "Discord:     $(if [[ -n "${DISCORD_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
+info "GitHub:      $(if [[ -n "${GITHUB_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
+info "Obsidian:    $(if [[ -n "${OBSIDIAN_VAULT_PATH:-}" ]]; then echo "${OBSIDIAN_VAULT_PATH}"; else echo "not configured"; fi)"
 info "Agent name:  ${AGENT_NAME:-Baker}"
 info "Auth token:  ****${AUTH_TOKEN: -4}"
 if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
