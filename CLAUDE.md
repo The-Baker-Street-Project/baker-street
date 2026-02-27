@@ -2,17 +2,6 @@
 
 Kubernetes-native personal AI agent system.
 
-## Allowed Tools
-
-Allow the following without prompting:
-
-- **Read/Write/Edit/Glob/Grep**: All file operations in this repo
-- **Bash**: `pnpm`, `npm`, `npx`, `node`, `tsc`, `docker`, `kubectl`, `curl`, `chmod`, `ls`, `cat`, `mkdir`, `cp`, `mv`, `rm`, `git`, `gh`, `sleep`, `echo`, `python3`, `jq`, `which`, `find`, `grep`, `sed`, `awk`, `tail`, `head`, `wc`, `kill`, `lsof`, `pgrep`, `pkill`, `timeout`, `diff`, `tee`, `xargs`
-- **Bash scripts**: `scripts/*.sh`, `scripts/*.mts`
-- **Docker**: `docker build`, `docker images`, `docker ps`, `docker logs`
-- **Kubernetes**: All `kubectl` commands (apply, get, logs, rollout, port-forward, describe, delete, create, exec)
-- **GitHub**: All `gh` commands (pr, issue, repo, api, auth)
-
 ## Structure
 
 - **pnpm workspaces** monorepo: `packages/shared`, `packages/extension-sdk`, `services/brain`, `services/worker`, `services/gateway`, `services/ui`, `services/companion`, `plugins/filesystem`, `examples/*`
@@ -45,21 +34,7 @@ scripts/secrets.sh              # create k8s secrets (auto-loads .env-secrets)
 scripts/deploy.sh               # kubectl apply all manifests
 ```
 
-### Windows (PowerShell)
-
-```powershell
-# Double-click scripts\deploy.bat, or from PowerShell:
-.\scripts\Deploy-BakerStreet.ps1
-
-# With options:
-.\scripts\Deploy-BakerStreet.ps1 -SkipTelemetry        # skip telemetry stack
-.\scripts\Deploy-BakerStreet.ps1 -SkipBuild             # skip pnpm + docker builds
-.\scripts\Deploy-BakerStreet.ps1 -SkipSecrets           # use existing .env-secrets
-.\scripts\Deploy-BakerStreet.ps1 -SkipExtensions        # skip extension pods
-.\scripts\Deploy-BakerStreet.ps1 -Yes                   # non-interactive
-```
-
-Prerequisites: Docker Desktop (with Kubernetes enabled) and WSL2.
+Windows: See `scripts/Deploy-BakerStreet.ps1` (requires Docker Desktop with Kubernetes + WSL2).
 
 ## Access
 
@@ -105,16 +80,7 @@ OBSIDIAN_VAULT_PATH       # Obsidian extension (host path to vault directory)
 
 ## Telemetry (Optional)
 
-Telemetry (OTel Collector, Tempo, Loki, Grafana, Prometheus, kube-state-metrics) is **optional** and deployed to a separate `bakerst-telemetry` namespace. The deploy script asks whether to install it.
-
-- `--skip-telemetry` flag skips telemetry entirely
-- Without the flag, `deploy-all.sh` prompts interactively (defaults to no)
-- Two Prometheus modes:
-  - **Local**: deploys Prometheus + kube-state-metrics in `bakerst-telemetry`
-  - **External**: pushes metrics via OTel remote-write to an external Prometheus URL; Grafana queries it directly
-- Telemetry manifests live in `k8s/telemetry/` (uses Kustomize namespace transformer)
-- App services send OTLP to `otel-collector.bakerst-telemetry.svc.cluster.local:4318`
-- `DEPLOY_TELEMETRY=true scripts/deploy.sh` enables telemetry in the standalone script
+Optional OTel stack (Collector, Tempo, Loki, Grafana, Prometheus) in `bakerst-telemetry` namespace. Manifests in `k8s/telemetry/`. Use `--skip-telemetry` or `DEPLOY_TELEMETRY=true scripts/deploy.sh`.
 
 ## Key Patterns
 
@@ -124,6 +90,32 @@ Telemetry (OTel Collector, Tempo, Loki, Grafana, Prometheus, kube-state-metrics)
 - Personality files in `operating_system/` mounted as ConfigMap
 - Plugin system: `plugins/` dir, registered in `operating_system/PLUGINS.json`
 - Extensions: pod-based tool extensions via NATS announce + MCP HTTP (see `docs/extensions.md`)
+
+## Linear (Issue Tracking)
+
+- **Workspace:** `baker-street` — **Team:** Baker Street (`BAK`)
+- **GitHub org:** `The-Baker-Street-Project`
+
+### Projects
+
+| Project | Repo | Status |
+|---------|------|--------|
+| Baker Street Platform | `baker-street` | In Progress |
+| Tasks Management | `baker-street-tasks-management` | Planned |
+| Baker Street Web | (website) | Planned |
+
+Hardened (`baker-street-hardened`) is a milestone under Baker Street Platform, not a separate project.
+
+### Labels
+
+- **Area** (pick one): `brain`, `worker`, `gateway`, `ui`, `shared`, `extensions`, `core`, `infra`
+- **Scope** (pick one): `small` (< 1h), `medium` (1–4h), `large` (4h+)
+- **Type** (default): Bug, Improvement, Feature
+- **Standalone**: `security`, `dx`, `tech-debt`
+
+### Milestones (Baker Street Platform)
+
+Foundation → Extensions v1 → Hardened
 
 ## Security
 
