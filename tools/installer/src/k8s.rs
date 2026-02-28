@@ -5,7 +5,7 @@ use k8s_openapi::api::core::v1::{
 };
 use k8s_openapi::api::networking::v1::NetworkPolicy;
 use k8s_openapi::api::rbac::v1::{Role, RoleBinding};
-use kube::api::{Api, DeleteParams, Patch, PatchParams};
+use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams};
 use kube::Client;
 use std::collections::BTreeMap;
 
@@ -212,4 +212,46 @@ pub async fn delete_namespace(client: &Client, name: &str) -> Result<()> {
     let api: Api<Namespace> = Api::all(client.clone());
     api.delete(name, &DeleteParams::default()).await.ok();
     Ok(())
+}
+
+/// Status of a single deployment (for --status output).
+pub struct DeploymentStatus {
+    pub name: String,
+    pub desired: i32,
+    pub ready: i32,
+    pub image: String,
+}
+
+/// List all deployments in a namespace with their status.
+pub async fn get_deployments_status(
+    client: &Client,
+    namespace: &str,
+) -> Result<Vec<DeploymentStatus>> {
+    let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+    let lp = ListParams::default();
+    let deployments = api.list(&lp).await?;
+
+    let mut statuses = Vec::new();
+    for deploy in deployments.items {
+        let name = deploy.metadata.name.unwrap_or_default();
+        let status = deploy.status.as_ref();
+        let desired = status.and_then(|s| s.replicas).unwrap_or(0);
+        let ready = status.and_then(|s| s.ready_replicas).unwrap_or(0);
+        let image = deploy
+            .spec
+            .and_then(|s| {
+                s.template
+                    .spec
+                    .and_then(|s| s.containers.first().map(|c| c.image.clone().unwrap_or_default()))
+            })
+            .unwrap_or_default();
+
+        statuses.push(DeploymentStatus {
+            name,
+            desired,
+            ready,
+            image,
+        });
+    }
+    Ok(statuses)
 }
