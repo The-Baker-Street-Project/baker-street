@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sysadmin
+  namespace: bakerst
+  labels:
+    app: sysadmin
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: sysadmin
+  template:
+    metadata:
+      labels:
+        app: sysadmin
+    spec:
+      serviceAccountName: sysadmin
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sysadmin
+          image: bakerst-sysadmin:latest
+          imagePullPolicy: Never
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - containerPort: 3090
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 3090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 3090
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          env:
+            - name: PORT
+              value: "3090"
+            - name: NAMESPACE
+              value: "bakerst"
+            - name: NODE_EXTRA_CA_CERTS
+              value: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+          envFrom:
+            - secretRef:
+                name: bakerst-brain-secrets
+                optional: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,45 @@
+# SysAdmin: accept traffic from external (port-forward / NodePort)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sysadmin-ingress
+  namespace: bakerst
+spec:
+  podSelector:
+    matchLabels:
+      app: sysadmin
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 3090
+---
+# SysAdmin: allow egress to K8s API, DNS, HTTPS (Anthropic, GHCR, GitHub API)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sysadmin-egress
+  namespace: bakerst
+spec:
+  podSelector:
+    matchLabels:
+      app: sysadmin
+  policyTypes:
+    - Egress
+  egress:
+    # K8s API server (typically 443 on the cluster IP)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

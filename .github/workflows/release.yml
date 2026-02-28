@@ -1,0 +1,187 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/the-baker-street-project/bakerst
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write  # cosign keyless signing
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: brain
+            dockerfile: services/brain/Dockerfile
+            has-build-args: true
+          - name: worker
+            dockerfile: services/worker/Dockerfile
+            has-build-args: false
+          - name: ui
+            dockerfile: services/ui/Dockerfile
+            has-build-args: false
+          - name: gateway
+            dockerfile: services/gateway/Dockerfile
+            has-build-args: false
+          - name: sysadmin
+            dockerfile: services/sysadmin/Dockerfile
+            has-build-args: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Read service version
+        id: svc-version
+        env:
+          SERVICE_NAME: ${{ matrix.service.name }}
+        run: |
+          VERSION=$(node -e "console.log(require('./services/${SERVICE_NAME}/package.json').version)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Compute build args
+        id: build-args
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          HAS_BUILD_ARGS: ${{ matrix.service.has-build-args }}
+        run: |
+          if [ "$HAS_BUILD_ARGS" = "true" ]; then
+            echo "args=BRAIN_VERSION=$REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}:${{ steps.svc-version.outputs.version }}
+            ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}:latest
+          build-args: ${{ steps.build-args.outputs.args }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Sign image with cosign
+        env:
+          IMAGE_REF: ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE_REF"
+
+      - name: Generate and attach SBOM
+        env:
+          IMAGE_REF: ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}@${{ steps.build.outputs.digest }}
+          SERVICE_NAME: ${{ matrix.service.name }}
+        run: |
+          syft "$IMAGE_REF" -o spdx-json > "sbom-${SERVICE_NAME}.spdx.json"
+          cosign attach sbom --sbom "sbom-${SERVICE_NAME}.spdx.json" "$IMAGE_REF"
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.service.name }}
+          path: sbom-${{ matrix.service.name }}.spdx.json
+
+      - name: Save digest
+        env:
+          SERVICE_NAME: ${{ matrix.service.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          echo "$DIGEST" > "/tmp/digests/${SERVICE_NAME}"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.service.name }}
+          path: /tmp/digests/${{ matrix.service.name }}
+
+  create-release:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download digest artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Read digests
+        id: digests
+        run: |
+          for service in brain worker ui gateway sysadmin; do
+            digest=$(cat "/tmp/digests/${service}" 2>/dev/null || echo "")
+            echo "${service}=${digest}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Generate release manifest
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          BRAIN_DIGEST: ${{ steps.digests.outputs.brain }}
+          WORKER_DIGEST: ${{ steps.digests.outputs.worker }}
+          UI_DIGEST: ${{ steps.digests.outputs.ui }}
+          GATEWAY_DIGEST: ${{ steps.digests.outputs.gateway }}
+          SYSADMIN_DIGEST: ${{ steps.digests.outputs.sysadmin }}
+        run: |
+          RELEASE_VERSION="${REF_NAME#v}"
+          node scripts/generate-manifest.mjs \
+            --release-version "$RELEASE_VERSION" \
+            --brain-digest "$BRAIN_DIGEST" \
+            --worker-digest "$WORKER_DIGEST" \
+            --ui-digest "$UI_DIGEST" \
+            --gateway-digest "$GATEWAY_DIGEST" \
+            --sysadmin-digest "$SYSADMIN_DIGEST" \
+            --output release-manifest.json
+
+      - name: Download SBOMs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sbom-*
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release-manifest.json
+            sbom-*.spdx.json

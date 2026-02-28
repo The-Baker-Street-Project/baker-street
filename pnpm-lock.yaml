@@ -289,6 +289,37 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  services/sysadmin:
+    dependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.39.0
+        version: 0.39.0
+      '@bakerst/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@kubernetes/client-node':
+        specifier: ^1.4.0
+        version: 1.4.0
+      express:
+        specifier: ^4.21.0
+        version: 4.22.1
+      ws:
+        specifier: ^8.18.0
+        version: 8.19.0
+    devDependencies:
+      '@types/express':
+        specifier: ^5.0.0
+        version: 5.0.6
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.11
+      '@types/ws':
+        specifier: ^8.5.0
+        version: 8.18.1
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   services/ui:
     dependencies:
       react:
@@ -4987,7 +5018,7 @@ snapshots:
 
   '@types/multer@1.4.13':
     dependencies:
-      '@types/express': 4.17.25
+      '@types/express': 5.0.6
 
   '@types/multer@2.0.0':
     dependencies:

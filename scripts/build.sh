@@ -38,5 +38,8 @@ docker build --network host -t bakerst-ui:latest -f "$REPO_ROOT/services/ui/Dock
 echo "==> Building bakerst-gateway..."
 docker build --network host -t bakerst-gateway:latest -f "$REPO_ROOT/services/gateway/Dockerfile" "$REPO_ROOT"
 
+echo "==> Building bakerst-sysadmin..."
+docker build --network host -t bakerst-sysadmin:latest -f "$REPO_ROOT/services/sysadmin/Dockerfile" "$REPO_ROOT"
+
 echo "==> Done. Images:"
 docker images | grep bakerst
