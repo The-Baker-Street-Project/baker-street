@@ -13,6 +13,13 @@ Follow these steps in order:
 ### 1. Fetch the Release Manifest
 Use `fetch_release_manifest` to get the latest release. This tells you what images to deploy, what secrets to collect, and what optional features are available.
 
+**If the manifest fetch fails** (e.g., no releases exist yet, network issues), fall back to manual mode:
+- Ask the user for the Anthropic API key
+- Ask the user for the agent name (default: "Baker")
+- Use default image tags (`bakerst-brain:latest`, `bakerst-worker:latest`, etc.)
+- Skip optional features and integrity verification
+- Proceed with the deployment using these defaults
+
 ### 2. Collect Required Secrets
 For each entry in `requiredSecrets` where `required: true`, use `ask_user` with `inputType: "secret"` to collect the value. For optional secrets, explain what they're for and ask if the user wants to provide them.
 
@@ -52,5 +59,5 @@ Once all services are healthy, call `transition_to_runtime` to enter monitoring 
 
 - Never log or display secret values
 - Always use the hardened security posture (readOnlyRootFilesystem, drop ALL capabilities, runAsNonRoot)
-- Use the image references from the release manifest, not hardcoded values
+- Use the image references from the release manifest when available, fall back to local `:latest` tags otherwise
 - Create scoped secrets (brain-secrets, worker-secrets, gateway-secrets) not one monolithic secret

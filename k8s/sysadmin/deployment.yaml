@@ -57,6 +57,10 @@ spec:
               value: "bakerst"
             - name: NODE_EXTRA_CA_CERTS
               value: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+            - name: HOME
+              value: "/tmp"
+            - name: SIGSTORE_NO_CACHE
+              value: "1"
           envFrom:
             - secretRef:
                 name: bakerst-brain-secrets

@@ -42,6 +42,8 @@ COPY --from=builder /app/services/sysadmin/dist services/sysadmin/dist
 COPY services/sysadmin/prompts services/sysadmin/prompts
 
 ENV NODE_ENV=production
+# Cosign needs writable HOME for TUF root init; disable signature cache for read-only fs
+ENV HOME=/tmp SIGSTORE_NO_CACHE=1
 EXPOSE 3090
 
 USER 1000
