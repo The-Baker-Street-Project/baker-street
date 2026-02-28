@@ -25,6 +25,8 @@ const STATE_TOOLS: Record<SysAdminState, Set<string>> = {
     'get_pod_logs',
     'get_cluster_status',
     'verify_image_integrity',
+    'verify_running_digests',
+    'fetch_release_manifest',
     'restart_deployment',
     'scale_deployment',
     'check_for_updates',

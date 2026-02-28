@@ -104,11 +104,13 @@ async function main(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Health check timer — runs every 5 minutes in runtime mode
+// Timers — health checks (5 min) + integrity verification (1 hour)
 // ---------------------------------------------------------------------------
 
-const HEALTH_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const HEALTH_CHECK_INTERVAL = 5 * 60 * 1000;     // 5 minutes
+const INTEGRITY_CHECK_INTERVAL = 60 * 60 * 1000;  // 1 hour
 let healthTimer: ReturnType<typeof setInterval> | undefined;
+let integrityTimer: ReturnType<typeof setInterval> | undefined;
 
 function startHealthTimer(
   agent: ReturnType<typeof createAgent>,
@@ -116,20 +118,22 @@ function startHealthTimer(
   persistedState: import('@bakerst/shared').SysAdminPersistedState,
 ): void {
   stopHealthTimer();
-  log.info('starting health check timer (5-min interval)');
+  log.info('starting health check timer (5-min interval) + integrity timer (1-hour interval)');
 
+  // --- Health check: every 5 minutes ---
   healthTimer = setInterval(async () => {
     if (stateMachine.state !== 'runtime') return;
 
     try {
       const result = await agent.chat(
-        'Run a health check on all Baker Street services. Report any issues briefly.',
+        'Run a health check on all Baker Street services and verify running image digests against the manifest. Report any issues briefly.',
       );
 
       // Persist health check result
       persistedState.lastHealthCheck = {
         timestamp: new Date().toISOString(),
-        healthy: !result.response.toLowerCase().includes('unhealthy'),
+        healthy: !result.response.toLowerCase().includes('unhealthy')
+          && !result.response.toLowerCase().includes('mismatch'),
         components: [],
       };
       persistedState.healthHistory.push(persistedState.lastHealthCheck);
@@ -138,20 +142,50 @@ function startHealthTimer(
         log.warn({ err }, 'failed to persist health check'),
       );
 
-      if (result.response.toLowerCase().includes('unhealthy')) {
+      const hasIssues = result.response.toLowerCase().includes('unhealthy')
+        || result.response.toLowerCase().includes('mismatch');
+      if (hasIssues) {
         sendToTerminal({ type: 'text', content: `[Health Check] Issues detected:\n${result.response}` });
       }
     } catch (err) {
       log.error({ err }, 'health check failed');
     }
   }, HEALTH_CHECK_INTERVAL);
+
+  // --- Full cosign verification: every hour ---
+  integrityTimer = setInterval(async () => {
+    if (stateMachine.state !== 'runtime') return;
+
+    try {
+      const result = await agent.chat(
+        'Run a full cosign signature verification on all Baker Street images. ' +
+        'For each image in the release manifest that has a digest, call verify_image_integrity. ' +
+        'Report any verification failures immediately.',
+      );
+
+      if (result.response.toLowerCase().includes('failed')) {
+        sendToTerminal({
+          type: 'text',
+          content: `[Integrity Alert] Signature verification issue:\n${result.response}`,
+        });
+      }
+    } catch (err) {
+      log.error({ err }, 'integrity verification failed');
+    }
+  }, INTEGRITY_CHECK_INTERVAL);
 }
 
 function stopHealthTimer(): void {
   if (healthTimer) {
     clearInterval(healthTimer);
     healthTimer = undefined;
-    log.info('health check timer stopped');
+  }
+  if (integrityTimer) {
+    clearInterval(integrityTimer);
+    integrityTimer = undefined;
+  }
+  if (healthTimer === undefined && integrityTimer === undefined) {
+    log.info('all runtime timers stopped');
   }
 }
 

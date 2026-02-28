@@ -24,6 +24,9 @@ RUN pnpm --filter=@bakerst/shared build && pnpm --filter=@bakerst/sysadmin build
 # --- Production ---
 FROM node:22-alpine
 
+# Install cosign for image signature verification
+COPY --from=gcr.io/projectsigstore/cosign:v2.4.1 /ko-app/cosign /usr/local/bin/cosign
+
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
