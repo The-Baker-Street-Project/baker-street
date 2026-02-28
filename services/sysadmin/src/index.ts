@@ -15,13 +15,13 @@ const PORT = parseInt(process.env.PORT ?? '3090', 10);
 async function main(): Promise<void> {
   log.info('Baker Street SysAdmin starting...');
 
-  // Load persisted state (or default to 'deploy')
+  // Load persisted state (or default to 'verify')
   let persistedState;
   try {
     persistedState = await loadState();
   } catch {
-    log.info('running outside cluster, using default deploy state');
-    persistedState = { state: 'deploy' as SysAdminState, healthHistory: [] };
+    log.info('running outside cluster, using default verify state');
+    persistedState = { state: 'verify' as SysAdminState, healthHistory: [] };
   }
 
   const initialState = persistedState.state;
@@ -83,6 +83,21 @@ async function main(): Promise<void> {
   // If resuming into runtime mode, start the health timer
   if (initialState === 'runtime') {
     startHealthTimer(agent, stateMachine, persistedState);
+  }
+
+  // If starting in verify mode, auto-trigger a health verification
+  if (initialState === 'verify') {
+    log.info('auto-triggering health verification');
+    // Run async so it doesn't block server startup
+    setImmediate(async () => {
+      try {
+        await agent.chat(
+          'Run a post-deploy health verification: check all pod health, verify running image digests against the manifest, then transition to runtime.',
+        );
+      } catch (err) {
+        log.error({ err }, 'auto-verify failed');
+      }
+    });
   }
 
   // Start HTTP server

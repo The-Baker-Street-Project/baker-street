@@ -144,8 +144,72 @@ jobs:
           name: digest-${{ matrix.service.name }}
           path: /tmp/digests/${{ matrix.service.name }}
 
+  build-installer:
+    runs-on: ${{ matrix.target.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - triple: x86_64-unknown-linux-gnu
+            binary: bakerst-install-linux-amd64
+            runner: ubuntu-latest
+            use-cross: false
+          - triple: aarch64-unknown-linux-gnu
+            binary: bakerst-install-linux-arm64
+            runner: ubuntu-latest
+            use-cross: true
+          - triple: x86_64-apple-darwin
+            binary: bakerst-install-darwin-amd64
+            runner: macos-latest
+            use-cross: false
+          - triple: aarch64-apple-darwin
+            binary: bakerst-install-darwin-arm64
+            runner: macos-latest
+            use-cross: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target.triple }}
+
+      - name: Install cross (Linux ARM64)
+        if: matrix.target.use-cross
+        run: cargo install cross --locked
+
+      - name: Build with cross
+        if: matrix.target.use-cross
+        working-directory: tools/installer
+        run: cross build --release --target ${{ matrix.target.triple }}
+
+      - name: Build with cargo
+        if: ${{ !matrix.target.use-cross }}
+        working-directory: tools/installer
+        run: cargo build --release --target ${{ matrix.target.triple }}
+
+      - name: Rename binary and generate checksum
+        env:
+          TARGET: ${{ matrix.target.triple }}
+          BINARY_NAME: ${{ matrix.target.binary }}
+        run: |
+          cp "tools/installer/target/${TARGET}/release/bakerst-install" "$BINARY_NAME"
+          if command -v sha256sum &> /dev/null; then
+            sha256sum "$BINARY_NAME" > "${BINARY_NAME}.sha256"
+          else
+            shasum -a 256 "$BINARY_NAME" > "${BINARY_NAME}.sha256"
+          fi
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ matrix.target.binary }}
+            ${{ matrix.target.binary }}.sha256
+
   create-release:
-    needs: build-and-push
+    needs: [build-and-push, build-installer]
     runs-on: ubuntu-latest
 
     steps:

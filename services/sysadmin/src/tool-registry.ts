@@ -6,18 +6,16 @@ const log = logger.child({ module: 'tool-registry' });
 
 /** Tool names available per state */
 const STATE_TOOLS: Record<SysAdminState, Set<string>> = {
-  deploy: new Set([
-    'create_namespace',
-    'create_secret',
-    'create_configmap',
-    'create_deployment',
-    'create_service',
-    'apply_network_policy',
+  verify: new Set([
     'check_pod_health',
     'get_pod_logs',
-    'wait_for_rollout',
+    'get_cluster_status',
+    'verify_image_integrity',
+    'verify_running_digests',
     'fetch_release_manifest',
-    'ask_user',
+    'restart_deployment',
+    'scale_deployment',
+    'check_for_updates',
     'transition_to_runtime',
   ]),
   runtime: new Set([

@@ -1,0 +1,359 @@
+# Default deny all ingress traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Brain: accepts traffic from gateway, ui, worker, and voice
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: brain-policy
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: brain
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: gateway
+        - podSelector:
+            matchLabels:
+              app: ui
+        - podSelector:
+            matchLabels:
+              app: worker
+        - podSelector:
+            matchLabels:
+              app: bakerst-voice
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+# Worker: no ingress needed (pulls from NATS)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-policy
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: worker
+  policyTypes:
+    - Ingress
+  ingress: []
+---
+# Gateway: accepts traffic from external (port-forward / ingress)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-policy
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 3000
+---
+# UI: accepts traffic from external (port-forward / ingress)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ui-policy
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: ui
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+---
+# NATS: accepts traffic from brain, worker, and extensions
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats-policy
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: nats
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: brain
+        - podSelector:
+            matchLabels:
+              app: worker
+        - podSelector:
+            matchLabels:
+              app: bakerst-extension
+      ports:
+        - protocol: TCP
+          port: 4222
+---
+# Qdrant: accepts traffic from brain only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qdrant-policy
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: qdrant
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: brain
+      ports:
+        - protocol: TCP
+          port: 6333
+        - protocol: TCP
+          port: 6334
+---
+# Task pods: allow egress to NATS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-task-to-nats
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: bakerst-task
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: nats
+      ports:
+        - port: 4222
+          protocol: TCP
+---
+# Extensions: accept MCP calls from brain
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: extension-ingress
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: bakerst-extension
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: brain
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# Extensions: allow egress to NATS for announce/heartbeat
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: extension-egress
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: bakerst-extension
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: nats
+      ports:
+        - port: 4222
+          protocol: TCP
+---
+# GitHub extension: allow egress to NATS + GitHub API (HTTPS) + DNS
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: extension-github-egress
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: bakerst-extension
+      extension: github
+  policyTypes:
+    - Egress
+  egress:
+    # NATS (announce/heartbeat)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: nats
+      ports:
+        - port: 4222
+          protocol: TCP
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # GitHub API (HTTPS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+---
+# Voice: accepts traffic from brain and external (port-forward)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: voice-ingress
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: bakerst-voice
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: brain
+      ports:
+        - protocol: TCP
+          port: 3001
+    - ports:
+        - protocol: TCP
+          port: 3001
+---
+# Voice: allow egress to brain, local STT/TTS hosts, DNS, and cloud APIs
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: voice-egress
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: bakerst-voice
+  policyTypes:
+    - Egress
+  egress:
+    # Brain API
+    - to:
+        - podSelector:
+            matchLabels:
+              app: brain
+      ports:
+        - port: 3000
+          protocol: TCP
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Local STT/TTS services (host.docker.internal range)
+    - to:
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - port: 8083
+          protocol: TCP
+        - port: 8084
+          protocol: TCP
+    # Cloud STT/TTS APIs (HTTPS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+---
+# SysAdmin: accept traffic from external (port-forward / NodePort)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sysadmin-ingress
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: sysadmin
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 3090
+---
+# SysAdmin: allow egress to K8s API, DNS, HTTPS (Anthropic, GHCR, GitHub API)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sysadmin-egress
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: sysadmin
+  policyTypes:
+    - Egress
+  egress:
+    # K8s API server (typically 443 on the cluster IP)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

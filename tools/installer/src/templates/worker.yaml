@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: {{NAMESPACE}}
+  labels:
+    app: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: {{IMAGE_WORKER}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - containerPort: 3001
+              name: health
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          env:
+            - name: NATS_URL
+              value: "nats://nats.{{NAMESPACE}}.svc.cluster.local:4222"
+            - name: OS_DIR
+              value: "/etc/bakerst"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.bakerst-telemetry.svc.cluster.local:4318"
+            - name: AGENT_NAME
+              value: "{{AGENT_NAME}}"
+          envFrom:
+            - secretRef:
+                name: bakerst-worker-secrets
+                optional: true
+          volumeMounts:
+            - name: operating-system
+              mountPath: /etc/bakerst
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+      volumes:
+        - name: operating-system
+          configMap:
+            name: bakerst-os
+        - name: tmp
+          emptyDir: {}
