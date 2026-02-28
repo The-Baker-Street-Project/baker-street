@@ -48,26 +48,45 @@ export function createAgent(
 
     const systemBlocks: SystemBlock[] = [{ type: 'text', text: currentSystemPrompt }];
     let stateTransition: AgentTurnResult['stateTransition'];
+    let lastTextResponse = '';
 
     for (let i = 0; i < MAX_ITERATIONS; i++) {
-      const response = await modelRouter.chat({
-        role: 'agent',
-        system: systemBlocks,
-        tools: getToolDefinitions(),
-        messages,
-      });
+      let response;
+      try {
+        response = await modelRouter.chat({
+          role: 'agent',
+          system: systemBlocks,
+          tools: getToolDefinitions(),
+          messages,
+        });
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        log.error({ err }, 'model router chat failed');
+        // On API error, return whatever we have so far rather than corrupting messages
+        return {
+          response: lastTextResponse || `Error communicating with AI: ${errorMsg}`,
+          stateTransition,
+        };
+      }
+
+      // Extract any text from the response
+      const textParts = response.content
+        .filter((b): b is ChatContentBlock & { type: 'text' } => b.type === 'text')
+        .map((b) => b.text);
+      if (textParts.length > 0) {
+        lastTextResponse = textParts.join('\n');
+      }
 
       if (response.stopReason === 'end_turn') {
-        const text = response.content
-          .filter((b): b is ChatContentBlock & { type: 'text' } => b.type === 'text')
-          .map((b) => b.text)
-          .join('\n');
-
-        return { response: text, stateTransition };
+        return { response: lastTextResponse, stateTransition };
       }
 
       if (response.stopReason === 'tool_use') {
+        // Push assistant message first
         messages.push({ role: 'assistant', content: response.content });
+
+        // ALWAYS process ALL tool_use blocks to produce matching tool_results.
+        // Skipping any would corrupt the message history and cause API errors.
         const toolResults: ChatContentBlock[] = [];
 
         for (const block of response.content) {
@@ -99,15 +118,12 @@ export function createAgent(
           });
         }
 
+        // Push ALL tool results before checking state transition
         messages.push({ role: 'user', content: toolResults });
 
-        // If a tool triggered a state transition, break out of the loop
+        // If a tool triggered a state transition, return after completing all results
         if (stateTransition) {
-          const text = response.content
-            .filter((b): b is ChatContentBlock & { type: 'text' } => b.type === 'text')
-            .map((b) => b.text)
-            .join('\n');
-          return { response: text || 'State transition initiated.', stateTransition };
+          return { response: lastTextResponse || 'State transition initiated.', stateTransition };
         }
 
         continue;
@@ -115,14 +131,10 @@ export function createAgent(
 
       // Unexpected stop reason
       log.warn({ stopReason: response.stopReason }, 'unexpected stop reason');
-      const text = response.content
-        .filter((b): b is ChatContentBlock & { type: 'text' } => b.type === 'text')
-        .map((b) => b.text)
-        .join('\n');
-      return { response: text || '(no response)', stateTransition };
+      return { response: lastTextResponse || '(no response)', stateTransition };
     }
 
-    return { response: 'Reached maximum tool-use iterations.', stateTransition };
+    return { response: lastTextResponse || 'Reached maximum tool-use iterations.', stateTransition };
   }
 
   function reconfigure(newSystemPrompt: string, newTools: RegisteredTool[]): void {
