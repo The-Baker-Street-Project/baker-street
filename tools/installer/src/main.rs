@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod manifest;
+mod templates;
 
 use clap::Parser;
 use cli::Cli;
