@@ -20,3 +20,4 @@ export { loadModelConfig, createDefaultConfig } from './model-config.js';
 export { getTracer, getTraceHeaders, extractTraceContext, withSpan } from './tracing.js';
 export { CircuitBreaker, type CircuitBreakerOptions, type CircuitState } from './circuit-breaker.js';
 export { features, createFeatures, type Features, type FeatureFlag, type BakerstMode } from './features.js';
+export * from './release-manifest.js';

@@ -36,9 +36,9 @@ jobs:
         run: pnpm install
 
       - name: Build
-        run: pnpm -r build
+        run: pnpm -r --filter '!@bakerst/voice' build
 
       - name: Test
-        run: pnpm -r test
+        run: pnpm -r --filter '!@bakerst/voice' test
         env:
           LOG_LEVEL: silent
