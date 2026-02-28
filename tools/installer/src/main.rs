@@ -1,5 +1,6 @@
 mod app;
 mod cli;
+mod health;
 mod images;
 mod k8s;
 mod manifest;
