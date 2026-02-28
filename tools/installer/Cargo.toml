@@ -32,6 +32,9 @@ serde_yaml = "0.9"
 # CLI
 clap = { version = "4", features = ["derive"] }
 
+# Date/time
+chrono = "0.4"
+
 # Utilities
 anyhow = "1"
 rand = "0.8"
@@ -42,3 +45,4 @@ open = "5"
 [dev-dependencies]
 assert_cmd = "2"
 predicates = "3"
+tempfile = "3"
