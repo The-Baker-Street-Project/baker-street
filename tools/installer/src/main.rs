@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod images;
+mod k8s;
 mod manifest;
 mod templates;
 

@@ -1,0 +1,8 @@
+{
+  "SOUL.md": { "version": "1.0.0", "description": "Core personality" },
+  "BRAIN.md": { "version": "1.0.0", "description": "Brain operating instructions" },
+  "WORKER.md": { "version": "1.0.0", "description": "Worker operating instructions" },
+  "sysadmin-deploy": { "version": "1.0.0", "description": "SysAdmin deploy prompt" },
+  "sysadmin-runtime": { "version": "1.0.0", "description": "SysAdmin runtime prompt" },
+  "sysadmin-update": { "version": "1.0.0", "description": "SysAdmin update prompt" }
+}
