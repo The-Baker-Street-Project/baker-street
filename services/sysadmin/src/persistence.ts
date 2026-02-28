@@ -23,7 +23,7 @@ function getApi(): k8s.CoreV1Api {
 
 function defaultState(): SysAdminPersistedState {
   return {
-    state: 'deploy',
+    state: 'verify',
     healthHistory: [],
   };
 }

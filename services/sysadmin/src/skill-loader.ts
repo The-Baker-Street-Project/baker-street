@@ -26,7 +26,7 @@ export async function loadPrompt(state: SysAdminState): Promise<string> {
 
 /**
  * Load a runtime prompt from content (downloaded from the release manifest).
- * Used for prompt hot-swap when transitioning from deploy → runtime.
+ * Used for prompt hot-swap when transitioning from verify → runtime.
  */
 export function loadPromptFromContent(content: string): string {
   return content;

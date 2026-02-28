@@ -7,13 +7,13 @@ const log = logger.child({ module: 'sysadmin-state' });
 /**
  * Valid state transitions for the sysadmin state machine.
  *
- * deploy  → runtime
+ * verify  → runtime
  * runtime → update | shutdown
  * update  → runtime | shutdown
  * shutdown → (terminal)
  */
 const VALID_TRANSITIONS: Record<SysAdminState, Set<SysAdminState>> = {
-  deploy: new Set(['runtime', 'shutdown']),
+  verify: new Set(['runtime', 'shutdown']),
   runtime: new Set(['update', 'shutdown']),
   update: new Set(['runtime', 'shutdown']),
   shutdown: new Set(),

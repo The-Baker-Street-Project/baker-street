@@ -114,7 +114,7 @@ export interface ReleaseManifest {
 // SysAdmin state types
 // ---------------------------------------------------------------------------
 
-export type SysAdminState = 'deploy' | 'runtime' | 'update' | 'shutdown';
+export type SysAdminState = 'verify' | 'runtime' | 'update' | 'shutdown';
 
 export interface SysAdminPersistedState {
   /** Current state machine state */
