@@ -84,12 +84,55 @@ pub struct FeatureSelection {
     pub secrets: Vec<(String, Option<String>)>, // (key, value)
 }
 
+/// A single secret prompt in the Secrets phase
+#[derive(Debug, Clone)]
+pub struct SecretPrompt {
+    pub key: String,
+    pub description: String,
+    pub required: bool,
+    pub is_secret: bool, // mask input with bullets
+    pub value: Option<String>,
+}
+
 /// Top-level app state
 pub struct App {
     pub phase: Phase,
     pub config: InstallConfig,
     pub should_quit: bool,
     pub cluster_name: String,
+
+    // Preflight results
+    pub preflight_checks: Vec<(String, ItemStatus)>,
+
+    // Secrets phase
+    pub secret_prompts: Vec<SecretPrompt>,
+    pub current_secret_index: usize,
+    pub secret_input: String,
+
+    // Features phase
+    pub feature_cursor: usize,
+
+    // Confirm phase
+    pub confirm_selected: usize, // 0 = Confirm, 1 = Cancel
+
+    // Pull phase
+    pub pull_statuses: Vec<(String, ItemStatus)>,
+    pub pull_progress: (usize, usize), // (done, total)
+
+    // Deploy phase
+    pub deploy_statuses: Vec<(String, ItemStatus)>,
+    pub deploy_progress: (usize, usize),
+
+    // Health phase
+    pub pod_statuses: Vec<crate::health::PodHealth>,
+    pub health_done: bool,
+    pub health_failed: bool,
+
+    // Complete phase
+    pub manifest_version: String,
+
+    // Manifest (stored after preflight fetch)
+    pub manifest: Option<crate::manifest::ReleaseManifest>,
 }
 
 impl App {
@@ -104,6 +147,39 @@ impl App {
             },
             should_quit: false,
             cluster_name: String::new(),
+
+            // Preflight
+            preflight_checks: Vec::new(),
+
+            // Secrets
+            secret_prompts: Vec::new(),
+            current_secret_index: 0,
+            secret_input: String::new(),
+
+            // Features
+            feature_cursor: 0,
+
+            // Confirm
+            confirm_selected: 0,
+
+            // Pull
+            pull_statuses: Vec::new(),
+            pull_progress: (0, 0),
+
+            // Deploy
+            deploy_statuses: Vec::new(),
+            deploy_progress: (0, 0),
+
+            // Health
+            pod_statuses: Vec::new(),
+            health_done: false,
+            health_failed: false,
+
+            // Complete
+            manifest_version: String::new(),
+
+            // Manifest
+            manifest: None,
         }
     }
 
@@ -120,6 +196,9 @@ impl App {
     pub fn back_to_secrets(&mut self) {
         if self.phase == Phase::Confirm {
             self.phase = Phase::Secrets;
+            // Reset secret input state for re-entry
+            self.current_secret_index = 0;
+            self.secret_input = String::new();
         }
     }
 }
