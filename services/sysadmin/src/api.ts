@@ -184,6 +184,12 @@ function terminalHtml(): string {
   .ask-box label { display: block; margin-bottom: 8px; color: #e94560; }
   .ask-box input, .ask-box select { background: #1a1a2e; border: 1px solid #333; color: #e0e0e0; padding: 6px 10px; border-radius: 4px; width: 100%; font-family: inherit; margin-bottom: 8px; }
   .ask-box button { background: #e94560; color: white; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; }
+  .ask-box .checkbox-group { margin-bottom: 8px; }
+  .ask-box .checkbox-group label { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; color: #e0e0e0; cursor: pointer; font-size: 14px; }
+  .ask-box .checkbox-group input[type="checkbox"] { accent-color: #e94560; width: 16px; height: 16px; }
+  #input-area.disabled input { opacity: 0.4; pointer-events: none; }
+  #input-area.disabled button { opacity: 0.4; pointer-events: none; }
+  .waiting { color: #e94560; font-style: italic; padding: 4px 0; }
 </style>
 </head>
 <body>
@@ -200,8 +206,10 @@ function terminalHtml(): string {
 const output = document.getElementById('output');
 const msgInput = document.getElementById('msg');
 const sendBtn = document.getElementById('send');
+const inputArea = document.getElementById('input-area');
 const stateEl = document.getElementById('state');
 let ws;
+let pendingAsk = false;
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -210,12 +218,23 @@ function connect() {
   ws.onclose = () => { append('Disconnected. Reconnecting...', 'error'); setTimeout(connect, 2000); };
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-    if (msg.type === 'text') append(msg.content, 'agent');
+    if (msg.type === 'text') { removeWaiting(); append(msg.content, 'agent'); setInputDisabled(false); }
     else if (msg.type === 'status') stateEl.textContent = msg.state;
     else if (msg.type === 'thinking') append('Using ' + msg.tool + '...', 'thinking');
-    else if (msg.type === 'error') append('Error: ' + msg.message, 'error');
-    else if (msg.type === 'ask') showAsk(msg);
+    else if (msg.type === 'error') { removeWaiting(); append('Error: ' + msg.message, 'error'); setInputDisabled(false); }
+    else if (msg.type === 'ask') { removeWaiting(); showAsk(msg); }
   };
+}
+
+function setInputDisabled(disabled) {
+  pendingAsk = disabled;
+  if (disabled) inputArea.classList.add('disabled');
+  else inputArea.classList.remove('disabled');
+}
+
+function removeWaiting() {
+  const el = output.querySelector('.waiting:last-child');
+  if (el) el.remove();
 }
 
 function append(text, cls) {
@@ -226,7 +245,15 @@ function append(text, cls) {
   output.scrollTop = output.scrollHeight;
 }
 
+function submitAnswer(id, value, box) {
+  ws.send(JSON.stringify({ type: 'answer', id, value }));
+  box.remove();
+  setInputDisabled(false);
+  append('Working...', 'waiting');
+}
+
 function showAsk(msg) {
+  setInputDisabled(true);
   const box = document.createElement('div');
   box.className = 'ask-box';
   const label = document.createElement('label');
@@ -234,12 +261,25 @@ function showAsk(msg) {
   box.appendChild(label);
 
   if (msg.inputType === 'choice' && msg.choices) {
-    const select = document.createElement('select');
-    msg.choices.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; select.appendChild(o); });
-    box.appendChild(select);
+    // Use checkboxes for multi-select
+    const group = document.createElement('div');
+    group.className = 'checkbox-group';
+    msg.choices.forEach(c => {
+      const row = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = c;
+      row.appendChild(cb);
+      row.appendChild(document.createTextNode(c));
+      group.appendChild(row);
+    });
+    box.appendChild(group);
     const btn = document.createElement('button');
     btn.textContent = 'Submit';
-    btn.onclick = () => { ws.send(JSON.stringify({ type: 'answer', id: msg.id, value: select.value })); box.remove(); };
+    btn.onclick = () => {
+      const selected = Array.from(group.querySelectorAll('input:checked')).map(cb => cb.value);
+      submitAnswer(msg.id, selected.length > 0 ? selected.join(', ') : 'none', box);
+    };
     box.appendChild(btn);
   } else {
     const input = document.createElement('input');
@@ -248,10 +288,11 @@ function showAsk(msg) {
     box.appendChild(input);
     const btn = document.createElement('button');
     btn.textContent = 'Submit';
-    const submit = () => { ws.send(JSON.stringify({ type: 'answer', id: msg.id, value: input.value })); box.remove(); };
+    const submit = () => { submitAnswer(msg.id, input.value, box); };
     btn.onclick = submit;
     input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
     box.appendChild(btn);
+    setTimeout(() => input.focus(), 50);
   }
 
   output.appendChild(box);
@@ -259,11 +300,14 @@ function showAsk(msg) {
 }
 
 function send() {
+  if (pendingAsk) return;
   const text = msgInput.value.trim();
   if (!text) return;
   append('> ' + text, 'system');
   ws.send(JSON.stringify({ type: 'chat', message: text }));
   msgInput.value = '';
+  setInputDisabled(true);
+  append('Working...', 'waiting');
 }
 
 sendBtn.onclick = send;
