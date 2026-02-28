@@ -12,7 +12,6 @@
  *     --ui-digest sha256:ghi... \
  *     --gateway-digest sha256:jkl... \
  *     --sysadmin-digest sha256:mno... \
- *     --voice-digest sha256:pqr... \
  *     --ext-utilities-digest sha256:stu... \
  *     --ext-github-digest sha256:vwx... \
  *     --ext-obsidian-digest sha256:yza... \
@@ -61,7 +60,6 @@ const components = [
   { name: 'ui',            pkgPath: 'services/ui',                   required: true },
   { name: 'gateway',       pkgPath: 'services/gateway',              required: true },
   { name: 'sysadmin',      pkgPath: 'services/sysadmin',             required: false },
-  { name: 'voice',         pkgPath: 'services/voice',                required: false },
   { name: 'ext-utilities', pkgPath: 'examples/extension-utilities',  required: false },
   { name: 'ext-github',    pkgPath: 'examples/extension-github',     required: false },
   { name: 'ext-obsidian',  pkgPath: 'examples/extension-obsidian',   required: false },

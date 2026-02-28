@@ -41,10 +41,6 @@ jobs:
             dockerfile: services/sysadmin/Dockerfile
             pkg-path: services/sysadmin
             has-build-args: false
-          - name: voice
-            dockerfile: services/voice/Dockerfile
-            pkg-path: services/voice
-            has-build-args: false
           - name: ext-utilities
             dockerfile: examples/extension-utilities/Dockerfile
             pkg-path: examples/extension-utilities
@@ -169,7 +165,7 @@ jobs:
       - name: Read digests
         id: digests
         run: |
-          for service in brain worker ui gateway sysadmin voice ext-utilities ext-github ext-obsidian; do
+          for service in brain worker ui gateway sysadmin ext-utilities ext-github ext-obsidian; do
             digest=$(cat "/tmp/digests/${service}" 2>/dev/null || echo "")
             echo "${service}=${digest}" >> "$GITHUB_OUTPUT"
           done
@@ -182,7 +178,6 @@ jobs:
           UI_DIGEST: ${{ steps.digests.outputs.ui }}
           GATEWAY_DIGEST: ${{ steps.digests.outputs.gateway }}
           SYSADMIN_DIGEST: ${{ steps.digests.outputs.sysadmin }}
-          VOICE_DIGEST: ${{ steps.digests.outputs.voice }}
           EXT_UTILITIES_DIGEST: ${{ steps.digests.outputs.ext-utilities }}
           EXT_GITHUB_DIGEST: ${{ steps.digests.outputs.ext-github }}
           EXT_OBSIDIAN_DIGEST: ${{ steps.digests.outputs.ext-obsidian }}
@@ -195,7 +190,6 @@ jobs:
             --ui-digest "$UI_DIGEST" \
             --gateway-digest "$GATEWAY_DIGEST" \
             --sysadmin-digest "$SYSADMIN_DIGEST" \
-            --voice-digest "$VOICE_DIGEST" \
             --ext-utilities-digest "$EXT_UTILITIES_DIGEST" \
             --ext-github-digest "$EXT_GITHUB_DIGEST" \
             --ext-obsidian-digest "$EXT_OBSIDIAN_DIGEST" \
