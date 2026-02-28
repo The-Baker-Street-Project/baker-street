@@ -12,6 +12,10 @@
  *     --ui-digest sha256:ghi... \
  *     --gateway-digest sha256:jkl... \
  *     --sysadmin-digest sha256:mno... \
+ *     --voice-digest sha256:pqr... \
+ *     --ext-utilities-digest sha256:stu... \
+ *     --ext-github-digest sha256:vwx... \
+ *     --ext-obsidian-digest sha256:yza... \
  *     --output release-manifest.json
  */
 
@@ -51,11 +55,21 @@ if (!releaseVersion) {
 // Read package versions
 // ---------------------------------------------------------------------------
 
-const services = ['brain', 'worker', 'ui', 'gateway', 'sysadmin'];
+const components = [
+  { name: 'brain',         pkgPath: 'services/brain',                required: true },
+  { name: 'worker',        pkgPath: 'services/worker',               required: true },
+  { name: 'ui',            pkgPath: 'services/ui',                   required: true },
+  { name: 'gateway',       pkgPath: 'services/gateway',              required: true },
+  { name: 'sysadmin',      pkgPath: 'services/sysadmin',             required: false },
+  { name: 'voice',         pkgPath: 'services/voice',                required: false },
+  { name: 'ext-utilities', pkgPath: 'examples/extension-utilities',  required: false },
+  { name: 'ext-github',    pkgPath: 'examples/extension-github',     required: false },
+  { name: 'ext-obsidian',  pkgPath: 'examples/extension-obsidian',   required: false },
+];
 const IMAGE_PREFIX = 'ghcr.io/the-baker-street-project/bakerst';
 
-function readVersion(service) {
-  const pkg = JSON.parse(readFileSync(join(ROOT, 'services', service, 'package.json'), 'utf-8'));
+function readVersion(pkgPath) {
+  const pkg = JSON.parse(readFileSync(join(ROOT, pkgPath, 'package.json'), 'utf-8'));
   return pkg.version;
 }
 
@@ -105,15 +119,15 @@ for (const [name, meta] of Object.entries(promptsMeta)) {
 // Build images array
 // ---------------------------------------------------------------------------
 
-const images = services.map((service) => {
-  const version = readVersion(service);
-  const digest = args[`${service}-digest`] ?? '';
+const images = components.map(({ name, pkgPath, required }) => {
+  const version = readVersion(pkgPath);
+  const digest = args[`${name}-digest`] ?? '';
   return {
-    component: service,
-    image: `${IMAGE_PREFIX}-${service}:${version}`,
+    component: name,
+    image: `${IMAGE_PREFIX}-${name}:${version}`,
     version,
     digest,
-    required: service !== 'sysadmin',
+    required,
   };
 });
 
@@ -136,7 +150,7 @@ const manifest = {
   schemaVersion: 1,
   version: releaseVersion,
   date: new Date().toISOString(),
-  minSysadminVersion: readVersion('sysadmin'),
+  minSysadminVersion: readVersion('services/sysadmin'),
   releaseNotes: `Baker Street ${releaseVersion}`,
 
   images,

@@ -23,18 +23,39 @@ jobs:
         service:
           - name: brain
             dockerfile: services/brain/Dockerfile
+            pkg-path: services/brain
             has-build-args: true
           - name: worker
             dockerfile: services/worker/Dockerfile
+            pkg-path: services/worker
             has-build-args: false
           - name: ui
             dockerfile: services/ui/Dockerfile
+            pkg-path: services/ui
             has-build-args: false
           - name: gateway
             dockerfile: services/gateway/Dockerfile
+            pkg-path: services/gateway
             has-build-args: false
           - name: sysadmin
             dockerfile: services/sysadmin/Dockerfile
+            pkg-path: services/sysadmin
+            has-build-args: false
+          - name: voice
+            dockerfile: services/voice/Dockerfile
+            pkg-path: services/voice
+            has-build-args: false
+          - name: ext-utilities
+            dockerfile: examples/extension-utilities/Dockerfile
+            pkg-path: examples/extension-utilities
+            has-build-args: false
+          - name: ext-github
+            dockerfile: examples/extension-github/Dockerfile
+            pkg-path: examples/extension-github
+            has-build-args: false
+          - name: ext-obsidian
+            dockerfile: examples/extension-obsidian/Dockerfile
+            pkg-path: examples/extension-obsidian
             has-build-args: false
 
     steps:
@@ -63,9 +84,9 @@ jobs:
       - name: Read service version
         id: svc-version
         env:
-          SERVICE_NAME: ${{ matrix.service.name }}
+          PKG_PATH: ${{ matrix.service.pkg-path }}
         run: |
-          VERSION=$(node -e "console.log(require('./services/${SERVICE_NAME}/package.json').version)")
+          VERSION=$(node -e "console.log(require('./${PKG_PATH}/package.json').version)")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Compute build args
@@ -148,7 +169,7 @@ jobs:
       - name: Read digests
         id: digests
         run: |
-          for service in brain worker ui gateway sysadmin; do
+          for service in brain worker ui gateway sysadmin voice ext-utilities ext-github ext-obsidian; do
             digest=$(cat "/tmp/digests/${service}" 2>/dev/null || echo "")
             echo "${service}=${digest}" >> "$GITHUB_OUTPUT"
           done
@@ -161,6 +182,10 @@ jobs:
           UI_DIGEST: ${{ steps.digests.outputs.ui }}
           GATEWAY_DIGEST: ${{ steps.digests.outputs.gateway }}
           SYSADMIN_DIGEST: ${{ steps.digests.outputs.sysadmin }}
+          VOICE_DIGEST: ${{ steps.digests.outputs.voice }}
+          EXT_UTILITIES_DIGEST: ${{ steps.digests.outputs.ext-utilities }}
+          EXT_GITHUB_DIGEST: ${{ steps.digests.outputs.ext-github }}
+          EXT_OBSIDIAN_DIGEST: ${{ steps.digests.outputs.ext-obsidian }}
         run: |
           RELEASE_VERSION="${REF_NAME#v}"
           node scripts/generate-manifest.mjs \
@@ -170,6 +195,10 @@ jobs:
             --ui-digest "$UI_DIGEST" \
             --gateway-digest "$GATEWAY_DIGEST" \
             --sysadmin-digest "$SYSADMIN_DIGEST" \
+            --voice-digest "$VOICE_DIGEST" \
+            --ext-utilities-digest "$EXT_UTILITIES_DIGEST" \
+            --ext-github-digest "$EXT_GITHUB_DIGEST" \
+            --ext-obsidian-digest "$EXT_OBSIDIAN_DIGEST" \
             --output release-manifest.json
 
       - name: Download SBOMs
