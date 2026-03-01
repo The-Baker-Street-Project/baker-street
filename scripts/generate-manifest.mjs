@@ -208,6 +208,13 @@ const manifest = {
       secrets: ['GITHUB_TOKEN'],
     },
     {
+      id: 'perplexity',
+      name: 'Perplexity Search',
+      description: 'Enable Perplexity AI search and research tools',
+      defaultEnabled: false,
+      secrets: ['PERPLEXITY_API_KEY'],
+    },
+    {
       id: 'obsidian',
       name: 'Obsidian Extension',
       description: 'Enable Obsidian vault integration',

@@ -151,6 +151,13 @@ pub fn default_manifest() -> ReleaseManifest {
                 secrets: vec!["GITHUB_TOKEN".into()],
             },
             ManifestFeature {
+                id: "perplexity".into(),
+                name: "Perplexity".into(),
+                description: "Perplexity AI search and research tools".into(),
+                default_enabled: false,
+                secrets: vec!["PERPLEXITY_API_KEY".into()],
+            },
+            ManifestFeature {
                 id: "obsidian".into(),
                 name: "Obsidian".into(),
                 description: "Obsidian vault extension".into(),
