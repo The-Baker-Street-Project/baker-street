@@ -16,6 +16,7 @@ const STATE_TOOLS: Record<SysAdminState, Set<string>> = {
     'restart_deployment',
     'scale_deployment',
     'check_for_updates',
+    'get_feature_flags',
     'transition_to_runtime',
   ]),
   runtime: new Set([
@@ -28,6 +29,8 @@ const STATE_TOOLS: Record<SysAdminState, Set<string>> = {
     'restart_deployment',
     'scale_deployment',
     'check_for_updates',
+    'get_feature_flags',
+    'set_feature_flag',
     'transition_to_update',
   ]),
   update: new Set([
@@ -43,6 +46,8 @@ const STATE_TOOLS: Record<SysAdminState, Set<string>> = {
     'fetch_release_manifest',
     'backup_state',
     'rollback',
+    'get_feature_flags',
+    'set_feature_flag',
     'transition_to_runtime',
   ]),
   shutdown: new Set(),

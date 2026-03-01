@@ -111,6 +111,8 @@ pub fn default_manifest() -> ReleaseManifest {
             image("gateway", true),
             image("sysadmin", false),
             image("voice", false),
+            image("ext-toolbox", false),
+            image("ext-browser", false),
         ],
         required_secrets: vec![
             ManifestSecret {
@@ -149,6 +151,20 @@ pub fn default_manifest() -> ReleaseManifest {
                 description: "GitHub extension for repo access".into(),
                 default_enabled: false,
                 secrets: vec!["GITHUB_TOKEN".into()],
+            },
+            ManifestFeature {
+                id: "perplexity".into(),
+                name: "Perplexity".into(),
+                description: "Perplexity AI search and research tools".into(),
+                default_enabled: false,
+                secrets: vec!["PERPLEXITY_API_KEY".into()],
+            },
+            ManifestFeature {
+                id: "browser".into(),
+                name: "Browser".into(),
+                description: "AI-driven browser automation extension".into(),
+                default_enabled: false,
+                secrets: vec![],
             },
             ManifestFeature {
                 id: "obsidian".into(),

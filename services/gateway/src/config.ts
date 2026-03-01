@@ -1,10 +1,14 @@
 import { features, logger } from '@bakerst/shared';
+import type { DoorPolicyMode } from './types.js';
 
 const log = logger.child({ module: 'config' });
+
+const VALID_DOOR_POLICIES: DoorPolicyMode[] = ['open', 'card', 'list', 'landlord'];
 
 export interface GatewayConfig {
   brainUrl: string;
   dataDir: string;
+  doorPolicy: DoorPolicyMode;
   telegram: {
     enabled: boolean;
     botToken: string;
@@ -28,12 +32,19 @@ export function loadConfig(): GatewayConfig {
     throw new Error('BRAIN_URL is required');
   }
 
+  const doorPolicyRaw = (process.env.DOOR_POLICY ?? 'open').toLowerCase() as DoorPolicyMode;
+  const doorPolicy = VALID_DOOR_POLICIES.includes(doorPolicyRaw) ? doorPolicyRaw : 'open';
+  if (doorPolicyRaw !== doorPolicy) {
+    log.warn({ configured: process.env.DOOR_POLICY, using: doorPolicy }, 'invalid DOOR_POLICY, falling back to open');
+  }
+
   const telegramToken = process.env.TELEGRAM_BOT_TOKEN ?? '';
   const discordToken = process.env.DISCORD_BOT_TOKEN ?? '';
 
   const config: GatewayConfig = {
     brainUrl,
     dataDir: process.env.DATA_DIR ?? '/data',
+    doorPolicy,
     telegram: {
       enabled: !!telegramToken && features.isEnabled('telegram'),
       botToken: telegramToken,
@@ -62,6 +73,8 @@ export function loadConfig(): GatewayConfig {
       'discord adapter enabled',
     );
   }
+
+  log.info({ doorPolicy: config.doorPolicy }, 'door policy mode');
 
   return config;
 }

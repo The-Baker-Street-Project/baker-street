@@ -6,6 +6,7 @@ import { createVerifyIntegrityTools } from './verify-integrity.js';
 import { createReleaseManifestTools } from './release-manifest.js';
 import { createAskUserTools } from './ask-user.js';
 import { createTransitionTools } from './transitions.js';
+import { createFeatureFlagTools } from './feature-flags.js';
 
 /**
  * Create all available tools. The tool-registry filters these by state.
@@ -19,5 +20,6 @@ export function createAllTools(): RegisteredTool[] {
     ...createReleaseManifestTools(),
     ...createAskUserTools(),
     ...createTransitionTools(),
+    ...createFeatureFlagTools(),
   ];
 }

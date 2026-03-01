@@ -80,6 +80,19 @@ export function ChatPage() {
     }
   }, [conversationId, id, navigate]);
 
+  // Restore last active conversation when navigating to /chat without an ID
+  useEffect(() => {
+    if (!id && !conversationId && messages.length === 0) {
+      const savedId = sessionStorage.getItem('bakerst_active_conversation');
+      if (savedId) {
+        loadConversation(savedId).catch(() => {
+          sessionStorage.removeItem('bakerst_active_conversation');
+        });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (showHistory) {
       getConversations().then(setConversations).catch(() => {});

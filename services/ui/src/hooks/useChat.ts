@@ -78,6 +78,7 @@ export function useChat(initialConversationId?: string) {
           } else if (event.type === 'done') {
             if (event.conversationId) {
               setConversationId(event.conversationId);
+              sessionStorage.setItem('bakerst_active_conversation', event.conversationId);
             }
           }
         }
@@ -104,6 +105,7 @@ export function useChat(initialConversationId?: string) {
   const newChat = useCallback(() => {
     setMessages([]);
     setConversationId(undefined);
+    sessionStorage.removeItem('bakerst_active_conversation');
   }, []);
 
   return { messages, isStreaming, conversationId, sendMessage, stopStreaming, loadConversation, newChat, setMessages, setConversationId };

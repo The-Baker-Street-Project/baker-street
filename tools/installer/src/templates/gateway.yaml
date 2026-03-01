@@ -47,6 +47,9 @@ spec:
               value: "http://brain.{{NAMESPACE}}.svc.cluster.local:3000"
             - name: DATA_DIR
               value: "/data"
+            - name: DOOR_POLICY
+              value: "{{DOOR_POLICY}}"
+{{GATEWAY_FEATURE_VARS}}
           envFrom:
             - secretRef:
                 name: bakerst-gateway-secrets

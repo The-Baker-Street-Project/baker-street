@@ -206,6 +206,7 @@ fn build_secret_prompts(app: &mut App, manifest: &ReleaseManifest) {
             description: secret.description.clone(),
             required: secret.required,
             is_secret: secret.input_type == "secret",
+            is_feature: false,
             value: None,
         });
     }
@@ -383,6 +384,10 @@ fn handle_features_key(app: &mut App, key: event::KeyEvent) {
             // Generate auth token before confirm
             app.config.auth_token = generate_auth_token();
 
+            // Remove any previously appended feature prompts (handles Cancel → retry)
+            app.secret_prompts.retain(|p| !p.is_feature);
+            let base_count = app.secret_prompts.len();
+
             // Collect secrets for enabled features
             let mut feature_prompts = Vec::new();
             for feature in &app.config.features {
@@ -393,6 +398,7 @@ fn handle_features_key(app: &mut App, key: event::KeyEvent) {
                             description: format!("{} — {}", feature.name, key),
                             required: false,
                             is_secret: key.contains("TOKEN") || key.contains("KEY"),
+                            is_feature: true,
                             value: None,
                         });
                     }
@@ -404,6 +410,7 @@ fn handle_features_key(app: &mut App, key: event::KeyEvent) {
             } else {
                 // Append feature secret prompts and go back to Secrets phase
                 app.secret_prompts.extend(feature_prompts);
+                app.current_secret_index = base_count;
                 app.collecting_feature_secrets = true;
                 app.phase = Phase::Secrets;
             }
@@ -830,6 +837,16 @@ async fn run_deploy_sequence(
                     let r = k8s::apply_yaml(&client, &namespace, &yaml).await.map(|_| ());
                     report_step!("SysAdmin", r.map_err(|e| anyhow::anyhow!("{}", e)));
                 }
+                "ext-toolbox" => {
+                    let yaml = render_template(templates::TOOLBOX_YAML, &vars);
+                    let r = k8s::apply_yaml(&client, &namespace, &yaml).await.map(|_| ());
+                    report_step!("Toolbox", r.map_err(|e| anyhow::anyhow!("{}", e)));
+                }
+                "ext-browser" => {
+                    let yaml = render_template(templates::BROWSER_YAML, &vars);
+                    let r = k8s::apply_yaml(&client, &namespace, &yaml).await.map(|_| ());
+                    report_step!("Browser", r.map_err(|e| anyhow::anyhow!("{}", e)));
+                }
                 _ => {}
             }
         }
@@ -891,6 +908,12 @@ async fn create_all_secrets(
                         k8s::create_secret(client, namespace, "bakerst-github-secrets", &gh_data)
                             .await?;
                     }
+                    "PERPLEXITY_API_KEY" => {
+                        let mut px_data = BTreeMap::new();
+                        px_data.insert("PERPLEXITY_API_KEY".into(), v.clone());
+                        k8s::create_secret(client, namespace, "bakerst-perplexity-secrets", &px_data)
+                            .await?;
+                    }
                     _ => {}
                 }
             }
@@ -906,6 +929,7 @@ fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, config: &app
     vars.insert("NAMESPACE".into(), namespace.into());
     vars.insert("VERSION".into(), manifest.version.clone());
     vars.insert("AGENT_NAME".into(), config.agent_name.clone());
+    vars.insert("DOOR_POLICY".into(), "open".into());
     for img in &manifest.images {
         let key = match img.component.as_str() {
             "brain" => "IMAGE_BRAIN",
@@ -914,10 +938,49 @@ fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, config: &app
             "gateway" => "IMAGE_GATEWAY",
             "voice" => "IMAGE_VOICE",
             "sysadmin" => "IMAGE_SYSADMIN",
+            "ext-toolbox" => "IMAGE_TOOLBOX",
+            "ext-browser" => "IMAGE_BROWSER",
             _ => continue,
         };
         vars.insert(key.into(), img.image.clone());
     }
+
+    // Build FEATURE_VARS block for brain from enabled features
+    let mut feature_lines = Vec::new();
+    let mut has_extension = false;
+    for feature in &config.features {
+        if feature.enabled {
+            match feature.id.as_str() {
+                "telegram" => feature_lines.push("            - name: FEATURE_TELEGRAM\n              value: \"true\"".to_string()),
+                "discord" => feature_lines.push("            - name: FEATURE_DISCORD\n              value: \"true\"".to_string()),
+                "voyage" => feature_lines.push("            - name: FEATURE_MEMORY\n              value: \"true\"".to_string()),
+                "github" | "perplexity" | "browser" | "obsidian" => has_extension = true,
+                _ => {}
+            }
+        }
+    }
+    if has_extension {
+        feature_lines.push("            - name: FEATURE_EXTENSIONS\n              value: \"true\"".to_string());
+    }
+    // Always enable scheduler and MCP in prod
+    feature_lines.push("            - name: FEATURE_SCHEDULER\n              value: \"true\"".to_string());
+    feature_lines.push("            - name: FEATURE_MCP\n              value: \"true\"".to_string());
+
+    vars.insert("FEATURE_VARS".into(), feature_lines.join("\n"));
+
+    // Build GATEWAY_FEATURE_VARS for gateway (telegram, discord)
+    let mut gw_lines = Vec::new();
+    for feature in &config.features {
+        if feature.enabled {
+            match feature.id.as_str() {
+                "telegram" => gw_lines.push("            - name: FEATURE_TELEGRAM\n              value: \"true\"".to_string()),
+                "discord" => gw_lines.push("            - name: FEATURE_DISCORD\n              value: \"true\"".to_string()),
+                _ => {}
+            }
+        }
+    }
+    vars.insert("GATEWAY_FEATURE_VARS".into(), gw_lines.join("\n"));
+
     vars
 }
 
@@ -941,6 +1004,12 @@ fn start_health_phase(app: &mut App, async_tx: &mpsc::UnboundedSender<AsyncMsg>)
                 match img.component.as_str() {
                     "voice" | "sysadmin" => {
                         deploy_names.push(img.component.clone());
+                    }
+                    "ext-toolbox" => {
+                        deploy_names.push("ext-toolbox".into());
+                    }
+                    "ext-browser" => {
+                        deploy_names.push("ext-browser".into());
                     }
                     _ => {}
                 }
@@ -1040,15 +1109,20 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
 
     // [3/8] Features from environment
     println!("[3/8] Features: from environment...");
-    let mut enabled_features = Vec::new();
+    let mut feature_selections = Vec::new();
     for feature in &manifest.optional_features {
         let has_secrets = feature.secrets.iter().all(|s| std::env::var(s).is_ok());
+        feature_selections.push(app::FeatureSelection {
+            id: feature.id.clone(),
+            name: feature.name.clone(),
+            enabled: has_secrets,
+            secrets: feature.secrets.iter().map(|s| (s.clone(), std::env::var(s).ok())).collect(),
+        });
         if has_secrets {
-            enabled_features.push(feature.name.clone());
             println!("  Enabled: {}", feature.name);
         }
     }
-    if enabled_features.is_empty() {
+    if feature_selections.iter().all(|f| !f.enabled) {
         println!("  No optional features enabled");
     }
 
@@ -1129,23 +1203,17 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
     k8s::create_os_configmap(&client, ns).await?;
     println!("  ConfigMap: bakerst-os");
 
-    // Apply templates
-    let mut vars = HashMap::new();
-    vars.insert("NAMESPACE".into(), ns.clone());
-    vars.insert("VERSION".into(), manifest.version.clone());
-    vars.insert("AGENT_NAME".into(), agent_name.clone());
-    for img in &manifest.images {
-        let key = match img.component.as_str() {
-            "brain" => "IMAGE_BRAIN",
-            "worker" => "IMAGE_WORKER",
-            "ui" => "IMAGE_UI",
-            "gateway" => "IMAGE_GATEWAY",
-            "voice" => "IMAGE_VOICE",
-            "sysadmin" => "IMAGE_SYSADMIN",
-            _ => continue,
-        };
-        vars.insert(key.into(), img.image.clone());
-    }
+    // Build template vars using shared function
+    let ni_config = app::InstallConfig {
+        oauth_token: oauth_token.clone(),
+        api_key: api_key.clone(),
+        voyage_api_key: voyage_api_key.clone(),
+        agent_name: agent_name.clone(),
+        auth_token: auth_token.clone(),
+        features: feature_selections,
+        namespace: ns.to_string(),
+    };
+    let vars = build_template_vars(ns, &manifest, &ni_config);
 
     let deploy_steps = vec![
         ("PVCs", templates::PVCS_YAML),
