@@ -383,6 +383,16 @@ fn handle_features_key(app: &mut App, key: event::KeyEvent) {
             // Generate auth token before confirm
             app.config.auth_token = generate_auth_token();
 
+            // Count base (non-feature) secret prompts — feature prompts have " — " in description
+            let base_count = app
+                .secret_prompts
+                .iter()
+                .take_while(|p| !p.description.contains(" — "))
+                .count();
+
+            // Remove any previously appended feature prompts (handles Cancel → retry)
+            app.secret_prompts.truncate(base_count);
+
             // Collect secrets for enabled features
             let mut feature_prompts = Vec::new();
             for feature in &app.config.features {
@@ -404,6 +414,7 @@ fn handle_features_key(app: &mut App, key: event::KeyEvent) {
             } else {
                 // Append feature secret prompts and go back to Secrets phase
                 app.secret_prompts.extend(feature_prompts);
+                app.current_secret_index = base_count;
                 app.collecting_feature_secrets = true;
                 app.phase = Phase::Secrets;
             }
