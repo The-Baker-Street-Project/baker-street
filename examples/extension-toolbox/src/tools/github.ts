@@ -310,5 +310,5 @@ export function registerGithubTools(server: McpServer): void {
     },
   );
 
-  console.log('[toolbox] GitHub tools registered (14 tools)');
+  console.log('[toolbox] GitHub tools registered (13 tools)');
 }
