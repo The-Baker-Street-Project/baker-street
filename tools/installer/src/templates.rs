@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 /// Simple mustache-style template rendering: replaces `{{KEY}}` with values.
-pub fn render(template: &str, vars: &HashMap<&str, &str>) -> String {
+pub fn render(template: &str, vars: &HashMap<String, String>) -> String {
     let mut out = template.to_string();
     for (key, val) in vars {
         out = out.replace(&format!("{{{{{}}}}}", key), val);
@@ -45,14 +45,14 @@ mod tests {
 
     #[test]
     fn render_replaces_variables() {
-        let vars = HashMap::from([("NAME", "bakerst"), ("IMAGE", "brain:1.0")]);
+        let vars = HashMap::from([("NAME".into(), "bakerst".into()), ("IMAGE".into(), "brain:1.0".into())]);
         let result = render("namespace: {{NAME}}, image: {{IMAGE}}", &vars);
         assert_eq!(result, "namespace: bakerst, image: brain:1.0");
     }
 
     #[test]
     fn render_leaves_unknown_variables() {
-        let vars = HashMap::from([("NAME", "bakerst")]);
+        let vars = HashMap::from([("NAME".into(), "bakerst".into())]);
         let result = render("{{NAME}} and {{OTHER}}", &vars);
         assert_eq!(result, "bakerst and {{OTHER}}");
     }

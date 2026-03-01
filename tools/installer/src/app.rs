@@ -70,6 +70,7 @@ pub enum ItemStatus {
 pub struct InstallConfig {
     pub oauth_token: Option<String>,
     pub api_key: Option<String>,
+    pub voyage_api_key: Option<String>,
     pub agent_name: String,
     pub auth_token: String,
     pub features: Vec<FeatureSelection>,
@@ -111,6 +112,7 @@ pub struct App {
 
     // Features phase
     pub feature_cursor: usize,
+    pub collecting_feature_secrets: bool,
 
     // Confirm phase
     pub confirm_selected: usize, // 0 = Confirm, 1 = Cancel
@@ -158,6 +160,7 @@ impl App {
 
             // Features
             feature_cursor: 0,
+            collecting_feature_secrets: false,
 
             // Confirm
             confirm_selected: 0,

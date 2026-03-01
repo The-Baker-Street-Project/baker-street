@@ -210,14 +210,7 @@ fn build_secret_prompts(app: &mut App, manifest: &ReleaseManifest) {
         });
     }
 
-    // Always add agent name prompt (not from manifest secrets)
-    app.secret_prompts.push(SecretPrompt {
-        key: "AGENT_NAME".into(),
-        description: "Agent persona name".into(),
-        required: false,
-        is_secret: false,
-        value: Some(app.config.agent_name.clone()),
-    });
+    // Agent name uses default ("Baker") — no prompt needed
 }
 
 fn build_feature_selections(app: &mut App, manifest: &ReleaseManifest) {
@@ -344,6 +337,7 @@ fn submit_current_secret(app: &mut App) {
     match app.secret_prompts[idx].key.as_str() {
         "ANTHROPIC_OAUTH_TOKEN" => app.config.oauth_token = value,
         "ANTHROPIC_API_KEY" => app.config.api_key = value,
+        "VOYAGE_API_KEY" => app.config.voyage_api_key = value,
         "AGENT_NAME" => {
             if let Some(ref v) = value {
                 if !v.is_empty() {
@@ -351,9 +345,14 @@ fn submit_current_secret(app: &mut App) {
                 }
             }
         }
-        _ => {
-            // Check if this maps to a feature secret
-            // (handled generically below)
+        other => {
+            // Store into the matching feature's secrets
+            for feature in &mut app.config.features {
+                if let Some(entry) = feature.secrets.iter_mut().find(|(k, _)| k == other) {
+                    entry.1 = value;
+                    break;
+                }
+            }
         }
     }
 
@@ -383,7 +382,31 @@ fn handle_features_key(app: &mut App, key: event::KeyEvent) {
         KeyCode::Enter => {
             // Generate auth token before confirm
             app.config.auth_token = generate_auth_token();
-            app.advance();
+
+            // Collect secrets for enabled features
+            let mut feature_prompts = Vec::new();
+            for feature in &app.config.features {
+                if feature.enabled {
+                    for (key, _) in &feature.secrets {
+                        feature_prompts.push(SecretPrompt {
+                            key: key.clone(),
+                            description: format!("{} — {}", feature.name, key),
+                            required: false,
+                            is_secret: key.contains("TOKEN") || key.contains("KEY"),
+                            value: None,
+                        });
+                    }
+                }
+            }
+
+            if feature_prompts.is_empty() {
+                app.advance(); // straight to Confirm
+            } else {
+                // Append feature secret prompts and go back to Secrets phase
+                app.secret_prompts.extend(feature_prompts);
+                app.collecting_feature_secrets = true;
+                app.phase = Phase::Secrets;
+            }
         }
         KeyCode::Char('q') => {
             app.should_quit = true;
@@ -539,7 +562,13 @@ async fn handle_auto_advance(
         Phase::Secrets => {
             // Auto-advance when all secrets are collected
             if app.current_secret_index >= app.secret_prompts.len() {
-                app.advance();
+                if app.collecting_feature_secrets {
+                    // Feature secrets done — skip Features, go straight to Confirm
+                    app.collecting_feature_secrets = false;
+                    app.phase = Phase::Confirm;
+                } else {
+                    app.advance(); // normal: Secrets → Features
+                }
             }
         }
 
@@ -737,8 +766,7 @@ async fn run_deploy_sequence(
     report_step!("ConfigMap", r.map_err(|e| anyhow::anyhow!("{}", e)));
 
     // Build template vars
-    let version = manifest.version.clone();
-    let vars = build_template_vars(&namespace, &version);
+    let vars = build_template_vars(&namespace, &manifest, &config);
 
     // Step 4: PVCs
     let yaml = render_template(templates::PVCS_YAML, &vars);
@@ -824,6 +852,9 @@ async fn create_all_secrets(
     if let Some(ref key) = config.api_key {
         brain_data.insert("ANTHROPIC_API_KEY".into(), key.clone());
     }
+    if let Some(ref key) = config.voyage_api_key {
+        brain_data.insert("VOYAGE_API_KEY".into(), key.clone());
+    }
     brain_data.insert("AUTH_TOKEN".into(), config.auth_token.clone());
     brain_data.insert("AGENT_NAME".into(), config.agent_name.clone());
     k8s::create_secret(client, namespace, "bakerst-brain-secrets", &brain_data).await?;
@@ -870,10 +901,23 @@ async fn create_all_secrets(
     Ok(())
 }
 
-fn build_template_vars<'a>(namespace: &'a str, version: &'a str) -> HashMap<&'a str, &'a str> {
+fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, config: &app::InstallConfig) -> HashMap<String, String> {
     let mut vars = HashMap::new();
-    vars.insert("NAMESPACE", namespace);
-    vars.insert("VERSION", version);
+    vars.insert("NAMESPACE".into(), namespace.into());
+    vars.insert("VERSION".into(), manifest.version.clone());
+    vars.insert("AGENT_NAME".into(), config.agent_name.clone());
+    for img in &manifest.images {
+        let key = match img.component.as_str() {
+            "brain" => "IMAGE_BRAIN",
+            "worker" => "IMAGE_WORKER",
+            "ui" => "IMAGE_UI",
+            "gateway" => "IMAGE_GATEWAY",
+            "voice" => "IMAGE_VOICE",
+            "sysadmin" => "IMAGE_SYSADMIN",
+            _ => continue,
+        };
+        vars.insert(key.into(), img.image.clone());
+    }
     vars
 }
 
@@ -985,6 +1029,7 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
         eprintln!("  ERROR: ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_API_KEY must be set");
         std::process::exit(1);
     }
+    let voyage_api_key = std::env::var("VOYAGE_API_KEY").ok();
     let agent_name = std::env::var("AGENT_NAME").unwrap_or_else(|_| "Baker".into());
     let auth_token =
         std::env::var("AUTH_TOKEN").unwrap_or_else(|_| templates::generate_auth_token());
@@ -1041,6 +1086,9 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
     if let Some(ref key) = api_key {
         brain_secrets.insert("ANTHROPIC_API_KEY".into(), key.clone());
     }
+    if let Some(ref key) = voyage_api_key {
+        brain_secrets.insert("VOYAGE_API_KEY".into(), key.clone());
+    }
     brain_secrets.insert("AUTH_TOKEN".into(), auth_token.clone());
     brain_secrets.insert("AGENT_NAME".into(), agent_name.clone());
     k8s::create_secret(&client, ns, "bakerst-brain-secrets", &brain_secrets).await?;
@@ -1057,6 +1105,24 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
 
     let mut gateway_secrets = BTreeMap::new();
     gateway_secrets.insert("AUTH_TOKEN".into(), auth_token.clone());
+    // Add feature secrets from environment
+    for feature in &manifest.optional_features {
+        for secret_key in &feature.secrets {
+            if let Ok(val) = std::env::var(secret_key) {
+                match secret_key.as_str() {
+                    "TELEGRAM_BOT_TOKEN" | "DISCORD_BOT_TOKEN" | "DISCORD_APP_ID" => {
+                        gateway_secrets.insert(secret_key.clone(), val);
+                    }
+                    "GITHUB_TOKEN" => {
+                        let mut gh_data = BTreeMap::new();
+                        gh_data.insert("GITHUB_TOKEN".into(), val);
+                        k8s::create_secret(&client, ns, "bakerst-github-secrets", &gh_data).await?;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
     k8s::create_secret(&client, ns, "bakerst-gateway-secrets", &gateway_secrets).await?;
     println!("  Secrets created");
 
@@ -1065,13 +1131,10 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
 
     // Apply templates
     let mut vars = HashMap::new();
-    let ns_str = ns.as_str();
-    let version_str = manifest.version.as_str();
-    vars.insert("NAMESPACE", ns_str);
-    vars.insert("VERSION", version_str);
-    vars.insert("AGENT_NAME", agent_name.as_str());
+    vars.insert("NAMESPACE".into(), ns.clone());
+    vars.insert("VERSION".into(), manifest.version.clone());
+    vars.insert("AGENT_NAME".into(), agent_name.clone());
     for img in &manifest.images {
-        // Map component to template var
         let key = match img.component.as_str() {
             "brain" => "IMAGE_BRAIN",
             "worker" => "IMAGE_WORKER",
@@ -1081,7 +1144,7 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
             "sysadmin" => "IMAGE_SYSADMIN",
             _ => continue,
         };
-        vars.insert(key, img.image.as_str());
+        vars.insert(key.into(), img.image.clone());
     }
 
     let deploy_steps = vec![
@@ -1114,7 +1177,8 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
 
     // [8/8] Complete
     println!("[8/8] Complete! UI: http://localhost:30080");
-    println!("Auth Token: {}", templates::mask_secret(&auth_token));
+    println!("Auth Token: {}", auth_token);
+    println!("  (save this token — you need it to log in)");
     println!("Agent Name: {}", agent_name);
 
     Ok(())
