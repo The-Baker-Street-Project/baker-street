@@ -111,6 +111,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Make package public
+        env:
+          SERVICE_NAME: ${{ matrix.service.name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            /orgs/The-Baker-Street-Project/packages/container/bakerst-${SERVICE_NAME}/visibility \
+            -f visibility=public \
+          || echo "Warning: could not set package visibility (may already be public)"
+
       - name: Sign image with cosign
         env:
           IMAGE_REF: ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}@${{ steps.build.outputs.digest }}
