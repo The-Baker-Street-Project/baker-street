@@ -830,6 +830,16 @@ async fn run_deploy_sequence(
                     let r = k8s::apply_yaml(&client, &namespace, &yaml).await.map(|_| ());
                     report_step!("SysAdmin", r.map_err(|e| anyhow::anyhow!("{}", e)));
                 }
+                "ext-toolbox" => {
+                    let yaml = render_template(templates::TOOLBOX_YAML, &vars);
+                    let r = k8s::apply_yaml(&client, &namespace, &yaml).await.map(|_| ());
+                    report_step!("Toolbox", r.map_err(|e| anyhow::anyhow!("{}", e)));
+                }
+                "ext-browser" => {
+                    let yaml = render_template(templates::BROWSER_YAML, &vars);
+                    let r = k8s::apply_yaml(&client, &namespace, &yaml).await.map(|_| ());
+                    report_step!("Browser", r.map_err(|e| anyhow::anyhow!("{}", e)));
+                }
                 _ => {}
             }
         }
@@ -891,6 +901,12 @@ async fn create_all_secrets(
                         k8s::create_secret(client, namespace, "bakerst-github-secrets", &gh_data)
                             .await?;
                     }
+                    "PERPLEXITY_API_KEY" => {
+                        let mut px_data = BTreeMap::new();
+                        px_data.insert("PERPLEXITY_API_KEY".into(), v.clone());
+                        k8s::create_secret(client, namespace, "bakerst-perplexity-secrets", &px_data)
+                            .await?;
+                    }
                     _ => {}
                 }
             }
@@ -914,6 +930,8 @@ fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, config: &app
             "gateway" => "IMAGE_GATEWAY",
             "voice" => "IMAGE_VOICE",
             "sysadmin" => "IMAGE_SYSADMIN",
+            "ext-toolbox" => "IMAGE_TOOLBOX",
+            "ext-browser" => "IMAGE_BROWSER",
             _ => continue,
         };
         vars.insert(key.into(), img.image.clone());
@@ -941,6 +959,12 @@ fn start_health_phase(app: &mut App, async_tx: &mpsc::UnboundedSender<AsyncMsg>)
                 match img.component.as_str() {
                     "voice" | "sysadmin" => {
                         deploy_names.push(img.component.clone());
+                    }
+                    "ext-toolbox" => {
+                        deploy_names.push("ext-toolbox".into());
+                    }
+                    "ext-browser" => {
+                        deploy_names.push("ext-browser".into());
                     }
                     _ => {}
                 }
@@ -1142,6 +1166,8 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
             "gateway" => "IMAGE_GATEWAY",
             "voice" => "IMAGE_VOICE",
             "sysadmin" => "IMAGE_SYSADMIN",
+            "ext-toolbox" => "IMAGE_TOOLBOX",
+            "ext-browser" => "IMAGE_BROWSER",
             _ => continue,
         };
         vars.insert(key.into(), img.image.clone());

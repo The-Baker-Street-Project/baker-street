@@ -53,6 +53,14 @@ jobs:
             dockerfile: examples/extension-obsidian/Dockerfile
             pkg-path: examples/extension-obsidian
             has-build-args: false
+          - name: ext-toolbox
+            dockerfile: examples/extension-toolbox/Dockerfile
+            pkg-path: examples/extension-toolbox
+            has-build-args: false
+          - name: ext-browser
+            dockerfile: examples/extension-browser/Dockerfile
+            pkg-path: examples/extension-browser
+            has-build-args: false
 
     steps:
       - uses: actions/checkout@v4
@@ -241,7 +249,7 @@ jobs:
       - name: Read digests
         id: digests
         run: |
-          for service in brain worker ui gateway sysadmin ext-utilities ext-github ext-obsidian; do
+          for service in brain worker ui gateway sysadmin ext-utilities ext-github ext-obsidian ext-toolbox ext-browser; do
             digest=$(cat "/tmp/digests/${service}" 2>/dev/null || echo "")
             echo "${service}=${digest}" >> "$GITHUB_OUTPUT"
           done
@@ -257,6 +265,8 @@ jobs:
           EXT_UTILITIES_DIGEST: ${{ steps.digests.outputs.ext-utilities }}
           EXT_GITHUB_DIGEST: ${{ steps.digests.outputs.ext-github }}
           EXT_OBSIDIAN_DIGEST: ${{ steps.digests.outputs.ext-obsidian }}
+          EXT_TOOLBOX_DIGEST: ${{ steps.digests.outputs.ext-toolbox }}
+          EXT_BROWSER_DIGEST: ${{ steps.digests.outputs.ext-browser }}
         run: |
           RELEASE_VERSION="${REF_NAME#v}"
           node scripts/generate-manifest.mjs \
@@ -269,6 +279,8 @@ jobs:
             --ext-utilities-digest "$EXT_UTILITIES_DIGEST" \
             --ext-github-digest "$EXT_GITHUB_DIGEST" \
             --ext-obsidian-digest "$EXT_OBSIDIAN_DIGEST" \
+            --ext-toolbox-digest "$EXT_TOOLBOX_DIGEST" \
+            --ext-browser-digest "$EXT_BROWSER_DIGEST" \
             --output release-manifest.json
 
       - name: Download SBOMs

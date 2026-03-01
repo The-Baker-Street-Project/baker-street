@@ -63,6 +63,8 @@ const components = [
   { name: 'ext-utilities', pkgPath: 'examples/extension-utilities',  required: false },
   { name: 'ext-github',    pkgPath: 'examples/extension-github',     required: false },
   { name: 'ext-obsidian',  pkgPath: 'examples/extension-obsidian',   required: false },
+  { name: 'ext-toolbox',   pkgPath: 'examples/extension-toolbox',    required: false },
+  { name: 'ext-browser',   pkgPath: 'examples/extension-browser',    required: false },
 ];
 const IMAGE_PREFIX = 'ghcr.io/the-baker-street-project/bakerst';
 
