@@ -37,8 +37,18 @@ pub async fn create_namespace(client: &Client, name: &str) -> Result<()> {
 pub async fn apply_yaml(client: &Client, namespace: &str, yaml: &str) -> Result<Vec<String>> {
     let mut applied = Vec::new();
     for doc in yaml.split("\n---") {
+        // Strip leading comment lines (e.g. "# Brain ServiceAccount + Role")
+        // but keep the YAML content that follows
+        let doc: String = doc
+            .lines()
+            .skip_while(|line| {
+                let trimmed = line.trim();
+                trimmed.is_empty() || trimmed.starts_with('#')
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         let doc = doc.trim();
-        if doc.is_empty() || doc.starts_with('#') {
+        if doc.is_empty() {
             continue;
         }
         let resource: serde_json::Value =

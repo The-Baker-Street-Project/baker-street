@@ -13,7 +13,18 @@ pub enum PullEvent {
     Retrying { index: usize, image: String, attempt: u32 },
 }
 
+/// Errors that indicate a local Docker configuration issue (not transient).
+/// These should fail immediately without retrying.
+fn is_local_docker_error(stderr: &str) -> bool {
+    let lower = stderr.to_lowercase();
+    lower.contains("credential") || lower.contains("not found in PATH")
+        || lower.contains("docker daemon is not running")
+        || lower.contains("permission denied")
+        || lower.contains("cannot connect to the docker daemon")
+}
+
 /// Pull a single image via `docker pull`, with retries.
+/// Credential helper and docker-not-running errors fail immediately (no retry).
 async fn pull_one(image: &str) -> Result<Duration, String> {
     for attempt in 1..=MAX_RETRIES {
         let start = Instant::now();
@@ -28,6 +39,12 @@ async fn pull_one(image: &str) -> Result<Duration, String> {
         }
 
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        // Don't retry local configuration errors — they won't self-heal
+        if is_local_docker_error(&stderr) {
+            return Err(format!("docker config error (skipping retries): {}", stderr.trim()));
+        }
+
         if attempt < MAX_RETRIES {
             let backoff = Duration::from_secs(2u64.pow(attempt));
             tokio::time::sleep(backoff).await;
