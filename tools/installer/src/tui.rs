@@ -189,9 +189,14 @@ fn render_preflight(frame: &mut Frame, area: Rect, app: &App) {
 // ---------- Phase 2: Secrets ----------
 
 fn render_secrets(frame: &mut Frame, area: Rect, app: &App) {
+    let heading = if app.collecting_feature_secrets {
+        " Feature Secrets"
+    } else {
+        " Authentication & Secrets"
+    };
     let mut lines = vec![
         Line::from(Span::styled(
-            " Authentication & Secrets",
+            heading,
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
@@ -684,10 +689,14 @@ fn render_complete(frame: &mut Frame, area: Rect, app: &App) {
         lines.push(Line::from(vec![
             Span::styled("  Auth Token: ", Style::default().fg(MUTED)),
             Span::styled(
-                mask_secret(&app.config.auth_token),
-                Style::default().fg(FG),
+                app.config.auth_token.clone(),
+                Style::default().fg(WARNING),
             ),
         ]));
+        lines.push(Line::from(Span::styled(
+            "               Save this token — you need it to log in",
+            Style::default().fg(MUTED),
+        )));
     }
 
     let version_display = if app.manifest_version.is_empty() {
