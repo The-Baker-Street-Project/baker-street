@@ -922,6 +922,7 @@ fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, config: &app
     vars.insert("NAMESPACE".into(), namespace.into());
     vars.insert("VERSION".into(), manifest.version.clone());
     vars.insert("AGENT_NAME".into(), config.agent_name.clone());
+    vars.insert("DOOR_POLICY".into(), "open".into());
     for img in &manifest.images {
         let key = match img.component.as_str() {
             "brain" => "IMAGE_BRAIN",

@@ -1,7 +1,9 @@
 import { logger } from '@bakerst/shared';
 import { loadConfig } from './config.js';
 import { createBrainClient } from './brain-client.js';
-import { initMappingDb, getConversationId, setConversationId, closeMappingDb } from './mapping-db.js';
+import { initMappingDb, getDb, getConversationId, setConversationId, closeMappingDb } from './mapping-db.js';
+import { DoorPolicyManager } from './door-policy.js';
+import { startAdminApi } from './admin-api.js';
 import type { ChannelAdapter, InboundMessage } from './types.js';
 
 const log = logger.child({ module: 'gateway' });
@@ -13,6 +15,22 @@ async function main() {
 
   // Initialize mapping database
   initMappingDb(config.dataDir);
+
+  // Initialize door policy
+  const doorPolicy = new DoorPolicyManager(getDb(), config.doorPolicy);
+
+  // Auto-import static allowlists when in card mode
+  if (config.doorPolicy === 'card') {
+    if (config.telegram.allowedChatIds.length > 0) {
+      doorPolicy.importAllowlist('telegram', config.telegram.allowedChatIds);
+    }
+    if (config.discord.allowedChannelIds.length > 0) {
+      doorPolicy.importAllowlist('discord', config.discord.allowedChannelIds);
+    }
+  }
+
+  // Start admin API
+  startAdminApi(doorPolicy);
 
   // Initialize brain client
   const brain = createBrainClient(config.brainUrl);
@@ -35,6 +53,17 @@ async function main() {
     process.exit(0);
   }
 
+  // Resolve static allowlist for a given platform
+  function getStaticAllowlist(platform: string): string[] | undefined {
+    if (platform === 'telegram' && config.telegram.allowedChatIds.length > 0) {
+      return config.telegram.allowedChatIds;
+    }
+    if (platform === 'discord' && config.discord.allowedChannelIds.length > 0) {
+      return config.discord.allowedChannelIds;
+    }
+    return undefined;
+  }
+
   // Shared message handler
   async function handleMessage(msg: InboundMessage): Promise<void> {
     const { channel, text } = msg;
@@ -43,6 +72,34 @@ async function main() {
       log.error({ platform: channel.platform }, 'no adapter for platform');
       return;
     }
+
+    // --- Door policy check ---
+    const senderId = channel.userId ?? channel.platformThreadId;
+    const staticAllowed = getStaticAllowlist(channel.platform);
+    const policyResult = doorPolicy.checkMessage(channel.platform, senderId, text, staticAllowed);
+
+    if (policyResult.action === 'deny') {
+      log.info({ platform: channel.platform, senderId }, 'message denied by door policy');
+      return;
+    }
+
+    if (policyResult.action === 'challenge') {
+      log.info({ platform: channel.platform, senderId }, 'challenging unknown sender');
+      await adapter.sendResponse({ channel, text: policyResult.message });
+      return;
+    }
+
+    if (policyResult.action === 'validate_code') {
+      const result = doorPolicy.attemptPairing(channel.platform, senderId, policyResult.code);
+      log.info({ platform: channel.platform, senderId, success: result.success }, 'pairing attempt');
+      await adapter.sendResponse({ channel, text: result.message });
+      if (!result.success) return;
+      // If pairing succeeded, fall through to handle the next real message
+      // (the code itself was consumed, so we return and wait for their next message)
+      return;
+    }
+
+    // action === 'allow' — proceed with normal message handling
 
     // Resolve conversation mapping
     const existingConversationId = getConversationId(channel.platform, channel.platformThreadId);
