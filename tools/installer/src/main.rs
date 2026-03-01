@@ -1109,15 +1109,20 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
 
     // [3/8] Features from environment
     println!("[3/8] Features: from environment...");
-    let mut enabled_features = Vec::new();
+    let mut feature_selections = Vec::new();
     for feature in &manifest.optional_features {
         let has_secrets = feature.secrets.iter().all(|s| std::env::var(s).is_ok());
+        feature_selections.push(app::FeatureSelection {
+            id: feature.id.clone(),
+            name: feature.name.clone(),
+            enabled: has_secrets,
+            secrets: feature.secrets.iter().map(|s| (s.clone(), std::env::var(s).ok())).collect(),
+        });
         if has_secrets {
-            enabled_features.push(feature.name.clone());
             println!("  Enabled: {}", feature.name);
         }
     }
-    if enabled_features.is_empty() {
+    if feature_selections.iter().all(|f| !f.enabled) {
         println!("  No optional features enabled");
     }
 
@@ -1198,25 +1203,17 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
     k8s::create_os_configmap(&client, ns).await?;
     println!("  ConfigMap: bakerst-os");
 
-    // Apply templates
-    let mut vars = HashMap::new();
-    vars.insert("NAMESPACE".into(), ns.clone());
-    vars.insert("VERSION".into(), manifest.version.clone());
-    vars.insert("AGENT_NAME".into(), agent_name.clone());
-    for img in &manifest.images {
-        let key = match img.component.as_str() {
-            "brain" => "IMAGE_BRAIN",
-            "worker" => "IMAGE_WORKER",
-            "ui" => "IMAGE_UI",
-            "gateway" => "IMAGE_GATEWAY",
-            "voice" => "IMAGE_VOICE",
-            "sysadmin" => "IMAGE_SYSADMIN",
-            "ext-toolbox" => "IMAGE_TOOLBOX",
-            "ext-browser" => "IMAGE_BROWSER",
-            _ => continue,
-        };
-        vars.insert(key.into(), img.image.clone());
-    }
+    // Build template vars using shared function
+    let ni_config = app::InstallConfig {
+        oauth_token: oauth_token.clone(),
+        api_key: api_key.clone(),
+        voyage_api_key: voyage_api_key.clone(),
+        agent_name: agent_name.clone(),
+        auth_token: auth_token.clone(),
+        features: feature_selections,
+        namespace: ns.to_string(),
+    };
+    let vars = build_template_vars(ns, &manifest, &ni_config);
 
     let deploy_steps = vec![
         ("PVCs", templates::PVCS_YAML),
