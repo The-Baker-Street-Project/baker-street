@@ -2,13 +2,18 @@ import express from 'express';
 import type { Express, Request, Response } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { logger } from '@bakerst/shared';
 import type { SysAdminAgent, AgentTurnResult } from './agent.js';
 import type { SysAdminStateMachine } from './state-machine.js';
 import type { ServerMessage, ClientMessage } from './types.js';
 
 const log = logger.child({ module: 'sysadmin-api' });
+const AUTH_TOKEN = process.env.AUTH_TOKEN;
+
+if (!AUTH_TOKEN) {
+  log.warn('AUTH_TOKEN not set — running in dev mode, all requests allowed');
+}
 
 /** Pending ask_user questions waiting for answers via WebSocket */
 const pendingQuestions = new Map<string, {
@@ -67,6 +72,24 @@ export function createApi(
   const app = express();
   app.use(express.json());
 
+  // Auth middleware — skip /ping, require Bearer token on all other routes
+  app.use((req: Request, res: Response, next: () => void) => {
+    if (req.path === '/ping') return next();
+    if (!AUTH_TOKEN) return next(); // dev mode — no token set
+    const header = req.headers.authorization;
+    if (!header?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Authorization required' });
+      return;
+    }
+    const token = header.slice(7);
+    try {
+      const a = Buffer.from(token);
+      const b = Buffer.from(AUTH_TOKEN);
+      if (a.length === b.length && timingSafeEqual(a, b)) return next();
+    } catch { /* length mismatch */ }
+    res.status(403).json({ error: 'Invalid token' });
+  });
+
   // Health check
   app.get('/ping', (_req: Request, res: Response) => {
     res.json({ status: 'ok', state: stateMachine.state });
@@ -105,7 +128,22 @@ export function createApi(
   function attachWebSocket(server: Server): void {
     const wss = new WebSocketServer({ server, path: '/terminal' });
 
-    wss.on('connection', (ws) => {
+    wss.on('connection', (ws, req) => {
+      if (AUTH_TOKEN) {
+        const url = new URL(req.url ?? '', 'http://localhost');
+        const token = url.searchParams.get('token');
+        try {
+          const a = Buffer.from(token ?? '');
+          const b = Buffer.from(AUTH_TOKEN);
+          if (a.length !== b.length || !timingSafeEqual(a, b)) {
+            ws.close(4001, 'Unauthorized');
+            return;
+          }
+        } catch {
+          ws.close(4001, 'Unauthorized');
+          return;
+        }
+      }
       log.info('terminal client connected');
       activeWs = ws;
 
@@ -190,9 +228,22 @@ function terminalHtml(): string {
   #input-area.disabled input { opacity: 0.4; pointer-events: none; }
   #input-area.disabled button { opacity: 0.4; pointer-events: none; }
   .waiting { color: #e94560; font-style: italic; padding: 4px 0; }
+  #login-screen { position: fixed; inset: 0; background: #1a1a2e; display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .login-box { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 32px; text-align: center; min-width: 320px; }
+  .login-box h2 { color: #e94560; margin-bottom: 20px; font-size: 18px; }
+  .login-box input { background: #0f3460; border: 1px solid #333; color: #e0e0e0; padding: 10px 14px; border-radius: 4px; font-family: inherit; font-size: 14px; width: 100%; margin-bottom: 12px; }
+  .login-box button { background: #e94560; color: white; border: none; padding: 10px 24px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 14px; width: 100%; }
+  .login-box button:hover { background: #c73e54; }
 </style>
 </head>
 <body>
+<div id="login-screen">
+  <div class="login-box">
+    <h2>Baker Street SysAdmin</h2>
+    <input id="token-input" type="password" placeholder="Enter auth token..." autofocus>
+    <button id="login-btn">Connect</button>
+  </div>
+</div>
 <header>
   <h1>Baker Street SysAdmin</h1>
   <span id="state">connecting...</span>
@@ -208,12 +259,25 @@ const msgInput = document.getElementById('msg');
 const sendBtn = document.getElementById('send');
 const inputArea = document.getElementById('input-area');
 const stateEl = document.getElementById('state');
+const loginScreen = document.getElementById('login-screen');
+const tokenInput = document.getElementById('token-input');
+const loginBtn = document.getElementById('login-btn');
 let ws;
 let pendingAsk = false;
+let authToken = '';
+
+function doLogin() {
+  authToken = tokenInput.value.trim();
+  loginScreen.style.display = 'none';
+  connect();
+}
+loginBtn.onclick = doLogin;
+tokenInput.onkeydown = (e) => { if (e.key === 'Enter') doLogin(); };
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(proto + '//' + location.host + '/terminal');
+  const tokenParam = authToken ? '?token=' + encodeURIComponent(authToken) : '';
+  ws = new WebSocket(proto + '//' + location.host + '/terminal' + tokenParam);
   ws.onopen = () => { append('Connected.', 'system'); };
   ws.onclose = () => { append('Disconnected. Reconnecting...', 'error'); setTimeout(connect, 2000); };
   ws.onmessage = (e) => {
@@ -312,7 +376,6 @@ function send() {
 
 sendBtn.onclick = send;
 msgInput.onkeydown = (e) => { if (e.key === 'Enter') send(); };
-connect();
 </script>
 </body>
 </html>`;
