@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@bakerst/extension-sdk';
 import { Octokit } from '@octokit/rest';
 import { z } from 'zod';
 
@@ -32,7 +32,7 @@ export function registerGithubTools(server: McpServer): void {
     'github_search_repos',
     'Search GitHub repositories by query. Returns name, description, stars, language, and URL.',
     { query: z.string(), per_page: z.number().optional() },
-    // @ts-expect-error — MCP SDK generics cause TS2589
+    // @ts-expect-error — MCP SDK deep type instantiation (TS2589)
     async ({ query, per_page }: { query: string; per_page?: number }) => {
       try {
         const { data } = await octokit.search.repos({ q: query, per_page: per_page ?? 10 });
@@ -78,7 +78,7 @@ export function registerGithubTools(server: McpServer): void {
     'github_list_issues',
     'List issues for a repository. Supports state filter (open/closed/all) and labels.',
     { owner: z.string(), repo: z.string(), state: z.enum(['open', 'closed', 'all']).optional(), labels: z.string().optional(), per_page: z.number().optional() },
-    // @ts-expect-error — MCP SDK generics cause TS2589
+    // @ts-expect-error — MCP SDK deep type instantiation (TS2589)
     async ({ owner, repo, state, labels, per_page }: { owner: string; repo: string; state?: string; labels?: string; per_page?: number }) => {
       try {
         const { data } = await octokit.issues.listForRepo({
@@ -104,7 +104,7 @@ export function registerGithubTools(server: McpServer): void {
     'github_get_issue',
     'Get details of a specific issue including body and comments.',
     { owner: z.string(), repo: z.string(), issue_number: z.number() },
-    // @ts-expect-error — MCP SDK generics cause TS2589
+    // @ts-expect-error — MCP SDK deep type instantiation (TS2589)
     async ({ owner, repo, issue_number }: { owner: string; repo: string; issue_number: number }) => {
       try {
         const { data: issue } = await octokit.issues.get({ owner, repo, issue_number });
@@ -136,7 +136,7 @@ export function registerGithubTools(server: McpServer): void {
     'github_create_issue',
     'Create a new issue in a repository.',
     { owner: z.string(), repo: z.string(), title: z.string(), body: z.string().optional(), labels: z.array(z.string()).optional(), assignees: z.array(z.string()).optional() },
-    // @ts-expect-error — MCP SDK generics cause TS2589
+    // @ts-expect-error — MCP SDK deep type instantiation (TS2589)
     async ({ owner, repo, title, body, labels, assignees }: { owner: string; repo: string; title: string; body?: string; labels?: string[]; assignees?: string[] }) => {
       try {
         const { data } = await octokit.issues.create({ owner, repo, title, body, labels, assignees });
@@ -219,7 +219,7 @@ export function registerGithubTools(server: McpServer): void {
     'github_create_pull',
     'Create a new pull request.',
     { owner: z.string(), repo: z.string(), title: z.string(), head: z.string(), base: z.string(), body: z.string().optional(), draft: z.boolean().optional() },
-    // @ts-expect-error — MCP SDK generics cause TS2589
+    // @ts-expect-error — MCP SDK deep type instantiation (TS2589)
     async ({ owner, repo, title, head, base, body, draft }: { owner: string; repo: string; title: string; head: string; base: string; body?: string; draft?: boolean }) => {
       try {
         const { data } = await octokit.pulls.create({ owner, repo, title, head, base, body, draft });

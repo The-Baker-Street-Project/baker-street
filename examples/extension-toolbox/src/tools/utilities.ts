@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@bakerst/extension-sdk';
 import { z } from 'zod';
 import { resolve4, resolve6, resolveMx, resolveTxt, resolveCname, resolveNs, resolveSoa } from 'node:dns/promises';
 
@@ -155,7 +155,7 @@ export function registerUtilityTools(server: McpServer): void {
     'util_fetch',
     'Fetch a URL (GET or HEAD only). Returns status code, headers, and response body (truncated to 4KB). Use for checking URLs, fetching JSON from public APIs, etc.',
     { url: z.string(), method: z.string().optional(), headers: z.record(z.string()).optional() },
-    // @ts-expect-error — MCP SDK generics cause TS2589; tools register and work correctly at runtime
+    // @ts-expect-error — MCP SDK deep type instantiation (TS2589)
     async ({ url, method, headers }: { url: string; method?: string; headers?: Record<string, string> }) => {
       const httpMethod = (method ?? 'GET').toUpperCase();
       if (httpMethod !== 'GET' && httpMethod !== 'HEAD') {

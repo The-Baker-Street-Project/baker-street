@@ -1,4 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@bakerst/extension-sdk';
 import { z } from 'zod';
 
 const PERPLEXITY_API_URL = 'https://api.perplexity.ai/chat/completions';
