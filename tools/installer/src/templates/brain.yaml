@@ -84,8 +84,7 @@ spec:
               value: "active"
             - name: BRAIN_VERSION
               value: ""
-            - name: FEATURE_EXTENSIONS
-              value: "true"
+{{FEATURE_VARS}}
             - name: AGENT_NAME
               value: "{{AGENT_NAME}}"
           envFrom:

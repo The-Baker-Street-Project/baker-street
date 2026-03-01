@@ -944,6 +944,43 @@ fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, config: &app
         };
         vars.insert(key.into(), img.image.clone());
     }
+
+    // Build FEATURE_VARS block for brain from enabled features
+    let mut feature_lines = Vec::new();
+    let mut has_extension = false;
+    for feature in &config.features {
+        if feature.enabled {
+            match feature.id.as_str() {
+                "telegram" => feature_lines.push("            - name: FEATURE_TELEGRAM\n              value: \"true\"".to_string()),
+                "discord" => feature_lines.push("            - name: FEATURE_DISCORD\n              value: \"true\"".to_string()),
+                "voyage" => feature_lines.push("            - name: FEATURE_MEMORY\n              value: \"true\"".to_string()),
+                "github" | "perplexity" | "browser" | "obsidian" => has_extension = true,
+                _ => {}
+            }
+        }
+    }
+    if has_extension {
+        feature_lines.push("            - name: FEATURE_EXTENSIONS\n              value: \"true\"".to_string());
+    }
+    // Always enable scheduler and MCP in prod
+    feature_lines.push("            - name: FEATURE_SCHEDULER\n              value: \"true\"".to_string());
+    feature_lines.push("            - name: FEATURE_MCP\n              value: \"true\"".to_string());
+
+    vars.insert("FEATURE_VARS".into(), feature_lines.join("\n"));
+
+    // Build GATEWAY_FEATURE_VARS for gateway (telegram, discord)
+    let mut gw_lines = Vec::new();
+    for feature in &config.features {
+        if feature.enabled {
+            match feature.id.as_str() {
+                "telegram" => gw_lines.push("            - name: FEATURE_TELEGRAM\n              value: \"true\"".to_string()),
+                "discord" => gw_lines.push("            - name: FEATURE_DISCORD\n              value: \"true\"".to_string()),
+                _ => {}
+            }
+        }
+    }
+    vars.insert("GATEWAY_FEATURE_VARS".into(), gw_lines.join("\n"));
+
     vars
 }
 

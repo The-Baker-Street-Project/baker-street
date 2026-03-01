@@ -49,6 +49,7 @@ spec:
               value: "/data"
             - name: DOOR_POLICY
               value: "{{DOOR_POLICY}}"
+{{GATEWAY_FEATURE_VARS}}
           envFrom:
             - secretRef:
                 name: bakerst-gateway-secrets
