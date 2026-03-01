@@ -206,6 +206,7 @@ fn build_secret_prompts(app: &mut App, manifest: &ReleaseManifest) {
             description: secret.description.clone(),
             required: secret.required,
             is_secret: secret.input_type == "secret",
+            is_feature: false,
             value: None,
         });
     }
@@ -383,15 +384,9 @@ fn handle_features_key(app: &mut App, key: event::KeyEvent) {
             // Generate auth token before confirm
             app.config.auth_token = generate_auth_token();
 
-            // Count base (non-feature) secret prompts — feature prompts have " — " in description
-            let base_count = app
-                .secret_prompts
-                .iter()
-                .take_while(|p| !p.description.contains(" — "))
-                .count();
-
             // Remove any previously appended feature prompts (handles Cancel → retry)
-            app.secret_prompts.truncate(base_count);
+            app.secret_prompts.retain(|p| !p.is_feature);
+            let base_count = app.secret_prompts.len();
 
             // Collect secrets for enabled features
             let mut feature_prompts = Vec::new();
@@ -403,6 +398,7 @@ fn handle_features_key(app: &mut App, key: event::KeyEvent) {
                             description: format!("{} — {}", feature.name, key),
                             required: false,
                             is_secret: key.contains("TOKEN") || key.contains("KEY"),
+                            is_feature: true,
                             value: None,
                         });
                     }

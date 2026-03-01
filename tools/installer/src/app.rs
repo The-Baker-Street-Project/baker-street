@@ -92,6 +92,7 @@ pub struct SecretPrompt {
     pub description: String,
     pub required: bool,
     pub is_secret: bool, // mask input with bullets
+    pub is_feature: bool, // true for feature-derived prompts
     pub value: Option<String>,
 }
 
