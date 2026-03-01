@@ -51,7 +51,7 @@ function handleManageStandingOrder(
   input: ToolInput,
   scheduleManager: ScheduleManager,
 ): { result: string } {
-  const { action, id, name, schedule, type, config } = input as ManageInput;
+  const { action, id, name, schedule, type, config } = input as unknown as ManageInput;
 
   switch (action) {
     case 'create': {
@@ -218,7 +218,7 @@ async function handleTriggerStandingOrder(
   input: ToolInput,
   scheduleManager: ScheduleManager,
 ): Promise<{ result: string }> {
-  const { id } = input as TriggerInput;
+  const { id } = input as unknown as TriggerInput;
 
   if (!id) {
     return { result: 'Error: id is required' };
