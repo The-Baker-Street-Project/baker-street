@@ -150,20 +150,6 @@ jobs:
           name: sbom-${{ matrix.service.name }}
           path: sbom-${{ matrix.service.name }}.spdx.json
 
-      - name: Save digest
-        env:
-          SERVICE_NAME: ${{ matrix.service.name }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          mkdir -p /tmp/digests
-          echo "$DIGEST" > "/tmp/digests/${SERVICE_NAME}"
-
-      - name: Upload digest artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: digest-${{ matrix.service.name }}
-          path: /tmp/digests/${{ matrix.service.name }}
-
   build-installer:
     runs-on: ${{ matrix.target.runner }}
     strategy:
@@ -235,53 +221,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Download digest artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: digest-*
-          path: /tmp/digests
-          merge-multiple: true
-
-      - name: Read digests
-        id: digests
-        run: |
-          for service in brain worker ui gateway sysadmin ext-utilities ext-github ext-obsidian ext-toolbox ext-browser; do
-            digest=$(cat "/tmp/digests/${service}" 2>/dev/null || echo "")
-            echo "${service}=${digest}" >> "$GITHUB_OUTPUT"
-          done
-
-      - name: Generate release manifest
-        env:
-          REF_NAME: ${{ github.ref_name }}
-          BRAIN_DIGEST: ${{ steps.digests.outputs.brain }}
-          WORKER_DIGEST: ${{ steps.digests.outputs.worker }}
-          UI_DIGEST: ${{ steps.digests.outputs.ui }}
-          GATEWAY_DIGEST: ${{ steps.digests.outputs.gateway }}
-          SYSADMIN_DIGEST: ${{ steps.digests.outputs.sysadmin }}
-          EXT_UTILITIES_DIGEST: ${{ steps.digests.outputs.ext-utilities }}
-          EXT_GITHUB_DIGEST: ${{ steps.digests.outputs.ext-github }}
-          EXT_OBSIDIAN_DIGEST: ${{ steps.digests.outputs.ext-obsidian }}
-          EXT_TOOLBOX_DIGEST: ${{ steps.digests.outputs.ext-toolbox }}
-          EXT_BROWSER_DIGEST: ${{ steps.digests.outputs.ext-browser }}
-        run: |
-          RELEASE_VERSION="${REF_NAME#v}"
-          node scripts/generate-manifest.mjs \
-            --release-version "$RELEASE_VERSION" \
-            --brain-digest "$BRAIN_DIGEST" \
-            --worker-digest "$WORKER_DIGEST" \
-            --ui-digest "$UI_DIGEST" \
-            --gateway-digest "$GATEWAY_DIGEST" \
-            --sysadmin-digest "$SYSADMIN_DIGEST" \
-            --ext-utilities-digest "$EXT_UTILITIES_DIGEST" \
-            --ext-github-digest "$EXT_GITHUB_DIGEST" \
-            --ext-obsidian-digest "$EXT_OBSIDIAN_DIGEST" \
-            --ext-toolbox-digest "$EXT_TOOLBOX_DIGEST" \
-            --ext-browser-digest "$EXT_BROWSER_DIGEST" \
-            --output release-manifest.json
+      - name: Attach manifest to release
+        run: cp tools/installer/release-manifest.json release-manifest.json
 
       - name: Download SBOMs
         uses: actions/download-artifact@v4
