@@ -24,6 +24,26 @@ export function initMappingDb(dataDir: string): void {
       PRIMARY KEY (platform, platform_thread)
     )
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS door_policy (
+      platform TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      paired_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (platform, sender_id)
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pairing_challenges (
+      code TEXT NOT NULL PRIMARY KEY,
+      platform TEXT DEFAULT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
 }
 
 export function getConversationId(platform: string, platformThread: string): string | undefined {
@@ -47,6 +67,11 @@ export function setConversationId(
       conversation_id = excluded.conversation_id,
       updated_at = datetime('now')
   `).run(platform, platformThread, conversationId);
+}
+
+export function getDb(): Database.Database {
+  if (!db) throw new Error('mapping DB not initialized');
+  return db;
 }
 
 export function closeMappingDb(): void {

@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ext-toolbox
+  namespace: {{NAMESPACE}}
+  labels:
+    app: bakerst-extension
+    extension: toolbox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bakerst-extension
+      extension: toolbox
+  template:
+    metadata:
+      labels:
+        app: bakerst-extension
+        extension: toolbox
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: toolbox
+          image: {{IMAGE_TOOLBOX}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - containerPort: 8080
+              name: mcp
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          env:
+            - name: NATS_URL
+              value: "nats://nats.{{NAMESPACE}}.svc.cluster.local:4222"
+            - name: EXTENSION_ID
+              value: "toolbox"
+          envFrom:
+            - secretRef:
+                name: bakerst-github-secrets
+                optional: true
+            - secretRef:
+                name: bakerst-perplexity-secrets
+                optional: true
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ext-toolbox
+  namespace: {{NAMESPACE}}
+  labels:
+    app: bakerst-extension
+    extension: toolbox
+spec:
+  selector:
+    app: bakerst-extension
+    extension: toolbox
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: mcp

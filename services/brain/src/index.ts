@@ -183,7 +183,7 @@ async function main() {
     await extensionManager.start();
   }
 
-  const agent = createAgent(dispatcher, statusTracker, memoryService, pluginRegistry, modelRouter, unifiedRegistry, skillRegistry, startTime, '0.1.0', taskPodManager, companionManager, guardrailHook, auditSink);
+  const agent = createAgent(dispatcher, statusTracker, memoryService, pluginRegistry, modelRouter, unifiedRegistry, skillRegistry, startTime, '0.1.0', taskPodManager, companionManager, guardrailHook, auditSink, scheduleManager);
   const app = createApi(dispatcher, statusTracker, agent, memoryService, pluginRegistry, skillRegistry, mcpClientManager, modelRouter, nc, scheduleManager, stateMachine, startTime, taskPodManager, companionManager, extensionManager, auditSink);
   const port = parseInt(process.env.PORT ?? '3000', 10);
   const server = app.listen(port, () => {

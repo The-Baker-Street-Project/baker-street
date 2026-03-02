@@ -5,6 +5,9 @@ import express from 'express';
 import { connect, type NatsConnection } from 'nats';
 import { codec, Subjects, type ExtensionAnnounce, type ExtensionHeartbeat } from '@bakerst/shared';
 
+// Re-export McpServer so extensions use the same version as extension-sdk
+export { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+
 export interface ExtensionConfig {
   /** DNS-safe unique ID (e.g., "weather-tools") */
   id: string;

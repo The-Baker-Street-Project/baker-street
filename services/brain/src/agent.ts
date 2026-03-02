@@ -23,6 +23,8 @@ import { runObserver } from './observer.js';
 import { runReflector } from './reflector.js';
 import { loadInstructionSkills } from './skill-loader.js';
 import { executeSelfManagementTool, type SystemInfo } from './self-management.js';
+import { SCHEDULE_TOOLS, executeScheduleTool } from './schedule-tools.js';
+import type { ScheduleManager } from './schedule-manager.js';
 import type { TaskPodManager, TaskPodRequest } from './task-pod-manager.js';
 import type { CompanionManager } from './companion-manager.js';
 import { noopGuardrailHook, noopAuditSink, type GuardrailHook, type AuditSink } from '@bakerst/core';
@@ -361,6 +363,77 @@ const tools: ToolDefinition[] = [
   },
 ];
 
+/** Tool definitions for standing orders (schedules). Only included when scheduler feature is enabled. */
+const standingOrderTools: ToolDefinition[] = [
+  {
+    name: 'manage_standing_order',
+    description:
+      'Create, update, enable, disable, or delete a standing order (scheduled recurring task). Actions: create (needs name, schedule as cron, type, config), update (needs id), enable/disable (needs id), delete (needs id).',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['create', 'update', 'enable', 'disable', 'delete'],
+          description: 'The action to perform',
+        },
+        id: {
+          type: 'string',
+          description: 'Standing order ID (required for update/enable/disable/delete)',
+        },
+        name: {
+          type: 'string',
+          description: 'Human-readable name for the standing order',
+        },
+        schedule: {
+          type: 'string',
+          description: 'Cron expression (e.g., "0 9 * * *" for daily at 9am, "*/30 * * * *" for every 30 minutes)',
+        },
+        type: {
+          type: 'string',
+          enum: ['agent', 'command', 'http'],
+          description: 'Type of job to dispatch: agent (AI task), command (shell), or http (HTTP request)',
+        },
+        config: {
+          type: 'object',
+          description: 'Job configuration: { job?: string, command?: string, url?: string, method?: string, headers?: object, vars?: object }',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'list_standing_orders',
+    description:
+      'List all standing orders (scheduled recurring tasks) with their schedule, type, status, and last run info.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        status: {
+          type: 'string',
+          enum: ['enabled', 'disabled', 'all'],
+          description: 'Filter by status (default: all)',
+        },
+      },
+    },
+  },
+  {
+    name: 'trigger_standing_order',
+    description:
+      'Trigger a standing order to execute immediately, regardless of its cron schedule.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: {
+          type: 'string',
+          description: 'The standing order ID to trigger',
+        },
+      },
+      required: ['id'],
+    },
+  },
+];
+
 /** Self-management tool names */
 const SELF_MGMT_TOOLS = new Set(['manage_skill', 'list_skills', 'search_registry', 'get_system_info']);
 
@@ -375,10 +448,19 @@ async function executeTool(
   systemInfo?: SystemInfo,
   taskPodManager?: TaskPodManager,
   companionManager?: CompanionManager,
+  scheduleManager?: ScheduleManager,
 ): Promise<{ result: string; jobId?: string }> {
   // Handle self-management tools
   if (SELF_MGMT_TOOLS.has(toolName)) {
     return executeSelfManagementTool(toolName, toolInput, systemInfo);
+  }
+
+  // Handle schedule tools (standing orders)
+  if (SCHEDULE_TOOLS.has(toolName)) {
+    if (!scheduleManager) {
+      return { result: 'Error: Scheduler not enabled' };
+    }
+    return executeScheduleTool(toolName, toolInput, scheduleManager);
   }
 
   // Delegate to unified registry (skills + plugins) if it owns this tool
@@ -547,6 +629,7 @@ export function createAgent(
   companionManager?: CompanionManager,
   guardrailHook?: GuardrailHook,
   auditSink?: AuditSink,
+  scheduleManager?: ScheduleManager,
 ): Agent {
   const guardrail = guardrailHook ?? noopGuardrailHook;
   const audit = auditSink ?? noopAuditSink;
@@ -577,6 +660,11 @@ export function createAgent(
 
     const combined: ToolDefinition[] = [...tools];
 
+    // Include standing order tools when scheduler feature is enabled
+    if (scheduleManager) {
+      combined.push(...standingOrderTools);
+    }
+
     if (unifiedRegistry) {
       // Use unified registry (skills + legacy plugins)
       const unifiedTools = await unifiedRegistry.allToolDefinitions();
@@ -593,6 +681,7 @@ export function createAgent(
   // Eagerly resolve for backward compat with plugin-only path
   const legacyAllTools: ToolDefinition[] = [
     ...tools,
+    ...(scheduleManager ? standingOrderTools : []),
     ...pluginRegistry.allTools() as ToolDefinition[],
   ];
 
@@ -741,6 +830,7 @@ export function createAgent(
                 buildSystemInfo(),
                 taskPodManager,
                 companionManager,
+                scheduleManager,
               );
             });
 
@@ -902,6 +992,7 @@ export function createAgent(
                   buildSystemInfo(),
                   taskPodManager,
                   companionManager,
+                  scheduleManager,
                 );
               });
 

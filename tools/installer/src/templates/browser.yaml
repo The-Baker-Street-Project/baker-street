@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ext-browser
+  namespace: {{NAMESPACE}}
+  labels:
+    app: bakerst-extension
+    extension: agent-browser
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bakerst-extension
+      extension: agent-browser
+  template:
+    metadata:
+      labels:
+        app: bakerst-extension
+        extension: agent-browser
+    spec:
+      containers:
+        - name: agent-browser
+          image: {{IMAGE_BROWSER}}
+          imagePullPolicy: Never
+          command: ["node", "/app/dist/index.js", "--transport", "http"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: NATS_URL
+              value: "nats://nats.{{NAMESPACE}}.svc.cluster.local:4222"
+            - name: EXTENSION_ID
+              value: "agent-browser"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ext-agent-browser
+  namespace: {{NAMESPACE}}
+  labels:
+    app: bakerst-extension
+    extension: agent-browser
+spec:
+  selector:
+    app: bakerst-extension
+    extension: agent-browser
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
