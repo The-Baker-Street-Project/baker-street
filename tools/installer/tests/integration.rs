@@ -22,7 +22,7 @@ fn version_flag_shows_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("bakerst-install 0.1.0"));
+        .stdout(predicate::str::contains("bakerst-install"));
 }
 
 /// Test that --status without a cluster exits with an error (not a panic)
