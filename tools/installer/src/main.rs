@@ -146,16 +146,10 @@ async fn run_preflight(app: &mut App, cli: &Cli) {
     // Check 3: Fetch/load manifest
     app.preflight_checks
         .push(("Release manifest".into(), ItemStatus::InProgress));
-    let manifest_result = if let Some(ref path) = cli.manifest {
+    let manifest_result: Result<ReleaseManifest, String> = if let Some(ref path) = cli.manifest {
         manifest::load_manifest_from_file(path).map_err(|e| e.to_string())
     } else {
-        match manifest::fetch_manifest(cli.release_version.as_deref()).await {
-            Ok(m) => Ok(m),
-            Err(_) => {
-                // Fallback to default manifest
-                Ok(manifest::default_manifest())
-            }
-        }
+        manifest::embedded_manifest().map_err(|e| e.to_string())
     };
 
     match manifest_result {
@@ -1090,12 +1084,7 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
     let manifest = if let Some(ref path) = cli.manifest {
         manifest::load_manifest_from_file(path)?
     } else {
-        manifest::fetch_manifest(cli.release_version.as_deref())
-            .await
-            .unwrap_or_else(|_| {
-                println!("  WARNING: Could not fetch manifest, using defaults");
-                manifest::default_manifest()
-            })
+        manifest::embedded_manifest()?
     };
     println!(
         "  Manifest: v{} ({} images)",

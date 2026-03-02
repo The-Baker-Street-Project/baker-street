@@ -3,10 +3,6 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(name = "bakerst-install", version, about = "Baker Street Kubernetes installer")]
 pub struct Cli {
-    /// Install a specific release version (default: latest)
-    #[arg(long = "release", value_name = "TAG")]
-    pub release_version: Option<String>,
-
     /// Use a local manifest file instead of fetching from GitHub
     #[arg(long, value_name = "PATH")]
     pub manifest: Option<String>,
