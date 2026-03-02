@@ -36,6 +36,12 @@ scripts/deploy.sh               # kubectl apply all manifests
 
 Windows: See `scripts/Deploy-BakerStreet.ps1` (requires Docker Desktop with Kubernetes + WSL2).
 
+### Manifest Updates
+
+The installer embeds `tools/installer/release-manifest.json` at compile time. When adding/removing
+images, secrets, or features, edit this file directly — it is the single source of truth for the
+installer. Update image versions here as part of release prep commits.
+
 ## Access
 
 ```bash
