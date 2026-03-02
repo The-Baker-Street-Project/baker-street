@@ -44,7 +44,6 @@ fn non_interactive_without_credentials_exits() {
     Command::cargo_bin("bakerst-install")
         .unwrap()
         .arg("--non-interactive")
-        .env_remove("ANTHROPIC_OAUTH_TOKEN")
         .env_remove("ANTHROPIC_API_KEY")
         .assert()
         .failure();
@@ -74,7 +73,7 @@ fn config_flag_without_credentials_exits_with_error() {
         .arg(f.path().to_str().unwrap())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("anthropic_oauth_token or anthropic_api_key"));
+        .stderr(predicate::str::contains("anthropic_api_key"));
 }
 
 /// Full deploy cycle - only runs with `cargo test -- --ignored`
@@ -83,7 +82,7 @@ fn config_flag_without_credentials_exits_with_error() {
 async fn full_deploy_cycle() {
     // This test requires:
     // - A running K8s cluster
-    // - ANTHROPIC_OAUTH_TOKEN env var set
+    // - ANTHROPIC_API_KEY env var set
     // - Docker running
     //
     // Run with: cargo test -- --ignored

@@ -25,17 +25,11 @@ const log = logger.child({ module: 'model-config' });
 function defaultProviders(): Record<string, ProviderConfig> {
   const providers: Record<string, ProviderConfig> = {};
 
-  const rawOauthToken = process.env.ANTHROPIC_OAUTH_TOKEN;
-  const rawApiKey = process.env.ANTHROPIC_API_KEY;
-  // If the API key field actually contains an OAuth token, reclassify it
-  const oauthToken = rawOauthToken || (rawApiKey?.includes('sk-ant-oat') ? rawApiKey : undefined);
-  const apiKey = rawApiKey?.includes('sk-ant-oat') ? undefined : rawApiKey;
-
-  if (oauthToken || apiKey) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (apiKey) {
     providers['anthropic'] = {
       provider: 'anthropic',
-      oauthToken: oauthToken || undefined,
-      apiKey: apiKey || undefined,
+      apiKey,
     };
   }
 
@@ -59,6 +53,14 @@ function defaultModels(): ModelDefinition[] {
       maxTokens: 4096,
       costPer1MInput: 3,
       costPer1MOutput: 15,
+    },
+    {
+      id: 'opus-4',
+      modelName: 'claude-opus-4-20250514',
+      provider: 'anthropic',
+      maxTokens: 4096,
+      costPer1MInput: 15,
+      costPer1MOutput: 75,
     },
     {
       id: 'haiku-4.5',
@@ -239,7 +241,7 @@ function guessProvider(
 function validateConfig(config: ModelRouterConfig): void {
   if (Object.keys(config.providers).length === 0) {
     throw new Error(
-      'model-config: no providers configured. Set ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_API_KEY at minimum.',
+      'model-config: no providers configured. Set ANTHROPIC_API_KEY at minimum.',
     );
   }
 

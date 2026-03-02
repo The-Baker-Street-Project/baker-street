@@ -1,9 +1,9 @@
 # Minimal install: Anthropic only, no optional features
 # Credential values are placeholders — override with real tokens at runtime:
-#   E2E_ANTHROPIC_OAUTH_TOKEN=sk-ant-oat01-... ./scripts/e2e-test.sh minimal
+#   E2E_ANTHROPIC_API_KEY=sk-ant-... ./scripts/e2e-test.sh minimal
 
 credentials:
-  anthropic_oauth_token: "${E2E_ANTHROPIC_OAUTH_TOKEN}"
+  anthropic_api_key: "${E2E_ANTHROPIC_API_KEY}"
 
 features: {}
 

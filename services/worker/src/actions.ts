@@ -28,7 +28,7 @@ interface ParsedCommand {
 
 const BLOCKED_ENV_KEYS = new Set([
   'PATH', 'LD_PRELOAD', 'LD_LIBRARY_PATH', 'NODE_OPTIONS',
-  'ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'AUTH_TOKEN',
+  'ANTHROPIC_API_KEY', 'AUTH_TOKEN',
   'VOYAGE_API_KEY', 'HOME', 'USER',
 ]);
 
@@ -136,14 +136,9 @@ export async function executeAgent(job: JobDispatch, modelRouter: ModelRouter): 
     throw new Error(`agent job rejected: exceeds max length of ${MAX_AGENT_JOB_LENGTH} characters`);
   }
 
-  const useOAuth = modelRouter.useOAuth;
   const osPrompt = await loadSystemPrompt();
 
-  // Build system blocks — OAuth tokens require the Claude Code identity prefix
   const systemBlocks: Array<{ type: 'text'; text: string }> = [];
-  if (useOAuth) {
-    systemBlocks.push({ type: 'text', text: 'You are Claude Code, Anthropic\'s official CLI for Claude.' });
-  }
   if (osPrompt) {
     systemBlocks.push({ type: 'text', text: osPrompt });
   }

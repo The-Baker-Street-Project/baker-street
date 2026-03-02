@@ -2,7 +2,7 @@
  * ModelRouter — routes chat requests to the appropriate LLM provider.
  *
  * Supports:
- *   - Anthropic (direct, OAuth or API key)
+ *   - Anthropic (direct, API key)
  *   - OpenRouter (Anthropic SDK with custom baseURL)
  *   - Ollama / OpenAI-compatible (openai SDK with custom baseURL)
  *
@@ -79,10 +79,6 @@ function validateContentBlocks(content: unknown[]): ChatContentBlock[] {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function isOAuthToken(key: string): boolean {
-  return key.includes('sk-ant-oat');
-}
-
 // ---------------------------------------------------------------------------
 // Provider adapter interface
 // ---------------------------------------------------------------------------
@@ -96,28 +92,14 @@ interface ProviderAdapter {
 // Anthropic adapter
 // ---------------------------------------------------------------------------
 
-function createAnthropicAdapter(providerCfg: AnthropicProviderConfig): { adapter: ProviderAdapter; useOAuth: boolean } {
-  const oauthToken = providerCfg.oauthToken || process.env.ANTHROPIC_OAUTH_TOKEN;
+function createAnthropicAdapter(providerCfg: AnthropicProviderConfig): ProviderAdapter {
   const apiKey = providerCfg.apiKey || process.env.ANTHROPIC_API_KEY;
-  let client: Anthropic;
-  let useOAuth = false;
-
-  if (oauthToken && isOAuthToken(oauthToken)) {
-    client = new Anthropic({
-      authToken: oauthToken,
-      apiKey: null,
-      defaultHeaders: {
-        'anthropic-beta': 'claude-code-20250219,oauth-2025-04-20',
-      },
-    });
-    useOAuth = true;
-    log.info('anthropic adapter: using OAuth token');
-  } else if (apiKey) {
-    client = new Anthropic({ apiKey });
-    log.info('anthropic adapter: using API key');
-  } else {
+  if (!apiKey) {
     throw new Error('anthropic adapter: no credentials found');
   }
+
+  const client = new Anthropic({ apiKey });
+  log.info('anthropic adapter: using API key');
 
   const adapter: ProviderAdapter = {
     async chat(model: ModelDefinition, params: ChatParams): Promise<ChatResponse> {
@@ -201,7 +183,7 @@ function createAnthropicAdapter(providerCfg: AnthropicProviderConfig): { adapter
     },
   };
 
-  return { adapter, useOAuth };
+  return adapter;
 }
 
 // ---------------------------------------------------------------------------
@@ -415,16 +397,10 @@ export class ModelRouter {
   private adapters: Map<string, ProviderAdapter> = new Map();
   private circuitBreakers: Map<string, CircuitBreaker> = new Map();
   private config: ModelRouterConfig;
-  private _useOAuth = false;
   private onApiCall?: (info: { provider: string; model: string; durationMs: number; inputTokens?: number; outputTokens?: number; error?: string }) => void;
 
   private constructor(config: ModelRouterConfig) {
     this.config = config;
-  }
-
-  /** Whether the Anthropic adapter is using OAuth (needed for identity prefix) */
-  get useOAuth(): boolean {
-    return this._useOAuth;
   }
 
   /** The resolved config for external inspection */
@@ -442,9 +418,7 @@ export class ModelRouter {
     // Eagerly initialise Anthropic adapter if configured (most common case)
     const anthropicCfg = config.providers['anthropic'];
     if (anthropicCfg && anthropicCfg.provider === 'anthropic') {
-      const { adapter, useOAuth } = createAnthropicAdapter(anthropicCfg);
-      router.adapters.set('anthropic', adapter);
-      router._useOAuth = useOAuth;
+      router.adapters.set('anthropic', createAnthropicAdapter(anthropicCfg));
     }
 
     // OpenRouter — eager if configured

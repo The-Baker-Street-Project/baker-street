@@ -12,11 +12,11 @@ pub struct ConfigFile {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Credentials {
-    pub anthropic_oauth_token: Option<String>,
     pub anthropic_api_key: Option<String>,
     pub voyage_api_key: Option<String>,
     pub agent_name: Option<String>,
     pub auth_token: Option<String>,
+    pub default_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -43,11 +43,9 @@ pub fn load_config(path: &str) -> Result<ConfigFile> {
     let config: ConfigFile = serde_yaml::from_str(&content)
         .with_context(|| format!("Failed to parse config YAML: {}", path))?;
 
-    // Validate: at least one Anthropic credential
-    if config.credentials.anthropic_oauth_token.is_none()
-        && config.credentials.anthropic_api_key.is_none()
-    {
-        anyhow::bail!("Config must provide anthropic_oauth_token or anthropic_api_key");
+    // Validate: API key is required
+    if config.credentials.anthropic_api_key.is_none() {
+        anyhow::bail!("Config must provide anthropic_api_key");
     }
 
     Ok(config)

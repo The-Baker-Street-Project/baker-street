@@ -239,11 +239,26 @@ fn render_secrets(frame: &mut Frame, area: Rect, app: &App) {
                 Style::default().fg(FG).add_modifier(Modifier::BOLD),
             ),
         ]));
-        let req_text = if prompt.required { " (required)" } else { " (optional, Enter to skip)" };
-        lines.push(Line::from(vec![
-            Span::raw("    "),
-            Span::styled(req_text, Style::default().fg(MUTED)),
-        ]));
+        if prompt.key == "DEFAULT_MODEL" {
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(" [1] Sonnet 4  (claude-sonnet-4-20250514)  — balanced  [default]", Style::default().fg(MUTED)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(" [2] Opus 4    (claude-opus-4-20250514)    — most capable", Style::default().fg(MUTED)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(" [3] Haiku 4.5 (claude-haiku-4-5-20251001) — fastest", Style::default().fg(MUTED)),
+            ]));
+        } else {
+            let req_text = if prompt.required { " (required)" } else { " (optional, Enter to skip)" };
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(req_text, Style::default().fg(MUTED)),
+            ]));
+        }
         lines.push(Line::from(""));
 
         // Show input field
@@ -346,14 +361,15 @@ fn render_confirm(frame: &mut Frame, area: Rect, app: &App) {
 
     // Authentication section
     lines.push(box_line(box_width, " Authentication", ACCENT, true));
-    let auth_method = if app.config.oauth_token.is_some() {
-        "OAuth Token"
-    } else if app.config.api_key.is_some() {
-        "API Key"
+    let auth_status = if app.config.api_key.is_some() {
+        "API Key set"
     } else {
         "Not set"
     };
-    lines.push(box_line(box_width, &format!("   Method: {}", auth_method), FG, false));
+    lines.push(box_line(box_width, &format!("   Anthropic: {}", auth_status), FG, false));
+    if let Some(ref model) = app.config.default_model {
+        lines.push(box_line(box_width, &format!("   Model: {}", model), FG, false));
+    }
 
     // Configuration section
     lines.push(box_line(box_width, "", MUTED, false));

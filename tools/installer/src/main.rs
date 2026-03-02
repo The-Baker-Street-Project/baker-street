@@ -339,16 +339,17 @@ fn submit_current_secret(app: &mut App) {
     let value = if input.is_empty() { None } else { Some(input) };
     app.secret_prompts[idx].value = value.clone();
 
-    // Map secret values into config — auto-detect token type by prefix
+    // Map secret values into config
     match app.secret_prompts[idx].key.as_str() {
-        "ANTHROPIC_OAUTH_TOKEN" | "ANTHROPIC_API_KEY" => {
-            if let Some(ref v) = value {
-                if v.starts_with("sk-ant-oat") {
-                    app.config.oauth_token = value;
-                } else {
-                    app.config.api_key = value;
-                }
-            }
+        "ANTHROPIC_API_KEY" => app.config.api_key = value,
+        "DEFAULT_MODEL" => {
+            // Map numeric choices to model names
+            app.config.default_model = value.map(|v| match v.trim() {
+                "1" | "" => "claude-sonnet-4-20250514".to_string(),
+                "2" => "claude-opus-4-20250514".to_string(),
+                "3" => "claude-haiku-4-5-20251001".to_string(),
+                other => other.to_string(),
+            });
         }
         "VOYAGE_API_KEY" => app.config.voyage_api_key = value,
         "AGENT_NAME" => {
@@ -875,11 +876,11 @@ async fn create_all_secrets(
 ) -> Result<()> {
     // Brain secrets
     let mut brain_data = BTreeMap::new();
-    if let Some(ref token) = config.oauth_token {
-        brain_data.insert("ANTHROPIC_OAUTH_TOKEN".into(), token.clone());
-    }
     if let Some(ref key) = config.api_key {
         brain_data.insert("ANTHROPIC_API_KEY".into(), key.clone());
+    }
+    if let Some(ref model) = config.default_model {
+        brain_data.insert("DEFAULT_MODEL".into(), model.clone());
     }
     if let Some(ref key) = config.voyage_api_key {
         brain_data.insert("VOYAGE_API_KEY".into(), key.clone());
@@ -890,11 +891,11 @@ async fn create_all_secrets(
 
     // Worker secrets
     let mut worker_data = BTreeMap::new();
-    if let Some(ref token) = config.oauth_token {
-        worker_data.insert("ANTHROPIC_OAUTH_TOKEN".into(), token.clone());
-    }
     if let Some(ref key) = config.api_key {
         worker_data.insert("ANTHROPIC_API_KEY".into(), key.clone());
+    }
+    if let Some(ref model) = config.default_model {
+        worker_data.insert("DEFAULT_MODEL".into(), model.clone());
     }
     worker_data.insert("AGENT_NAME".into(), config.agent_name.clone());
     k8s::create_secret(client, namespace, "bakerst-worker-secrets", &worker_data).await?;
@@ -934,30 +935,6 @@ async fn create_all_secrets(
     k8s::create_secret(client, namespace, "bakerst-gateway-secrets", &gateway_data).await?;
 
     Ok(())
-}
-
-/// Reclassify tokens by prefix: sk-ant-oat* → oauth, anything else → api_key
-fn reclassify_tokens(
-    raw_oauth: Option<String>,
-    raw_api_key: Option<String>,
-) -> (Option<String>, Option<String>) {
-    match (&raw_oauth, &raw_api_key) {
-        // OAuth field has a valid oauth value — keep it, drop api_key if it's also oauth
-        (Some(oauth), _) if oauth.starts_with("sk-ant-oat") => {
-            let api = raw_api_key.filter(|k| !k.starts_with("sk-ant-oat"));
-            (raw_oauth, api)
-        }
-        // OAuth field has non-oauth value, API key field has oauth value — swap
-        (Some(non_oauth), Some(api)) if api.starts_with("sk-ant-oat") => {
-            (raw_api_key, Some(non_oauth.clone()))
-        }
-        // OAuth field empty, API key has oauth token — reclassify
-        (None, Some(api)) if api.starts_with("sk-ant-oat") => {
-            (raw_api_key, None)
-        }
-        // Everything else — pass through
-        _ => (raw_oauth, raw_api_key)
-    }
 }
 
 fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, config: &app::InstallConfig) -> HashMap<String, String> {
@@ -1128,21 +1105,19 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
 
     // [2/8] Secrets from environment
     println!("[2/8] Secrets: loading from environment...");
-    let raw_oauth = std::env::var("ANTHROPIC_OAUTH_TOKEN").ok();
-    let raw_api_key = std::env::var("ANTHROPIC_API_KEY").ok();
-    let (oauth_token, api_key) = reclassify_tokens(raw_oauth, raw_api_key);
-    if oauth_token.is_none() && api_key.is_none() {
-        eprintln!("  ERROR: ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_API_KEY must be set");
+    let api_key = std::env::var("ANTHROPIC_API_KEY").ok();
+    if api_key.is_none() {
+        eprintln!("  ERROR: ANTHROPIC_API_KEY must be set");
         std::process::exit(1);
     }
+    let default_model = std::env::var("BAKERST_DEFAULT_MODEL")
+        .or_else(|_| std::env::var("DEFAULT_MODEL"))
+        .ok();
     let voyage_api_key = std::env::var("VOYAGE_API_KEY").ok();
     let agent_name = std::env::var("AGENT_NAME").unwrap_or_else(|_| "Baker".into());
     let auth_token =
         std::env::var("AUTH_TOKEN").unwrap_or_else(|_| templates::generate_auth_token());
-    println!(
-        "  Loaded {} secrets from env",
-        if oauth_token.is_some() { 2 } else { 1 } + 2
-    );
+    println!("  Loaded secrets from env");
 
     // [3/8] Features from environment
     println!("[3/8] Features: from environment...");
@@ -1191,11 +1166,11 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
 
     // Create secrets
     let mut brain_secrets = BTreeMap::new();
-    if let Some(ref token) = oauth_token {
-        brain_secrets.insert("ANTHROPIC_OAUTH_TOKEN".into(), token.clone());
-    }
     if let Some(ref key) = api_key {
         brain_secrets.insert("ANTHROPIC_API_KEY".into(), key.clone());
+    }
+    if let Some(ref model) = default_model {
+        brain_secrets.insert("DEFAULT_MODEL".into(), model.clone());
     }
     if let Some(ref key) = voyage_api_key {
         brain_secrets.insert("VOYAGE_API_KEY".into(), key.clone());
@@ -1205,11 +1180,11 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
     k8s::create_secret(&client, ns, "bakerst-brain-secrets", &brain_secrets).await?;
 
     let mut worker_secrets = BTreeMap::new();
-    if let Some(ref token) = oauth_token {
-        worker_secrets.insert("ANTHROPIC_OAUTH_TOKEN".into(), token.clone());
-    }
     if let Some(ref key) = api_key {
         worker_secrets.insert("ANTHROPIC_API_KEY".into(), key.clone());
+    }
+    if let Some(ref model) = default_model {
+        worker_secrets.insert("DEFAULT_MODEL".into(), model.clone());
     }
     worker_secrets.insert("AGENT_NAME".into(), agent_name.clone());
     k8s::create_secret(&client, ns, "bakerst-worker-secrets", &worker_secrets).await?;
@@ -1242,8 +1217,8 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
 
     // Build template vars using shared function
     let ni_config = app::InstallConfig {
-        oauth_token: oauth_token.clone(),
         api_key: api_key.clone(),
+        default_model: default_model.clone(),
         voyage_api_key: voyage_api_key.clone(),
         agent_name: agent_name.clone(),
         auth_token: auth_token.clone(),
@@ -1297,11 +1272,11 @@ async fn run_config_install(cli: &Cli, config_path: &str) -> Result<()> {
     let config = config_file::load_config(config_path)?;
 
     // Set env vars from config so run_non_interactive picks them up
-    if let Some(ref token) = config.credentials.anthropic_oauth_token {
-        std::env::set_var("ANTHROPIC_OAUTH_TOKEN", token);
-    }
     if let Some(ref key) = config.credentials.anthropic_api_key {
         std::env::set_var("ANTHROPIC_API_KEY", key);
+    }
+    if let Some(ref model) = config.credentials.default_model {
+        std::env::set_var("DEFAULT_MODEL", model);
     }
     if let Some(ref key) = config.credentials.voyage_api_key {
         std::env::set_var("VOYAGE_API_KEY", key);

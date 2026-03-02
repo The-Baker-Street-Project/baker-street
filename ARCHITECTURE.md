@@ -129,11 +129,11 @@ Files in `operating_system/` are mounted as a ConfigMap at `/etc/bakerst`:
 
 ## Authentication & Secrets
 
-All secrets are stored in `.env-secrets` (gitignored) and loaded into the `bakerst-secrets` Kubernetes Secret via `scripts/secrets.sh`, which auto-sources the file.
+All secrets are stored in `.env-secrets` (gitignored) and loaded into scoped Kubernetes Secrets via `scripts/secrets.sh`, which auto-sources the file.
 
 ```
-ANTHROPIC_OAUTH_TOKEN (priority) → Bearer token with claude-code beta headers
-ANTHROPIC_API_KEY (fallback)     → Standard API key auth
+ANTHROPIC_API_KEY (required)     → Standard API key auth
+DEFAULT_MODEL (optional)         → Override default model (e.g. claude-opus-4-20250514)
 VOYAGE_API_KEY                   → Voyage AI embeddings for memory
 TELEGRAM_BOT_TOKEN               → Telegram bot for gateway adapter
 ```

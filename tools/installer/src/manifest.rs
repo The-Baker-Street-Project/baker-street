@@ -116,17 +116,17 @@ pub fn default_manifest() -> ReleaseManifest {
         ],
         required_secrets: vec![
             ManifestSecret {
-                key: "ANTHROPIC_OAUTH_TOKEN".into(),
-                description: "Anthropic OAuth token for Claude".into(),
+                key: "ANTHROPIC_API_KEY".into(),
+                description: "Anthropic API key for Claude".into(),
                 required: true,
                 input_type: "secret".into(),
                 target_secrets: vec!["bakerst-brain-secrets".into(), "bakerst-worker-secrets".into()],
             },
             ManifestSecret {
-                key: "ANTHROPIC_API_KEY".into(),
-                description: "Anthropic API key (fallback if no OAuth token)".into(),
+                key: "DEFAULT_MODEL".into(),
+                description: "Default model for the agent".into(),
                 required: false,
-                input_type: "secret".into(),
+                input_type: "choice".into(),
                 target_secrets: vec!["bakerst-brain-secrets".into(), "bakerst-worker-secrets".into()],
             },
             ManifestSecret {
@@ -207,7 +207,7 @@ mod tests {
             {"component": "brain", "image": "ghcr.io/test/brain:0.1.0", "version": "0.1.0", "digest": "sha256:abc", "required": true}
         ],
         "requiredSecrets": [
-            {"key": "ANTHROPIC_OAUTH_TOKEN", "description": "OAuth token", "required": true, "inputType": "secret", "targetSecrets": ["bakerst-brain-secrets"]}
+            {"key": "ANTHROPIC_API_KEY", "description": "API key", "required": true, "inputType": "secret", "targetSecrets": ["bakerst-brain-secrets"]}
         ],
         "optionalFeatures": [
             {"id": "telegram", "name": "Telegram", "description": "Telegram bot", "defaultEnabled": false, "secrets": ["TELEGRAM_BOT_TOKEN"]}
@@ -224,7 +224,7 @@ mod tests {
         assert_eq!(manifest.images[0].component, "brain");
         assert!(manifest.images[0].required);
         assert_eq!(manifest.required_secrets.len(), 1);
-        assert_eq!(manifest.required_secrets[0].key, "ANTHROPIC_OAUTH_TOKEN");
+        assert_eq!(manifest.required_secrets[0].key, "ANTHROPIC_API_KEY");
         assert_eq!(manifest.optional_features.len(), 1);
         assert_eq!(manifest.optional_features[0].id, "telegram");
     }

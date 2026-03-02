@@ -5,7 +5,7 @@ use tempfile::NamedTempFile;
 fn parse_minimal_config() {
     let yaml = r#"
 credentials:
-  anthropic_oauth_token: "sk-ant-oat01-test-token"
+  anthropic_api_key: "sk-ant-test-key"
 
 features: {}
 
@@ -26,10 +26,9 @@ verify:
 
     let config = bakerst_install::config_file::load_config(path).unwrap();
     assert_eq!(
-        config.credentials.anthropic_oauth_token,
-        Some("sk-ant-oat01-test-token".into())
+        config.credentials.anthropic_api_key,
+        Some("sk-ant-test-key".into())
     );
-    assert_eq!(config.credentials.anthropic_api_key, None);
     assert_eq!(config.verify.expected_pods.len(), 6);
 }
 
@@ -37,7 +36,7 @@ verify:
 fn parse_full_config() {
     let yaml = r#"
 credentials:
-  anthropic_oauth_token: "sk-ant-oat01-test-token"
+  anthropic_api_key: "sk-ant-test-key"
   voyage_api_key: "voyage-test-key"
 
 features:

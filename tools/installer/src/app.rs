@@ -68,8 +68,8 @@ pub enum ItemStatus {
 /// Collected secrets and configuration
 #[derive(Debug, Clone, Default)]
 pub struct InstallConfig {
-    pub oauth_token: Option<String>,
     pub api_key: Option<String>,
+    pub default_model: Option<String>,
     pub voyage_api_key: Option<String>,
     pub agent_name: String,
     pub auth_token: String,

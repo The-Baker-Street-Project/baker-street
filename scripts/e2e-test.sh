@@ -3,7 +3,7 @@
 # Usage: ./scripts/e2e-test.sh <minimal|full> [--keep]
 #
 # Environment variables (real credentials):
-#   E2E_ANTHROPIC_OAUTH_TOKEN  (required)
+#   E2E_ANTHROPIC_API_KEY      (required)
 #   E2E_VOYAGE_API_KEY         (optional, needed for full)
 #   E2E_GITHUB_TOKEN           (optional, needed for full)
 #   E2E_PERPLEXITY_API_KEY     (optional, needed for full)
@@ -74,11 +74,11 @@ if ! kubectl cluster-info &>/dev/null; then
 fi
 pass "Kubernetes cluster reachable"
 
-if [[ -z "${E2E_ANTHROPIC_OAUTH_TOKEN:-}" ]]; then
-  echo -e "${RED}E2E_ANTHROPIC_OAUTH_TOKEN must be set${NC}"
+if [[ -z "${E2E_ANTHROPIC_API_KEY:-}" ]]; then
+  echo -e "${RED}E2E_ANTHROPIC_API_KEY must be set${NC}"
   exit 1
 fi
-pass "Anthropic token set"
+pass "Anthropic API key set"
 
 # --- Phase 1: Resolve config template ---
 section "1/7" "Preparing config"

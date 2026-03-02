@@ -117,23 +117,6 @@ describe('ModelRouter', () => {
       expect(router.routerConfig.providers).toHaveProperty('openrouter');
     });
 
-    it('sets useOAuth to false for API key auth', async () => {
-      const router = await ModelRouter.create(makeConfig());
-      expect(router.useOAuth).toBe(false);
-    });
-
-    it('sets useOAuth to true for OAuth token', async () => {
-      const config = makeConfig({
-        providers: {
-          anthropic: {
-            provider: 'anthropic' as const,
-            oauthToken: 'sk-ant-oat-test-token',
-          },
-        },
-      });
-      const router = await ModelRouter.create(config);
-      expect(router.useOAuth).toBe(true);
-    });
   });
 
   describe('resolveModel() (tested via chat)', () => {
