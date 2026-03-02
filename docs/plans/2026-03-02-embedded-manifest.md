@@ -6,7 +6,7 @@
 
 **Architecture:** A checked-in `tools/installer/release-manifest.json` is embedded via `include_str!` at compile time. The runtime manifest resolution is: `--manifest <file>` override OR embedded manifest. That's it. `fetch_manifest()`, `default_manifest()`, `--release-version`, `reqwest`, and `chrono` are all removed. `scripts/generate-manifest.mjs` is deleted.
 
-**Tech Stack:** Rust (build.rs, include_str!), serde_json
+**Tech Stack:** Rust (include_str!), serde_json
 
 ---
 
@@ -33,6 +33,7 @@ This is the single source of truth for everything the installer shows to users: 
     { "component": "ext-github", "image": "ghcr.io/the-baker-street-project/bakerst-ext-github:0.1.0", "version": "0.1.0", "required": false },
     { "component": "ext-obsidian", "image": "ghcr.io/the-baker-street-project/bakerst-ext-obsidian:0.1.0", "version": "0.1.0", "required": false },
     { "component": "ext-toolbox", "image": "ghcr.io/the-baker-street-project/bakerst-ext-toolbox:0.1.0", "version": "0.1.0", "required": false },
+    { "component": "voice", "image": "ghcr.io/the-baker-street-project/bakerst-voice:0.1.0", "version": "0.1.0", "required": false },
     { "component": "ext-browser", "image": "ghcr.io/the-baker-street-project/bakerst-ext-browser:0.1.0", "version": "0.1.0", "required": false }
   ],
   "requiredSecrets": [
@@ -49,6 +50,13 @@ This is the single source of truth for everything the installer shows to users: 
       "required": false,
       "inputType": "choice",
       "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"]
+    },
+    {
+      "key": "VOYAGE_API_KEY",
+      "description": "Voyage AI API key for embeddings",
+      "required": false,
+      "inputType": "secret",
+      "targetSecrets": ["bakerst-brain-secrets"]
     },
     {
       "key": "AUTH_TOKEN",
@@ -192,7 +200,7 @@ Expected: compilation error — `embedded_manifest` doesn't exist yet.
 
 **Step 3: Rewrite manifest.rs**
 
-Replace the entire file. Remove `fetch_manifest()`, `default_manifest()`, the `image()` helper. Remove all `reqwest` and `chrono` usage. The struct drops `date`, `min_sysadmin_version`, `release_notes`, `checksums`, and `digest` from `ManifestImage` — all made optional via `#[serde(default)]` so the file can still include them without breaking.
+Replace the entire file. Remove `fetch_manifest()`, `default_manifest()`, the `image()` helper. Remove all `reqwest` and `chrono` usage. The struct drops `date`, `min_sysadmin_version`, `release_notes`, `checksums`, and `digest` from `ManifestImage` — these fields are simply omitted from the struct. This is safe because serde ignores unknown JSON keys by default (no `#[serde(deny_unknown_fields)]` is set), so `--manifest` files that still contain these fields will parse correctly.
 
 ```rust
 use serde::Deserialize;
@@ -311,23 +319,9 @@ cd tools/installer && cargo test manifest -- --nocapture
 
 Expected: all 6 tests pass.
 
-**Step 5: Commit**
+**Step 5: Remove `--release-version` CLI flag**
 
-```bash
-git add tools/installer/src/manifest.rs
-git commit -m "feat(installer): embed manifest at compile time, remove fetch_manifest"
-```
-
----
-
-### Task 3: Remove `--release-version` CLI flag
-
-**Files:**
-- Modify: `tools/installer/src/cli.rs`
-
-**Step 1: Remove the release_version field**
-
-Delete lines 6-8 from `cli.rs`:
+Delete lines 6-8 from `tools/installer/src/cli.rs`:
 
 ```rust
     /// Install a specific release version (default: latest)
@@ -335,27 +329,7 @@ Delete lines 6-8 from `cli.rs`:
     pub release_version: Option<String>,
 ```
 
-**Step 2: Fix compilation errors in main.rs**
-
-Find and remove the two references to `cli.release_version` in `main.rs`:
-
-- Line 152: `manifest::fetch_manifest(cli.release_version.as_deref())` — this entire block is replaced in Task 4.
-- Line 1093: same pattern — replaced in Task 4.
-
-Since Task 4 rewrites these blocks, this step only removes the field from `cli.rs`. Compilation may break until Task 4 is done — that's OK, we fix it immediately in the next task.
-
-**Step 3: Commit (with Task 4)**
-
-Committed together with Task 4 since they're interdependent.
-
----
-
-### Task 4: Simplify manifest loading in main.rs
-
-**Files:**
-- Modify: `tools/installer/src/main.rs` (two locations)
-
-**Step 1: Simplify `run_preflight()`**
+**Step 6: Simplify `run_preflight()`**
 
 Replace lines 146-159 in `main.rs` (the manifest fetch block):
 
@@ -390,7 +364,9 @@ Replace with:
     };
 ```
 
-**Step 2: Simplify `run_non_interactive()`**
+**Step 7: Simplify `run_non_interactive()`**
+
+Note: `run_config_install()` delegates to `run_non_interactive()`, so it is covered by this change.
 
 Find the manifest loading block in `run_non_interactive()` (around line 1088-1099):
 
@@ -418,7 +394,7 @@ Replace with:
     };
 ```
 
-**Step 3: Check for any other references to removed functions**
+**Step 8: Check for any other references to removed functions**
 
 Search for `fetch_manifest`, `default_manifest`, `release_version` in main.rs. There should be zero remaining.
 
@@ -428,7 +404,7 @@ cd tools/installer && grep -n 'fetch_manifest\|default_manifest\|release_version
 
 Expected: no output.
 
-**Step 4: Run full test suite**
+**Step 9: Run full test suite**
 
 ```bash
 cd tools/installer && cargo test
@@ -436,16 +412,18 @@ cd tools/installer && cargo test
 
 Expected: all tests pass, no compilation errors.
 
-**Step 5: Commit**
+**Step 10: Commit all changes from this task together**
+
+Tasks 2 (manifest.rs), CLI flag removal (cli.rs), and main.rs changes must be committed together to avoid broken intermediate compilation states.
 
 ```bash
-git add tools/installer/src/cli.rs tools/installer/src/main.rs
-git commit -m "feat(installer): use embedded manifest, remove GitHub fetch and --release flag"
+git add tools/installer/src/manifest.rs tools/installer/src/cli.rs tools/installer/src/main.rs
+git commit -m "feat(installer): embed manifest at compile time, remove GitHub fetch"
 ```
 
 ---
 
-### Task 5: Remove `reqwest` and `chrono` dependencies
+### Task 3: Remove `reqwest` and `chrono` dependencies
 
 **Files:**
 - Modify: `tools/installer/Cargo.toml`
@@ -484,7 +462,7 @@ git commit -m "chore(installer): remove reqwest and chrono dependencies"
 
 ---
 
-### Task 6: Delete generate-manifest.mjs and update release workflow
+### Task 4: Delete generate-manifest.mjs and update release workflow
 
 **Files:**
 - Delete: `scripts/generate-manifest.mjs`
@@ -515,7 +493,9 @@ Replace with a step that copies the checked-in manifest as a release asset for r
 
 Keep the `Download SBOMs` and `Create GitHub Release` steps. Update `Create GitHub Release` files list — it still includes `release-manifest.json` and `sbom-*.spdx.json`.
 
-The `build-and-push` job still needs to upload digest artifacts (they're used for cosign signing), but the `create-release` job no longer downloads them for manifest generation. However, since `build-and-push` uploads them and nothing else uses them in `create-release`, we can remove the download steps from `create-release`. The digests are still saved by `build-and-push` for its own cosign signing step.
+Also in the `build-and-push` job, remove the now-dead `Save digest` step (lines 153-159) and `Upload digest artifact` step (lines 161-165). The cosign signing step in `build-and-push` uses `${{ steps.build.outputs.digest }}` inline — it does NOT read from the saved artifact. These steps only existed to feed `create-release`'s manifest generation, which is now deleted.
+
+Note: `scripts/install.sh` downloads the installer binary from GitHub Releases. It requires no changes — the downloaded binary now contains the embedded manifest automatically.
 
 **Step 3: Verify the workflow is valid YAML**
 
@@ -532,7 +512,33 @@ git commit -m "chore: delete generate-manifest.mjs, simplify release workflow"
 
 ---
 
-### Task 7: Build, verify, and do a final end-to-end check
+### Task 5: Update CLAUDE.md release workflow documentation
+
+**Files:**
+- Modify: `CLAUDE.md`
+
+**Step 1: Add release manifest maintenance note**
+
+In the `## Build & Deploy` section, add a note about the embedded manifest:
+
+```markdown
+### Manifest Updates
+
+The installer embeds `tools/installer/release-manifest.json` at compile time. When adding/removing
+images, secrets, or features, edit this file directly — it is the single source of truth for the
+installer. Update image versions here as part of release prep commits.
+```
+
+**Step 2: Commit**
+
+```bash
+git add CLAUDE.md
+git commit -m "docs: add embedded manifest maintenance note to CLAUDE.md"
+```
+
+---
+
+### Task 6: Build, verify, and do a final end-to-end check
 
 **Files:** None (verification only)
 
