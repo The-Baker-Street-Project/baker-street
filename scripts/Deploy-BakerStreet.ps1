@@ -208,29 +208,14 @@ if (-not $SkipSecrets) {
     # --- Anthropic auth ---
     Write-Step "Anthropic authentication (required)"
 
-    $hasAnthropic = $false
-    if ($secrets['ANTHROPIC_OAUTH_TOKEN']) {
-        Write-Info "ANTHROPIC_OAUTH_TOKEN is set (****$($secrets['ANTHROPIC_OAUTH_TOKEN'].Substring($secrets['ANTHROPIC_OAUTH_TOKEN'].Length - 4)))"
-        $hasAnthropic = $true
-    }
     if ($secrets['ANTHROPIC_API_KEY']) {
         Write-Info "ANTHROPIC_API_KEY is set (****$($secrets['ANTHROPIC_API_KEY'].Substring($secrets['ANTHROPIC_API_KEY'].Length - 4)))"
-        $hasAnthropic = $true
-    }
-
-    if (-not $hasAnthropic) {
-        Write-Warn "No Anthropic credentials found."
-        Write-Info "Provide either an OAuth token (preferred) or an API key."
-        $token = Read-Secret "ANTHROPIC_OAUTH_TOKEN (or press Enter for API key)"
-        if ($token) {
-            $secrets['ANTHROPIC_OAUTH_TOKEN'] = $token
-        } else {
-            $key = Read-Secret "ANTHROPIC_API_KEY"
-            if (-not $key) {
-                Write-Fail "At least one of ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_API_KEY is required."
-            }
-            $secrets['ANTHROPIC_API_KEY'] = $key
+    } else {
+        $key = Read-Secret "ANTHROPIC_API_KEY"
+        if (-not $key) {
+            Write-Fail "ANTHROPIC_API_KEY is required."
         }
+        $secrets['ANTHROPIC_API_KEY'] = $key
     }
 
     # --- Voyage ---
@@ -294,7 +279,7 @@ if (-not $SkipSecrets) {
     Write-Step "Saving secrets to .env-secrets"
     $lines = @()
     $orderedKeys = @(
-        'ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY',
+        'ANTHROPIC_API_KEY', 'DEFAULT_MODEL',
         'VOYAGE_API_KEY',
         'TELEGRAM_BOT_TOKEN', 'TELEGRAM_ALLOWED_CHAT_IDS',
         'DISCORD_BOT_TOKEN', 'DISCORD_ALLOWED_CHANNEL_IDS',

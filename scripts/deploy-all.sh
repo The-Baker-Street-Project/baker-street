@@ -368,25 +368,12 @@ if [[ "$SKIP_SECRETS" == false ]]; then
   # --- Anthropic auth ---
   step "Anthropic authentication (required)"
 
-  HAVE_ANTHROPIC=false
-  if [[ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]]; then
-    info "ANTHROPIC_OAUTH_TOKEN is set (****${ANTHROPIC_OAUTH_TOKEN: -4})"
-    HAVE_ANTHROPIC=true
-  fi
   if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
     info "ANTHROPIC_API_KEY is set (****${ANTHROPIC_API_KEY: -4})"
-    HAVE_ANTHROPIC=true
-  fi
-
-  if [[ "$HAVE_ANTHROPIC" == false ]]; then
-    warn "No Anthropic credentials found."
-    info "Provide either an OAuth token (preferred) or an API key."
-    ANTHROPIC_OAUTH_TOKEN=$(ask_secret "ANTHROPIC_OAUTH_TOKEN (or press Enter to use API key instead)" "")
-    if [[ -z "$ANTHROPIC_OAUTH_TOKEN" ]]; then
-      ANTHROPIC_API_KEY=$(ask_secret "ANTHROPIC_API_KEY" "")
-      if [[ -z "$ANTHROPIC_API_KEY" ]]; then
-        fail "At least one of ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_API_KEY is required."
-      fi
+  else
+    ANTHROPIC_API_KEY=$(ask_secret "ANTHROPIC_API_KEY" "")
+    if [[ -z "$ANTHROPIC_API_KEY" ]]; then
+      fail "ANTHROPIC_API_KEY is required."
     fi
   fi
 
@@ -509,8 +496,8 @@ if [[ "$SKIP_SECRETS" == false ]]; then
   step "Saving secrets to .env-secrets"
 
   {
-    [[ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]] && echo "ANTHROPIC_OAUTH_TOKEN=$ANTHROPIC_OAUTH_TOKEN"
     [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+    [[ -n "${DEFAULT_MODEL:-}" ]]         && echo "DEFAULT_MODEL=$DEFAULT_MODEL"
     [[ -n "${VOYAGE_API_KEY:-}" ]]        && echo "VOYAGE_API_KEY=$VOYAGE_API_KEY"
     [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]    && echo "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN"
     [[ -n "${TELEGRAM_ALLOWED_CHAT_IDS:-}" ]] && echo "TELEGRAM_ALLOWED_CHAT_IDS=$TELEGRAM_ALLOWED_CHAT_IDS"
@@ -621,8 +608,8 @@ step "Creating Kubernetes secrets..."
 
 # --- Brain secrets ---
 BRAIN_ARGS=()
-[[ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]] && BRAIN_ARGS+=(--from-literal="ANTHROPIC_OAUTH_TOKEN=$ANTHROPIC_OAUTH_TOKEN")
 [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && BRAIN_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+[[ -n "${DEFAULT_MODEL:-}" ]]         && BRAIN_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
 [[ -n "${VOYAGE_API_KEY:-}" ]]        && BRAIN_ARGS+=(--from-literal="VOYAGE_API_KEY=$VOYAGE_API_KEY")
 BRAIN_ARGS+=(--from-literal="AUTH_TOKEN=$AUTH_TOKEN")
 [[ -n "${AGENT_NAME:-}" ]] && BRAIN_ARGS+=(--from-literal="AGENT_NAME=$AGENT_NAME")
@@ -639,8 +626,8 @@ kubectl create secret generic bakerst-brain-secrets \
 
 # --- Worker secrets ---
 WORKER_ARGS=()
-[[ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]] && WORKER_ARGS+=(--from-literal="ANTHROPIC_OAUTH_TOKEN=$ANTHROPIC_OAUTH_TOKEN")
 [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && WORKER_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+[[ -n "${DEFAULT_MODEL:-}" ]]         && WORKER_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
 
 [[ -n "${AGENT_NAME:-}" ]] && WORKER_ARGS+=(--from-literal="AGENT_NAME=$AGENT_NAME")
 
@@ -946,7 +933,7 @@ fi
 echo -e "${BOLD}  Configuration:${NC}"
 info "Version:     ${VERSION}"
 info "Mode:        $(if [[ "$USE_DEV" == true ]]; then echo "dev"; else echo "production"; fi)"
-info "Anthropic:   $(if [[ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]]; then echo "OAuth token"; elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then echo "API key"; fi)"
+info "Anthropic:   $(if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then echo "API key set"; else echo "not configured"; fi)"
 info "Voyage:      $(if [[ -n "${VOYAGE_API_KEY:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
 info "Telegram:    $(if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured (gateway scaled to 0)"; fi)"
 info "Discord:     $(if [[ -n "${DISCORD_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"

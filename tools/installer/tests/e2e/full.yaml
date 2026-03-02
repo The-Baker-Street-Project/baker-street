@@ -1,0 +1,39 @@
+# Full install: all optional features enabled
+# Override credential placeholders at runtime:
+#   E2E_ANTHROPIC_API_KEY=... E2E_GITHUB_TOKEN=... ./scripts/e2e-test.sh full
+
+credentials:
+  anthropic_api_key: "${E2E_ANTHROPIC_API_KEY}"
+  voyage_api_key: "${E2E_VOYAGE_API_KEY}"
+
+features:
+  telegram:
+    enabled: true
+    secrets:
+      TELEGRAM_BOT_TOKEN: "${E2E_TELEGRAM_BOT_TOKEN}"
+  github:
+    enabled: true
+    secrets:
+      GITHUB_TOKEN: "${E2E_GITHUB_TOKEN}"
+  perplexity:
+    enabled: true
+    secrets:
+      PERPLEXITY_API_KEY: "${E2E_PERPLEXITY_API_KEY}"
+  browser:
+    enabled: true
+
+verify:
+  expected_pods:
+    - brain
+    - worker
+    - gateway
+    - ui
+    - nats
+    - qdrant
+    - ext-toolbox
+    - ext-browser
+  chat_prompt: "List every tool you have access to. Include GitHub tools, Perplexity search, browser tools, and any other capabilities."
+  expected_capabilities:
+    - github
+    - perplexity
+    - browser

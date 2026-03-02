@@ -159,7 +159,7 @@ const manifest = {
   requiredSecrets: [
     {
       key: 'ANTHROPIC_API_KEY',
-      description: 'Anthropic API key or OAuth token for Claude',
+      description: 'Anthropic API key for Claude',
       required: true,
       inputType: 'secret',
       targetSecrets: ['bakerst-brain-secrets', 'bakerst-worker-secrets'],

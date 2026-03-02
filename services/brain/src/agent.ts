@@ -633,7 +633,6 @@ export function createAgent(
 ): Agent {
   const guardrail = guardrailHook ?? noopGuardrailHook;
   const audit = auditSink ?? noopAuditSink;
-  const useOAuth = modelRouter.useOAuth;
 
   /** Build fresh SystemInfo for each tool call */
   function buildSystemInfo(): SystemInfo {
@@ -728,7 +727,6 @@ export function createAgent(
     ]);
 
     const ctx = buildContext(conversationId, systemPrompt, relevantMemories, {
-      useOAuth,
       channel: opts?.channel,
     });
     const systemBlocks = ctx.systemBlocks as SystemBlock[];
@@ -900,7 +898,6 @@ export function createAgent(
     ]);
 
     const ctx = buildContext(conversationId, systemPrompt, relevantMemories, {
-      useOAuth,
       channel: opts?.channel,
     });
     const systemBlocks = ctx.systemBlocks as SystemBlock[];

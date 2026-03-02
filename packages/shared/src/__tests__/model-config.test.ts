@@ -58,7 +58,6 @@ describe('model-config', () => {
     vi.clearAllMocks();
     // Ensure basic providers are available
     setEnv('ANTHROPIC_API_KEY', 'sk-test-key');
-    setEnv('ANTHROPIC_OAUTH_TOKEN', undefined);
     setEnv('OPENROUTER_API_KEY', undefined);
     setEnv('MODEL_ROUTER_CONFIG_PATH', undefined);
     setEnv('DEFAULT_MODEL', undefined);
@@ -84,13 +83,6 @@ describe('model-config', () => {
       const config = createDefaultConfig();
       expect(config.providers).toHaveProperty('anthropic');
       expect(config.providers['anthropic'].provider).toBe('anthropic');
-    });
-
-    it('includes anthropic provider when ANTHROPIC_OAUTH_TOKEN is set', () => {
-      setEnv('ANTHROPIC_API_KEY', undefined);
-      setEnv('ANTHROPIC_OAUTH_TOKEN', 'sk-ant-oat-test');
-      const config = createDefaultConfig();
-      expect(config.providers).toHaveProperty('anthropic');
     });
 
     it('includes openrouter when OPENROUTER_API_KEY set', () => {
@@ -134,13 +126,19 @@ describe('model-config', () => {
       expect(config.roles.agent).toBe('haiku-4.5');
     });
 
-    it('applies DEFAULT_MODEL override with unknown model as ad-hoc', async () => {
+    it('applies DEFAULT_MODEL override with known model name', async () => {
       setEnv('DEFAULT_MODEL', 'claude-opus-4-20250514');
+      const config = await loadModelConfig();
+      expect(config.roles.agent).toBe('opus-4');
+    });
+
+    it('applies DEFAULT_MODEL override with unknown model as ad-hoc', async () => {
+      setEnv('DEFAULT_MODEL', 'claude-unknown-model');
       const config = await loadModelConfig();
       expect(config.roles.agent).toBe('custom-agent');
       const adHoc = config.models.find((m) => m.id === 'custom-agent');
       expect(adHoc).toBeDefined();
-      expect(adHoc!.modelName).toBe('claude-opus-4-20250514');
+      expect(adHoc!.modelName).toBe('claude-unknown-model');
     });
 
     it('applies OBSERVER_MODEL override', async () => {
@@ -186,7 +184,6 @@ describe('model-config', () => {
   describe('validateConfig()', () => {
     it('throws when no providers configured', async () => {
       setEnv('ANTHROPIC_API_KEY', undefined);
-      setEnv('ANTHROPIC_OAUTH_TOKEN', undefined);
       await expect(loadModelConfig()).rejects.toThrow('no providers configured');
     });
 

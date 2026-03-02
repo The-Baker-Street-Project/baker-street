@@ -35,11 +35,11 @@ kubectl apply -f "$REPO_ROOT/k8s/namespace.yaml"
 
 BRAIN_ARGS=()
 
-if [ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]; then
-  BRAIN_ARGS+=(--from-literal="ANTHROPIC_OAUTH_TOKEN=$ANTHROPIC_OAUTH_TOKEN")
-fi
 if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   BRAIN_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+fi
+if [ -n "${DEFAULT_MODEL:-}" ]; then
+  BRAIN_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
 fi
 if [ -n "${VOYAGE_API_KEY:-}" ]; then
   BRAIN_ARGS+=(--from-literal="VOYAGE_API_KEY=$VOYAGE_API_KEY")
@@ -50,7 +50,7 @@ if [ -n "${AGENT_NAME:-}" ]; then
 fi
 
 if [ ${#BRAIN_ARGS[@]} -lt 2 ]; then
-  echo "Error: set ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_API_KEY environment variable"
+  echo "Error: set ANTHROPIC_API_KEY environment variable"
   exit 1
 fi
 
@@ -65,11 +65,11 @@ kubectl create secret generic bakerst-brain-secrets \
 
 WORKER_ARGS=()
 
-if [ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]; then
-  WORKER_ARGS+=(--from-literal="ANTHROPIC_OAUTH_TOKEN=$ANTHROPIC_OAUTH_TOKEN")
-fi
 if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   WORKER_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+fi
+if [ -n "${DEFAULT_MODEL:-}" ]; then
+  WORKER_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
 fi
 
 if [ -n "${AGENT_NAME:-}" ]; then

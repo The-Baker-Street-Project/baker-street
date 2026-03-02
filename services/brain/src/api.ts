@@ -850,7 +850,6 @@ export function createApi(
       for (const [key, provider] of Object.entries(config.providers)) {
         const masked = { ...provider } as Record<string, unknown>;
         if ('apiKey' in masked && masked.apiKey) masked.apiKey = '***';
-        if ('oauthToken' in masked && masked.oauthToken) masked.oauthToken = '***';
         maskedProviders[key] = masked;
       }
 

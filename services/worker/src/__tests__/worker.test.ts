@@ -69,7 +69,6 @@ function makeNatsConnection() {
 
 function makeModelRouter() {
   return {
-    useOAuth: false,
     routerConfig: {
       roles: { agent: 'sonnet', observer: 'haiku' },
       models: [],

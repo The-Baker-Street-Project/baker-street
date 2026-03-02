@@ -17,8 +17,6 @@ export type ModelProvider = 'anthropic' | 'openrouter' | 'ollama' | 'openai-comp
 
 export interface AnthropicProviderConfig {
   provider: 'anthropic';
-  /** OAuth token (sk-ant-oat prefix) — takes priority over apiKey */
-  oauthToken?: string;
   /** Standard API key */
   apiKey?: string;
 }

@@ -81,7 +81,6 @@ function makeJob(overrides?: Partial<JobDispatch>): JobDispatch {
 
 function makeModelRouter(overrides?: Record<string, unknown>) {
   return {
-    useOAuth: false,
     routerConfig: {
       roles: { agent: 'sonnet', observer: 'haiku' },
       models: [],
