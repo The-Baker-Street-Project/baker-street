@@ -334,10 +334,17 @@ fn submit_current_secret(app: &mut App) {
     let value = if input.is_empty() { None } else { Some(input) };
     app.secret_prompts[idx].value = value.clone();
 
-    // Map secret values into config
+    // Map secret values into config — auto-detect token type by prefix
     match app.secret_prompts[idx].key.as_str() {
-        "ANTHROPIC_OAUTH_TOKEN" => app.config.oauth_token = value,
-        "ANTHROPIC_API_KEY" => app.config.api_key = value,
+        "ANTHROPIC_OAUTH_TOKEN" | "ANTHROPIC_API_KEY" => {
+            if let Some(ref v) = value {
+                if v.starts_with("sk-ant-oat") {
+                    app.config.oauth_token = value;
+                } else {
+                    app.config.api_key = value;
+                }
+            }
+        }
         "VOYAGE_API_KEY" => app.config.voyage_api_key = value,
         "AGENT_NAME" => {
             if let Some(ref v) = value {
