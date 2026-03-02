@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "version": "0.2.0",
+  "images": [
+    { "component": "brain", "image": "ghcr.io/the-baker-street-project/bakerst-brain:0.1.0", "version": "0.1.0", "required": true },
+    { "component": "worker", "image": "ghcr.io/the-baker-street-project/bakerst-worker:0.1.0", "version": "0.1.0", "required": true },
+    { "component": "ui", "image": "ghcr.io/the-baker-street-project/bakerst-ui:0.1.0", "version": "0.1.0", "required": true },
+    { "component": "gateway", "image": "ghcr.io/the-baker-street-project/bakerst-gateway:0.1.0", "version": "0.1.0", "required": true },
+    { "component": "sysadmin", "image": "ghcr.io/the-baker-street-project/bakerst-sysadmin:0.1.0", "version": "0.1.0", "required": false },
+    { "component": "ext-utilities", "image": "ghcr.io/the-baker-street-project/bakerst-ext-utilities:0.1.0", "version": "0.1.0", "required": false },
+    { "component": "ext-github", "image": "ghcr.io/the-baker-street-project/bakerst-ext-github:0.1.0", "version": "0.1.0", "required": false },
+    { "component": "ext-obsidian", "image": "ghcr.io/the-baker-street-project/bakerst-ext-obsidian:0.1.0", "version": "0.1.0", "required": false },
+    { "component": "ext-toolbox", "image": "ghcr.io/the-baker-street-project/bakerst-ext-toolbox:0.1.0", "version": "0.1.0", "required": false },
+    { "component": "voice", "image": "ghcr.io/the-baker-street-project/bakerst-voice:0.1.0", "version": "0.1.0", "required": false },
+    { "component": "ext-browser", "image": "ghcr.io/the-baker-street-project/bakerst-ext-browser:0.1.0", "version": "0.1.0", "required": false }
+  ],
+  "requiredSecrets": [
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "description": "Anthropic API key for Claude",
+      "required": true,
+      "inputType": "secret",
+      "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"]
+    },
+    {
+      "key": "DEFAULT_MODEL",
+      "description": "Default model for the agent",
+      "required": false,
+      "inputType": "choice",
+      "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"]
+    },
+    {
+      "key": "VOYAGE_API_KEY",
+      "description": "Voyage AI API key for embeddings",
+      "required": false,
+      "inputType": "secret",
+      "targetSecrets": ["bakerst-brain-secrets"]
+    },
+    {
+      "key": "AUTH_TOKEN",
+      "description": "API auth token (auto-generated if not provided)",
+      "required": false,
+      "inputType": "secret",
+      "targetSecrets": ["bakerst-brain-secrets", "bakerst-gateway-secrets"]
+    },
+    {
+      "key": "AGENT_NAME",
+      "description": "AI persona name",
+      "required": false,
+      "inputType": "text",
+      "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"]
+    }
+  ],
+  "optionalFeatures": [
+    {
+      "id": "telegram",
+      "name": "Telegram Gateway",
+      "description": "Enable Telegram bot adapter",
+      "defaultEnabled": false,
+      "secrets": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_CHAT_IDS"]
+    },
+    {
+      "id": "discord",
+      "name": "Discord Gateway",
+      "description": "Enable Discord bot adapter",
+      "defaultEnabled": false,
+      "secrets": ["DISCORD_BOT_TOKEN"]
+    },
+    {
+      "id": "voyage",
+      "name": "Voyage Embeddings",
+      "description": "Enable Voyage AI for long-term memory embeddings",
+      "defaultEnabled": true,
+      "secrets": ["VOYAGE_API_KEY"]
+    },
+    {
+      "id": "github",
+      "name": "GitHub Extension",
+      "description": "Enable GitHub integration extension",
+      "defaultEnabled": false,
+      "secrets": ["GITHUB_TOKEN"]
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity Search",
+      "description": "Enable Perplexity AI search and research tools",
+      "defaultEnabled": false,
+      "secrets": ["PERPLEXITY_API_KEY"]
+    },
+    {
+      "id": "obsidian",
+      "name": "Obsidian Extension",
+      "description": "Enable Obsidian vault integration",
+      "defaultEnabled": false,
+      "secrets": ["OBSIDIAN_VAULT_PATH"]
+    }
+  ],
+  "defaults": {
+    "agentName": "Baker",
+    "namespace": "bakerst",
+    "resourceProfile": "standard"
+  }
+}
