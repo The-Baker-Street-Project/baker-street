@@ -25,8 +25,11 @@ const log = logger.child({ module: 'model-config' });
 function defaultProviders(): Record<string, ProviderConfig> {
   const providers: Record<string, ProviderConfig> = {};
 
-  const oauthToken = process.env.ANTHROPIC_OAUTH_TOKEN;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const rawOauthToken = process.env.ANTHROPIC_OAUTH_TOKEN;
+  const rawApiKey = process.env.ANTHROPIC_API_KEY;
+  // If the API key field actually contains an OAuth token, reclassify it
+  const oauthToken = rawOauthToken || (rawApiKey?.includes('sk-ant-oat') ? rawApiKey : undefined);
+  const apiKey = rawApiKey?.includes('sk-ant-oat') ? undefined : rawApiKey;
 
   if (oauthToken || apiKey) {
     providers['anthropic'] = {

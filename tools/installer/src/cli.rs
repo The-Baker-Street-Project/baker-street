@@ -39,6 +39,10 @@ pub struct Cli {
     #[arg(long, default_value = "bakerst")]
     pub namespace: String,
 
+    /// Install from a YAML config file (non-interactive)
+    #[arg(long, value_name = "PATH")]
+    pub config: Option<String>,
+
     /// Show debug output
     #[arg(short, long)]
     pub verbose: bool,

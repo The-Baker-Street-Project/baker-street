@@ -50,6 +50,33 @@ fn non_interactive_without_credentials_exits() {
         .failure();
 }
 
+/// Test --config with missing file exits with error
+#[test]
+fn config_flag_with_missing_file_exits_with_error() {
+    Command::cargo_bin("bakerst-install")
+        .unwrap()
+        .arg("--config")
+        .arg("/nonexistent/config.yaml")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Failed to read config file"));
+}
+
+/// Test --config without credentials section exits with error
+#[test]
+fn config_flag_without_credentials_exits_with_error() {
+    let mut f = tempfile::NamedTempFile::new().unwrap();
+    use std::io::Write;
+    write!(f, "credentials: {{}}\nfeatures: {{}}\nverify:\n  expected_pods: []\n").unwrap();
+    Command::cargo_bin("bakerst-install")
+        .unwrap()
+        .arg("--config")
+        .arg(f.path().to_str().unwrap())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("anthropic_oauth_token or anthropic_api_key"));
+}
+
 /// Full deploy cycle - only runs with `cargo test -- --ignored`
 #[tokio::test]
 #[ignore]
