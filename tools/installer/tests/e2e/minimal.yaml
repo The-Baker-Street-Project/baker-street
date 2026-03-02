@@ -1,0 +1,19 @@
+# Minimal install: Anthropic only, no optional features
+# Credential values are placeholders — override with real tokens at runtime:
+#   E2E_ANTHROPIC_OAUTH_TOKEN=sk-ant-oat01-... ./scripts/e2e-test.sh minimal
+
+credentials:
+  anthropic_oauth_token: "${E2E_ANTHROPIC_OAUTH_TOKEN}"
+
+features: {}
+
+verify:
+  expected_pods:
+    - brain
+    - worker
+    - gateway
+    - ui
+    - nats
+    - qdrant
+  chat_prompt: "List all your tools and capabilities. Be specific about what you can do."
+  expected_capabilities: []
