@@ -82,6 +82,29 @@ function validateContentBlocks(content: unknown[]): ChatContentBlock[] {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// Failure classification
+// ---------------------------------------------------------------------------
+
+type FailureType = 'rate_limit' | 'auth' | 'timeout' | 'server_error' | 'unknown';
+
+function classifyError(err: Error): FailureType {
+  const status = (err as any).status ?? (err as any).statusCode;
+  if (status === 429 || err.message.toLowerCase().includes('rate limit')) return 'rate_limit';
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 500 || status === 502 || status === 503) return 'server_error';
+  if (err.message.includes('ETIMEDOUT') || err.message.includes('ECONNABORTED') || err.message.includes('timeout')) return 'timeout';
+  return 'unknown';
+}
+
+const COOLDOWN_MS: Record<FailureType, number> = {
+  rate_limit: 60_000,
+  timeout: 30_000,
+  server_error: 30_000,
+  auth: Infinity, // permanent
+  unknown: 30_000,
+};
+
+// ---------------------------------------------------------------------------
 // Provider adapter interface
 // ---------------------------------------------------------------------------
 
@@ -656,6 +679,7 @@ function convertToOpenAIMessages(
 export class ModelRouter {
   private adapters: Map<string, ProviderAdapter> = new Map();
   private circuitBreakers: Map<string, CircuitBreaker> = new Map();
+  private authLockedModels: Set<string> = new Set();
   private config: ModelRouterConfig;
   private onApiCall?: (info: { provider: string; model: string; durationMs: number; inputTokens?: number; outputTokens?: number; error?: string }) => void;
 
@@ -780,19 +804,33 @@ export class ModelRouter {
   /** Non-streaming chat call with fallback support */
   async chat(params: ChatParams): Promise<ChatResponse> {
     const model = this.resolveModel(params);
-    const modelsToTry = [model];
+    let modelsToTry = [model];
 
     // Append fallback chain if configured
     if (this.config.fallbackChain) {
+      const fallbacks: ModelDefinition[] = [];
       for (const fbId of this.config.fallbackChain) {
         if (fbId === model.id) continue;
         const fbModel = this.config.models.find((m) => m.id === fbId);
-        if (fbModel) modelsToTry.push(fbModel);
+        if (fbModel) fallbacks.push(fbModel);
       }
+
+      // Sort fallbacks by cost if cheapest-first strategy
+      if (this.config.fallbackStrategy === 'cheapest-first') {
+        fallbacks.sort((a, b) => (a.costPer1MInput ?? 0) - (b.costPer1MInput ?? 0));
+      }
+
+      modelsToTry = [model, ...fallbacks];
     }
 
     let lastError: Error = new Error('All models in fallback chain failed');
     for (const m of modelsToTry) {
+      // Skip auth-locked models
+      if (this.authLockedModels.has(m.id)) {
+        log.warn({ model: m.id, provider: m.provider }, 'skipping auth-locked model');
+        continue;
+      }
+
       const start = Date.now();
       try {
         const adapter = await this.getAdapter(m.provider);
@@ -806,8 +844,20 @@ export class ModelRouter {
         lastError = err instanceof Error ? err : new Error(String(err));
         const durationMs = Date.now() - start;
         this.onApiCall?.({ provider: m.provider, model: m.modelName, durationMs, error: lastError.message });
+
+        // Classify failure and set appropriate cooldown
+        const failureType = classifyError(lastError);
+        if (failureType === 'auth') {
+          this.authLockedModels.add(m.id);
+          log.error({ model: m.id, provider: m.provider }, 'auth failure — model locked until key updated');
+        } else {
+          // Adjust circuit breaker timeout based on failure type
+          const cb = this.getOrCreateBreaker(m.provider);
+          cb.resetTimeoutMs = COOLDOWN_MS[failureType];
+        }
+
         log.warn(
-          { err, model: m.modelName, provider: m.provider },
+          { err, model: m.modelName, provider: m.provider, failureType },
           'chat request failed, trying fallback',
         );
       }
@@ -819,6 +869,12 @@ export class ModelRouter {
   /** Streaming chat call with circuit breaker (no fallback — fails immediately) */
   async *chatStream(params: ChatParams): AsyncGenerator<ModelStreamEvent> {
     const model = this.resolveModel(params);
+
+    // Reject early if model is auth-locked
+    if (this.authLockedModels.has(model.id)) {
+      throw new Error(`Model '${model.id}' is auth-locked (previous 401/403 failure)`);
+    }
+
     const adapter = await this.getAdapter(model.provider);
     const cb = this.getOrCreateBreaker(model.provider);
     log.info({ model: model.modelName, provider: model.provider, role: params.role ?? 'agent' }, 'routing streaming chat request');

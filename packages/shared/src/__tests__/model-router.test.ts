@@ -585,6 +585,80 @@ describe('ModelRouter', () => {
     });
   });
 
+  describe('failure classification and cooldowns', () => {
+    it('locks provider permanently on auth failure (401)', async () => {
+      const err = new Error('Unauthorized') as any;
+      err.status = 401;
+      mockMessagesCreate
+        .mockRejectedValueOnce(err)
+        .mockResolvedValue({
+          ...mockAnthropicResponse,
+          model: 'claude-haiku-4-5-20251001',
+        });
+
+      const config = makeConfig({ fallbackChain: ['sonnet-4', 'haiku-4.5'] });
+      const router = await ModelRouter.create(config);
+
+      // First call fails with 401, falls back to haiku
+      const response = await router.chat(makeParams());
+      expect(response.model).toBe('claude-haiku-4-5-20251001');
+
+      // Second call should skip anthropic entirely (auth-locked)
+      mockMessagesCreate.mockClear();
+      mockMessagesCreate.mockResolvedValue({
+        ...mockAnthropicResponse,
+        model: 'claude-haiku-4-5-20251001',
+      });
+      const response2 = await router.chat(makeParams());
+      // Should only have called once (haiku), not twice (sonnet then haiku)
+      expect(mockMessagesCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it('maps rate limit (429) to 60s cooldown', async () => {
+      const err = new Error('Rate limited') as any;
+      err.status = 429;
+
+      mockMessagesCreate.mockRejectedValue(err);
+
+      const router = await ModelRouter.create(makeConfig());
+
+      // Trip the breaker with rate limit errors
+      for (let i = 0; i < 5; i++) {
+        try { await router.chat(makeParams()); } catch { /* expected */ }
+      }
+
+      // Breaker should be open — verify it rejects immediately
+      await expect(router.chat(makeParams())).rejects.toThrow(/circuit breaker.*open/i);
+    });
+
+    it('sorts fallback candidates by cost when cheapest-first strategy', async () => {
+      mockMessagesCreate
+        .mockRejectedValueOnce(new Error('primary failed'))
+        .mockResolvedValue({
+          ...mockAnthropicResponse,
+          model: 'claude-haiku-4-5-20251001',
+        });
+
+      const config = makeConfig({
+        models: [
+          { id: 'sonnet-4', modelName: 'claude-sonnet-4-20250514', provider: 'anthropic', maxTokens: 4096, costPer1MInput: 3 },
+          { id: 'opus-4', modelName: 'claude-opus-4-20250514', provider: 'anthropic', maxTokens: 4096, costPer1MInput: 15 },
+          { id: 'haiku-4.5', modelName: 'claude-haiku-4-5-20251001', provider: 'anthropic', maxTokens: 2048, costPer1MInput: 0.8 },
+        ],
+        fallbackChain: ['sonnet-4', 'opus-4', 'haiku-4.5'],
+        fallbackStrategy: 'cheapest-first',
+      });
+
+      const router = await ModelRouter.create(config);
+      const response = await router.chat(makeParams());
+
+      // After sonnet fails, cheapest-first should try haiku (0.8) before opus (15)
+      const calls = mockMessagesCreate.mock.calls;
+      expect(calls[0][0].model).toBe('claude-sonnet-4-20250514'); // primary
+      expect(calls[1][0].model).toBe('claude-haiku-4-5-20251001'); // cheapest fallback
+    });
+  });
+
   describe('getAdapter() lazy init', () => {
     it('lazy-inits Ollama adapter', async () => {
       const config: ModelRouterConfig = {

@@ -243,6 +243,13 @@ function applyEnvOverrides(config: ModelRouterConfig): ModelRouterConfig {
     };
   }
 
+  // FALLBACK_STRATEGY — set fallback ordering
+  const fallbackStrategy = process.env.FALLBACK_STRATEGY;
+  if (fallbackStrategy === 'cheapest-first' || fallbackStrategy === 'configured') {
+    config.fallbackStrategy = fallbackStrategy;
+    log.info({ fallbackStrategy }, 'FALLBACK_STRATEGY override applied');
+  }
+
   return config;
 }
 

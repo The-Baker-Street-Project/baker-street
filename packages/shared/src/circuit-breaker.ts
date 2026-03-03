@@ -28,7 +28,7 @@ export class CircuitBreaker {
   private lastFailureTime = 0;
   private readonly name: string;
   private readonly failureThreshold: number;
-  private readonly resetTimeoutMs: number;
+  public resetTimeoutMs: number;
   private readonly halfOpenSuccessThreshold: number;
   private readonly onStateChange?: (from: CircuitState, to: CircuitState) => void;
 
