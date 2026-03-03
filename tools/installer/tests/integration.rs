@@ -38,13 +38,17 @@ fn status_without_cluster_fails_gracefully() {
     // The important thing is it doesn't panic
 }
 
-/// Test non-interactive mode without credentials fails with message
+/// Test non-interactive mode without any provider credentials fails
 #[test]
 fn non_interactive_without_credentials_exits() {
     Command::cargo_bin("bakerst-install")
         .unwrap()
         .arg("--non-interactive")
         .env_remove("ANTHROPIC_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("BAKERST_OPENAI_API_KEY")
+        .env_remove("OLLAMA_ENDPOINTS")
+        .env_remove("BAKERST_OLLAMA_ENDPOINTS")
         .assert()
         .failure();
 }
@@ -61,7 +65,7 @@ fn config_flag_with_missing_file_exits_with_error() {
         .stderr(predicate::str::contains("Failed to read config file"));
 }
 
-/// Test --config without credentials section exits with error
+/// Test --config without any provider credentials exits with error
 #[test]
 fn config_flag_without_credentials_exits_with_error() {
     let mut f = tempfile::NamedTempFile::new().unwrap();
@@ -73,7 +77,7 @@ fn config_flag_without_credentials_exits_with_error() {
         .arg(f.path().to_str().unwrap())
         .assert()
         .failure()
-        .stderr(predicate::str::contains("anthropic_api_key"));
+        .stderr(predicate::str::contains("at least one provider"));
 }
 
 /// Full deploy cycle - only runs with `cargo test -- --ignored`

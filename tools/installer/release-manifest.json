@@ -18,7 +18,7 @@
     {
       "key": "ANTHROPIC_API_KEY",
       "description": "Anthropic API key for Claude",
-      "required": true,
+      "required": false,
       "inputType": "secret",
       "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"]
     },

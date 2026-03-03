@@ -78,9 +78,11 @@ mod tests {
     }
 
     #[test]
-    fn embedded_manifest_has_anthropic_secret() {
+    fn embedded_manifest_has_anthropic_secret_optional() {
         let m = embedded_manifest().unwrap();
-        assert!(m.required_secrets.iter().any(|s| s.key == "ANTHROPIC_API_KEY"));
+        let anthropic = m.required_secrets.iter().find(|s| s.key == "ANTHROPIC_API_KEY");
+        assert!(anthropic.is_some(), "ANTHROPIC_API_KEY should exist in manifest");
+        assert!(!anthropic.unwrap().required, "ANTHROPIC_API_KEY should not be required");
     }
 
     #[test]

@@ -12,7 +12,8 @@ use ratatui::{
 };
 use std::io::stdout;
 
-use crate::app::{App, ItemStatus, Phase};
+use crate::app::{App, ItemStatus, Phase, ProviderStep, ProviderType};
+use crate::models_for_provider;
 use crate::templates::mask_secret;
 
 // Baker Street color palette
@@ -110,7 +111,27 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     let keys = match app.phase {
         Phase::Secrets => "Enter to submit  |  Esc to skip optional",
-        Phase::Providers => "Enter \u{25b8}",
+        Phase::Providers => match app.provider_step {
+            ProviderStep::BrainProvider | ProviderStep::WorkerProvider | ProviderStep::WorkerChoice => {
+                "\u{2191}\u{2193} select  Enter \u{25b8}"
+            }
+            ProviderStep::BrainModel | ProviderStep::WorkerModel => {
+                let provider = if matches!(app.provider_step, ProviderStep::BrainModel) {
+                    app.brain_provider.unwrap_or(ProviderType::Anthropic)
+                } else {
+                    app.worker_provider.unwrap_or(ProviderType::Anthropic)
+                };
+                if matches!(provider, ProviderType::Ollama) {
+                    "Type model name  Enter confirm  Esc back"
+                } else {
+                    "\u{2191}\u{2193} select  Enter \u{25b8}  Esc back"
+                }
+            }
+            ProviderStep::BrainCredential | ProviderStep::WorkerCredential => {
+                "Enter confirm  Esc back"
+            }
+            ProviderStep::Done => "Enter \u{25b8}",
+        },
         Phase::Features => "\u{2191}\u{2193} move  Space toggle  Enter \u{25b8}",
         Phase::Confirm => "\u{2190}\u{2192} select  Enter \u{25b8}",
         Phase::Complete => "o open browser  q quit",
@@ -293,44 +314,246 @@ fn render_secrets(frame: &mut Frame, area: Rect, app: &App) {
 fn render_providers(frame: &mut Frame, area: Rect, app: &App) {
     let mut lines = vec![
         Line::from(Span::styled(
-            " Providers Configured",
+            " Configure Providers",
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
     ];
 
-    // Always show Anthropic
-    lines.push(Line::from(vec![
-        Span::styled("  \u{2713} ", Style::default().fg(SUCCESS)),
-        Span::styled("Anthropic (Claude)", Style::default().fg(FG)),
-    ]));
-
-    // Show OpenAI if configured
-    if app.config.openai_api_key.is_some() {
+    // Show completed brain config if past that step
+    if app.brain_provider.is_some()
+        && !matches!(
+            app.provider_step,
+            ProviderStep::BrainProvider | ProviderStep::BrainModel | ProviderStep::BrainCredential
+        )
+    {
+        let provider_label = app.brain_provider.unwrap().label();
+        let model_label = app.brain_model_display.as_deref().unwrap_or("?");
         lines.push(Line::from(vec![
-            Span::styled("  \u{2713} ", Style::default().fg(SUCCESS)),
-            Span::styled("OpenAI (GPT-4o, o3)", Style::default().fg(FG)),
+            Span::raw("  "),
+            Span::styled("\u{2713}", Style::default().fg(SUCCESS)),
+            Span::styled(
+                format!(" Brain: {} ({})", model_label, provider_label),
+                Style::default().fg(FG),
+            ),
         ]));
+        lines.push(Line::from(""));
     }
 
-    // Show Ollama if configured
-    if app.config.ollama_endpoints.is_some() {
-        lines.push(Line::from(vec![
-            Span::styled("  \u{2713} ", Style::default().fg(SUCCESS)),
-            Span::styled("Ollama (local models)", Style::default().fg(FG)),
-        ]));
+    match app.provider_step {
+        ProviderStep::BrainProvider | ProviderStep::WorkerProvider => {
+            let is_brain = app.provider_step == ProviderStep::BrainProvider;
+            let heading = if is_brain {
+                " \u{2500}\u{2500} Brain Model \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"
+            } else {
+                " \u{2500}\u{2500} Worker Model \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"
+            };
+            lines.push(Line::from(Span::styled(heading, Style::default().fg(MUTED))));
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Provider:", Style::default().fg(FG).add_modifier(Modifier::BOLD)),
+            ]));
+
+            let providers = [
+                ("Anthropic", "Claude models"),
+                ("OpenAI", "GPT-4o, o3 models"),
+                ("Ollama", "Local/self-hosted models"),
+            ];
+            for (i, (name, desc)) in providers.iter().enumerate() {
+                let selected = i == app.provider_cursor;
+                let prefix = if selected { "\u{25b8} " } else { "  " };
+                let fg = if selected { ACCENT } else { FG };
+                lines.push(Line::from(vec![
+                    Span::raw("    "),
+                    Span::styled(prefix, Style::default().fg(ACCENT)),
+                    Span::styled(
+                        name.to_string(),
+                        Style::default().fg(fg).add_modifier(if selected {
+                            Modifier::BOLD
+                        } else {
+                            Modifier::empty()
+                        }),
+                    ),
+                    Span::styled(format!("  {}", desc), Style::default().fg(MUTED)),
+                ]));
+            }
+        }
+
+        ProviderStep::BrainModel | ProviderStep::WorkerModel => {
+            let is_brain = app.provider_step == ProviderStep::BrainModel;
+            let provider = if is_brain {
+                app.brain_provider.unwrap_or(ProviderType::Anthropic)
+            } else {
+                app.worker_provider.unwrap_or(ProviderType::Anthropic)
+            };
+
+            let heading = if is_brain {
+                " \u{2500}\u{2500} Brain Model \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"
+            } else {
+                " \u{2500}\u{2500} Worker Model \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}"
+            };
+            lines.push(Line::from(Span::styled(heading, Style::default().fg(MUTED))));
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    format!("Provider: {}", provider.label()),
+                    Style::default().fg(FG),
+                ),
+            ]));
+            lines.push(Line::from(""));
+
+            let models = models_for_provider(provider);
+            if models.is_empty() {
+                // Ollama: text input
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(
+                        "Model name (e.g. llama3:70b, mistral, qwen2.5):",
+                        Style::default().fg(FG).add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+                lines.push(Line::from(""));
+                lines.push(Line::from(vec![
+                    Span::raw("  > "),
+                    Span::styled(app.provider_input.clone(), Style::default().fg(INFO)),
+                    Span::styled("\u{2588}", Style::default().fg(ACCENT)),
+                ]));
+            } else {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(
+                        "Model:",
+                        Style::default().fg(FG).add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+                for (i, (id, display, desc)) in models.iter().enumerate() {
+                    let selected = i == app.provider_cursor;
+                    let prefix = if selected { "\u{25b8} " } else { "  " };
+                    let fg = if selected { ACCENT } else { FG };
+                    lines.push(Line::from(vec![
+                        Span::raw("    "),
+                        Span::styled(prefix, Style::default().fg(ACCENT)),
+                        Span::styled(
+                            format!("{} ({})", display, id),
+                            Style::default().fg(fg).add_modifier(if selected {
+                                Modifier::BOLD
+                            } else {
+                                Modifier::empty()
+                            }),
+                        ),
+                        Span::styled(
+                            format!(" \u{2014} {}", desc),
+                            Style::default().fg(MUTED),
+                        ),
+                    ]));
+                }
+            }
+        }
+
+        ProviderStep::BrainCredential | ProviderStep::WorkerCredential => {
+            let is_brain = app.provider_step == ProviderStep::BrainCredential;
+            let provider = if is_brain {
+                app.brain_provider.unwrap_or(ProviderType::Anthropic)
+            } else {
+                app.worker_provider.unwrap_or(ProviderType::Anthropic)
+            };
+
+            let (prompt_label, is_secret) = match provider {
+                ProviderType::Anthropic => ("Anthropic API Key:", true),
+                ProviderType::OpenAI => ("OpenAI API Key:", true),
+                ProviderType::Ollama => (
+                    "Ollama endpoint(s) (e.g. localhost:11434):",
+                    false,
+                ),
+            };
+
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(
+                    prompt_label,
+                    Style::default().fg(FG).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+            lines.push(Line::from(""));
+
+            let display_input = if is_secret {
+                "\u{2022}".repeat(app.provider_input.len())
+            } else {
+                app.provider_input.clone()
+            };
+            lines.push(Line::from(vec![
+                Span::raw("  > "),
+                Span::styled(display_input, Style::default().fg(INFO)),
+                Span::styled("\u{2588}", Style::default().fg(ACCENT)),
+            ]));
+        }
+
+        ProviderStep::WorkerChoice => {
+            lines.push(Line::from(Span::styled(
+                " \u{2500}\u{2500} Worker Model \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+                Style::default().fg(MUTED),
+            )));
+
+            let brain_label = format!(
+                "Same as brain: {} ({})",
+                app.brain_model_display.as_deref().unwrap_or("?"),
+                app.brain_provider.map_or("?", |p| p.label()),
+            );
+
+            let options = [&brain_label as &str, "Configure different model"];
+            for (i, label) in options.iter().enumerate() {
+                let selected = i == app.provider_cursor;
+                let prefix = if selected { "\u{25b8} " } else { "  " };
+                let fg = if selected { ACCENT } else { FG };
+                lines.push(Line::from(vec![
+                    Span::raw("    "),
+                    Span::styled(prefix, Style::default().fg(ACCENT)),
+                    Span::styled(
+                        label.to_string(),
+                        Style::default().fg(fg).add_modifier(if selected {
+                            Modifier::BOLD
+                        } else {
+                            Modifier::empty()
+                        }),
+                    ),
+                ]));
+            }
+        }
+
+        ProviderStep::Done => {
+            // Show worker config too
+            if app.worker_same_as_brain {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled("\u{2713}", Style::default().fg(SUCCESS)),
+                    Span::styled(" Worker: Same as brain", Style::default().fg(FG)),
+                ]));
+            } else {
+                let provider_label = app
+                    .worker_provider
+                    .map_or("?", |p| p.label());
+                let model_label = app.worker_model_display.as_deref().unwrap_or("?");
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled("\u{2713}", Style::default().fg(SUCCESS)),
+                    Span::styled(
+                        format!(" Worker: {} ({})", model_label, provider_label),
+                        Style::default().fg(FG),
+                    ),
+                ]));
+            }
+
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  Press Enter to continue",
+                Style::default().fg(MUTED),
+            )));
+        }
     }
 
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "Press Enter to continue",
-        Style::default().fg(MUTED),
-    )));
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ACCENT));
-    let paragraph = Paragraph::new(lines).block(block);
+    let paragraph = Paragraph::new(lines)
+        .style(Style::default().bg(BG))
+        .block(Block::default().borders(Borders::NONE));
     frame.render_widget(paragraph, area);
 }
 
@@ -404,27 +627,29 @@ fn render_confirm(frame: &mut Frame, area: Rect, app: &App) {
         Style::default().fg(MUTED),
     )));
 
-    // Authentication section
-    lines.push(box_line(box_width, " Authentication", ACCENT, true));
-    let auth_status = if app.config.api_key.is_some() {
-        "API Key set"
-    } else {
-        "Not set"
-    };
-    lines.push(box_line(box_width, &format!("   Anthropic: {}", auth_status), FG, false));
-    if let Some(ref model) = app.config.default_model {
-        lines.push(box_line(box_width, &format!("   Model: {}", model), FG, false));
-    }
-    if app.config.openai_api_key.is_some() {
-        lines.push(box_line(box_width, "   OpenAI: API Key set", FG, false));
-    }
-    if app.config.ollama_endpoints.is_some() {
+    // Providers section
+    lines.push(box_line(box_width, " Providers", ACCENT, true));
+    {
+        let brain_provider = app.brain_provider.map_or("?", |p| p.label());
+        let brain_model = app.brain_model_display.as_deref().unwrap_or("?");
         lines.push(box_line(
             box_width,
-            &format!("   Ollama: {}", app.config.ollama_endpoints.as_deref().unwrap_or("")),
+            &format!("   Brain:  {} ({}) \u{2713}", brain_model, brain_provider),
             FG,
             false,
         ));
+        if app.worker_same_as_brain {
+            lines.push(box_line(box_width, "   Worker: Same as brain", FG, false));
+        } else {
+            let worker_provider = app.worker_provider.map_or("?", |p| p.label());
+            let worker_model = app.worker_model_display.as_deref().unwrap_or("?");
+            lines.push(box_line(
+                box_width,
+                &format!("   Worker: {} ({}) \u{2713}", worker_model, worker_provider),
+                FG,
+                false,
+            ));
+        }
     }
 
     // Configuration section

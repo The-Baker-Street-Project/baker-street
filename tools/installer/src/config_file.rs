@@ -45,9 +45,14 @@ pub fn load_config(path: &str) -> Result<ConfigFile> {
     let config: ConfigFile = serde_yaml::from_str(&content)
         .with_context(|| format!("Failed to parse config YAML: {}", path))?;
 
-    // Validate: API key is required
-    if config.credentials.anthropic_api_key.is_none() {
-        anyhow::bail!("Config must provide anthropic_api_key");
+    // Validate: at least one provider must be configured
+    if config.credentials.anthropic_api_key.is_none()
+        && config.credentials.openai_api_key.is_none()
+        && config.credentials.ollama_endpoints.is_none()
+    {
+        anyhow::bail!(
+            "Config must provide at least one provider: anthropic_api_key, openai_api_key, or ollama_endpoints"
+        );
     }
 
     Ok(config)
