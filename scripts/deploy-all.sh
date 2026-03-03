@@ -389,6 +389,38 @@ if [[ "$SKIP_SECRETS" == false ]]; then
     fi
   fi
 
+  # --- OpenAI ---
+  step "OpenAI (optional)"
+
+  if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+    info "OPENAI_API_KEY is set (****${OPENAI_API_KEY: -4})"
+  else
+    if [[ "$AUTO_YES" == false ]] && confirm "Configure OpenAI API key?"; then
+      OPENAI_API_KEY=$(ask_secret "OPENAI_API_KEY (optional, press Enter to skip)" "")
+      if [[ -z "$OPENAI_API_KEY" ]]; then
+        warn "Skipped — OpenAI models will not be available."
+      fi
+    else
+      info "Skipped"
+    fi
+  fi
+
+  # --- Ollama ---
+  step "Ollama (optional)"
+
+  if [[ -n "${OLLAMA_ENDPOINTS:-}" ]]; then
+    info "OLLAMA_ENDPOINTS is set: ${OLLAMA_ENDPOINTS}"
+  else
+    if [[ "$AUTO_YES" == false ]] && confirm "Configure Ollama endpoints?"; then
+      OLLAMA_ENDPOINTS=$(ask "Comma-separated Ollama URLs (e.g. localhost:11434)" "${OLLAMA_ENDPOINTS:-}")
+      if [[ -z "$OLLAMA_ENDPOINTS" ]]; then
+        warn "Skipped — Ollama models will not be available."
+      fi
+    else
+      info "Skipped"
+    fi
+  fi
+
   # --- Telegram ---
   step "Telegram gateway (optional)"
 

@@ -228,6 +228,30 @@ if (-not $SkipSecrets) {
         else { Write-Warn "Skipped - embeddings will not be available." }
     }
 
+    # --- OpenAI ---
+    Write-Step "OpenAI (optional)"
+    if ($secrets['OPENAI_API_KEY']) {
+        Write-Info "OPENAI_API_KEY is set (****$($secrets['OPENAI_API_KEY'].Substring($secrets['OPENAI_API_KEY'].Length - 4)))"
+    } elseif (-not $Yes -and (Confirm-Prompt "Configure OpenAI API key?" $false)) {
+        $openaiKey = Read-Secret "OPENAI_API_KEY (optional, press Enter to skip)"
+        if ($openaiKey) { $secrets['OPENAI_API_KEY'] = $openaiKey }
+        else { Write-Warn "Skipped - OpenAI models will not be available." }
+    } else {
+        Write-Info "Skipped"
+    }
+
+    # --- Ollama ---
+    Write-Step "Ollama (optional)"
+    if ($secrets['OLLAMA_ENDPOINTS']) {
+        Write-Info "OLLAMA_ENDPOINTS is set: $($secrets['OLLAMA_ENDPOINTS'])"
+    } elseif (-not $Yes -and (Confirm-Prompt "Configure Ollama endpoints?" $false)) {
+        $ollamaEndpoints = Read-Value "Comma-separated Ollama URLs (e.g. localhost:11434)" $secrets['OLLAMA_ENDPOINTS']
+        if ($ollamaEndpoints) { $secrets['OLLAMA_ENDPOINTS'] = $ollamaEndpoints }
+        else { Write-Warn "Skipped - Ollama models will not be available." }
+    } else {
+        Write-Info "Skipped"
+    }
+
     # --- Telegram ---
     Write-Step "Telegram gateway (optional)"
     if ($secrets['TELEGRAM_BOT_TOKEN']) {
