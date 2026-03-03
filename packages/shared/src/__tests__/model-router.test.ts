@@ -362,6 +362,101 @@ describe('ModelRouter', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // OpenAI native adapter
+  // -------------------------------------------------------------------------
+
+  describe('OpenAI native adapter', () => {
+    function makeOpenAIConfig(overrides?: Partial<ModelRouterConfig>): ModelRouterConfig {
+      return {
+        providers: {
+          openai: {
+            provider: 'openai' as const,
+            apiKey: 'sk-openai-test',
+          },
+        },
+        models: [
+          {
+            id: 'gpt-4o',
+            modelName: 'gpt-4o',
+            provider: 'openai' as const,
+            maxTokens: 4096,
+            costPer1MInput: 2.5,
+            costPer1MOutput: 10,
+          },
+        ],
+        roles: {
+          agent: 'gpt-4o',
+          observer: 'gpt-4o',
+        },
+        ...overrides,
+      };
+    }
+
+    const mockOpenAITextResponse = {
+      choices: [{
+        message: { role: 'assistant', content: 'Hello from GPT' },
+        finish_reason: 'stop',
+      }],
+      model: 'gpt-4o',
+      usage: { prompt_tokens: 10, completion_tokens: 20 },
+    };
+
+    it('routes text chat to OpenAI and normalizes response', async () => {
+      mockOpenAICreate.mockResolvedValue(mockOpenAITextResponse);
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      const response = await router.chat(makeParams());
+
+      expect(response.content).toEqual([{ type: 'text', text: 'Hello from GPT' }]);
+      expect(response.stopReason).toBe('end_turn');
+      expect(response.model).toBe('gpt-4o');
+      expect(response.usage).toEqual({ inputTokens: 10, outputTokens: 20 });
+    });
+
+    it('converts system blocks to OpenAI system message', async () => {
+      mockOpenAICreate.mockResolvedValue(mockOpenAITextResponse);
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      await router.chat(makeParams({
+        system: [{ type: 'text', text: 'You are helpful.' }],
+      }));
+
+      const callArgs = mockOpenAICreate.mock.calls[0][0];
+      expect(callArgs.messages[0]).toEqual({
+        role: 'system',
+        content: 'You are helpful.',
+      });
+    });
+
+    it('streams text deltas from OpenAI', async () => {
+      // Mock async iterable stream
+      const streamChunks = [
+        { choices: [{ delta: { content: 'Hello' }, finish_reason: null }] },
+        { choices: [{ delta: { content: ' world' }, finish_reason: null }] },
+        { choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 10 } },
+      ];
+      mockOpenAICreate.mockResolvedValue({
+        [Symbol.asyncIterator]: async function* () {
+          for (const chunk of streamChunks) yield chunk;
+        },
+      });
+
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      const events: any[] = [];
+      for await (const event of router.chatStream(makeParams())) {
+        events.push(event);
+      }
+
+      const textDeltas = events.filter(e => e.type === 'text_delta');
+      expect(textDeltas).toHaveLength(2);
+      expect(textDeltas[0].text).toBe('Hello');
+      expect(textDeltas[1].text).toBe(' world');
+
+      const done = events.find(e => e.type === 'message_done');
+      expect(done).toBeDefined();
+      expect(done.response.stopReason).toBe('end_turn');
+    });
+  });
+
   describe('getAdapter() lazy init', () => {
     it('lazy-inits Ollama adapter', async () => {
       const config: ModelRouterConfig = {

@@ -4,6 +4,7 @@
  * Supports:
  *   - Anthropic (direct, API key)
  *   - OpenRouter (Anthropic SDK with custom baseURL)
+ *   - OpenAI native (openai SDK with full tool support)
  *   - Ollama / OpenAI-compatible (openai SDK with custom baseURL)
  *
  * The router resolves role -> model definition -> provider adapter, handles
@@ -21,6 +22,7 @@ import type {
   OpenRouterProviderConfig,
   OllamaProviderConfig,
   OpenAICompatibleProviderConfig,
+  OpenAIProviderConfig,
   ChatParams,
   ChatResponse,
   ChatContentBlock,
@@ -264,6 +266,264 @@ function createOpenRouterAdapter(providerCfg: OpenRouterProviderConfig): Provide
 }
 
 // ---------------------------------------------------------------------------
+// OpenAI native adapter (uses openai SDK with full tool support)
+// ---------------------------------------------------------------------------
+
+/** Map OpenAI finish_reason to Anthropic-style stop reason */
+function mapOpenAIFinishReason(reason: string | null): string {
+  switch (reason) {
+    case 'stop':
+      return 'end_turn';
+    case 'tool_calls':
+      return 'tool_use';
+    case 'length':
+      return 'max_tokens';
+    default:
+      return reason ?? 'end_turn';
+  }
+}
+
+/** Safely parse JSON, returning empty object on failure */
+function safeJsonParse(str: string): Record<string, unknown> {
+  try {
+    return JSON.parse(str);
+  } catch {
+    log.warn({ str: str.slice(0, 200) }, 'failed to parse tool call arguments');
+    return {};
+  }
+}
+
+/** Normalize an OpenAI chat completion choice into ChatResponse */
+function normalizeOpenAIResponse(
+  choice: { message: Record<string, unknown>; finish_reason: string | null },
+  model: string,
+  usage?: { prompt_tokens: number; completion_tokens: number | null } | null,
+): ChatResponse {
+  const content: ChatContentBlock[] = [];
+
+  if (typeof choice.message.content === 'string' && choice.message.content) {
+    content.push({ type: 'text', text: choice.message.content });
+  }
+
+  // Convert tool_calls to tool_use content blocks
+  const toolCalls = choice.message.tool_calls as Array<{
+    id: string;
+    function: { name: string; arguments: string };
+  }> | undefined;
+
+  if (toolCalls) {
+    for (const tc of toolCalls) {
+      content.push({
+        type: 'tool_use',
+        id: tc.id,
+        name: tc.function.name,
+        input: safeJsonParse(tc.function.arguments),
+      });
+    }
+  }
+
+  return {
+    content,
+    stopReason: mapOpenAIFinishReason(choice.finish_reason),
+    model,
+    usage: usage
+      ? {
+          inputTokens: usage.prompt_tokens,
+          outputTokens: usage.completion_tokens ?? 0,
+        }
+      : undefined,
+  };
+}
+
+/** Convert Anthropic-style messages to OpenAI format, preserving tool_use and tool_result blocks */
+function convertToOpenAIMessagesWithTools(
+  params: ChatParams,
+): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+
+  // System blocks -> single system message
+  if (params.system && params.system.length > 0) {
+    out.push({
+      role: 'system',
+      content: params.system.map((b) => b.text).join('\n\n'),
+    });
+  }
+
+  for (const msg of params.messages) {
+    if (typeof msg.content === 'string') {
+      out.push({ role: msg.role, content: msg.content });
+      continue;
+    }
+
+    // Check for tool_result blocks (user messages with tool results)
+    const toolResults = msg.content.filter(b => b.type === 'tool_result');
+    if (toolResults.length > 0) {
+      for (const tr of toolResults) {
+        if (tr.type === 'tool_result') {
+          out.push({
+            role: 'tool',
+            tool_call_id: tr.tool_use_id,
+            content: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content),
+          });
+        }
+      }
+      continue;
+    }
+
+    // Check for tool_use blocks (assistant messages with tool calls)
+    const toolUses = msg.content.filter(b => b.type === 'tool_use');
+    if (toolUses.length > 0) {
+      const textParts = msg.content
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map(b => b.text)
+        .join('\n');
+
+      out.push({
+        role: 'assistant',
+        content: textParts || null,
+        tool_calls: toolUses.map(b => {
+          if (b.type !== 'tool_use') return undefined;
+          return {
+            id: b.id,
+            type: 'function',
+            function: {
+              name: b.name,
+              arguments: JSON.stringify(b.input),
+            },
+          };
+        }).filter(Boolean),
+      });
+      continue;
+    }
+
+    // Plain text content blocks
+    const text = msg.content
+      .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+      .map(b => b.text)
+      .join('\n');
+    out.push({ role: msg.role, content: text });
+  }
+
+  return out;
+}
+
+/** Convert Anthropic tool definitions to OpenAI function format */
+function convertToolsToOpenAI(
+  tools: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>,
+): Array<{ type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }> {
+  return tools.map(t => ({
+    type: 'function' as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema,
+    },
+  }));
+}
+
+async function createOpenAINativeAdapter(
+  providerCfg: OpenAIProviderConfig,
+): Promise<ProviderAdapter> {
+  const { default: OpenAI } = await import('openai');
+
+  const client = new OpenAI({ apiKey: providerCfg.apiKey });
+
+  log.info('openai native adapter: initialized');
+
+  return {
+    async chat(model: ModelDefinition, params: ChatParams): Promise<ChatResponse> {
+      const messages = convertToOpenAIMessagesWithTools(params);
+      const tools = params.tools ? convertToolsToOpenAI(params.tools) : undefined;
+
+      const response = await client.chat.completions.create({
+        model: model.modelName,
+        max_tokens: params.maxTokens ?? model.maxTokens,
+        messages,
+        ...(tools && tools.length > 0 ? { tools } : {}),
+      });
+
+      const choice = response.choices[0];
+      if (!choice) {
+        throw new Error('openai native adapter: no choices in response');
+      }
+
+      return normalizeOpenAIResponse(choice, response.model, response.usage);
+    },
+
+    async *chatStream(model: ModelDefinition, params: ChatParams): AsyncGenerator<ModelStreamEvent> {
+      const messages = convertToOpenAIMessagesWithTools(params);
+      const tools = params.tools ? convertToolsToOpenAI(params.tools) : undefined;
+
+      const stream = await client.chat.completions.create({
+        model: model.modelName,
+        max_tokens: params.maxTokens ?? model.maxTokens,
+        messages,
+        ...(tools && tools.length > 0 ? { tools } : {}),
+        stream: true,
+      });
+
+      let fullText = '';
+      let finishReason = 'end_turn';
+      // Accumulate tool call fragments across chunks
+      const toolCallAccumulator = new Map<number, { id: string; name: string; args: string }>();
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta;
+        if (delta?.content) {
+          fullText += delta.content;
+          yield { type: 'text_delta', text: delta.content };
+        }
+
+        // Accumulate tool call deltas
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const existing = toolCallAccumulator.get(tc.index);
+            if (!existing) {
+              toolCallAccumulator.set(tc.index, {
+                id: tc.id ?? '',
+                name: tc.function?.name ?? '',
+                args: tc.function?.arguments ?? '',
+              });
+            } else {
+              if (tc.id) existing.id = tc.id;
+              if (tc.function?.name) existing.name += tc.function.name;
+              if (tc.function?.arguments) existing.args += tc.function.arguments;
+            }
+          }
+        }
+
+        if (chunk.choices[0]?.finish_reason) {
+          finishReason = mapOpenAIFinishReason(chunk.choices[0].finish_reason);
+        }
+      }
+
+      // Build final content blocks
+      const content: ChatContentBlock[] = [];
+      if (fullText) {
+        content.push({ type: 'text', text: fullText });
+      }
+      for (const [, tc] of toolCallAccumulator) {
+        content.push({
+          type: 'tool_use',
+          id: tc.id,
+          name: tc.name,
+          input: safeJsonParse(tc.args || '{}'),
+        });
+      }
+
+      yield {
+        type: 'message_done',
+        response: {
+          content,
+          stopReason: finishReason,
+          model: model.modelName,
+        },
+      };
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Ollama / OpenAI-compatible adapter (uses openai SDK)
 // ---------------------------------------------------------------------------
 
@@ -427,6 +687,12 @@ export class ModelRouter {
       router.adapters.set('openrouter', createOpenRouterAdapter(orCfg));
     }
 
+    // OpenAI native — eager if configured
+    const openaiCfg = config.providers['openai'];
+    if (openaiCfg && openaiCfg.provider === 'openai') {
+      router.adapters.set('openai', await createOpenAINativeAdapter(openaiCfg as OpenAIProviderConfig));
+    }
+
     return router;
   }
 
@@ -482,6 +748,12 @@ export class ModelRouter {
 
     if (providerCfg.provider === 'ollama' || providerCfg.provider === 'openai-compatible') {
       const adapter = await createOpenAICompatibleAdapter(providerCfg);
+      this.adapters.set(provider, adapter);
+      return adapter;
+    }
+
+    if (providerCfg.provider === 'openai') {
+      const adapter = await createOpenAINativeAdapter(providerCfg as OpenAIProviderConfig);
       this.adapters.set(provider, adapter);
       return adapter;
     }
