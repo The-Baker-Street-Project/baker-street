@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript ESM, `openai` SDK (already a dep), `@anthropic-ai/sdk`, vitest, Rust (installer), ratatui
 
-<!-- Validated: PENDING -->
+<!-- Validated: PENDING — findings from 2026-03-03 review being addressed -->
 
 ---
 
@@ -48,14 +48,14 @@ it('includes openai model definitions when OPENAI_API_KEY set', () => {
 });
 
 // Inside describe('loadModelConfig()')
-it('applies DEFAULT_MODEL override with gpt- prefix model', () => {
+it('applies DEFAULT_MODEL override with gpt- prefix model', async () => {
   setEnv('OPENAI_API_KEY', 'sk-openai-test');
   setEnv('DEFAULT_MODEL', 'gpt-4o');
   const config = await loadModelConfig();
   expect(config.roles.agent).toBe('gpt-4o');
 });
 
-it('guesses openai provider for unknown gpt- model', () => {
+it('guesses openai provider for unknown gpt- model', async () => {
   setEnv('OPENAI_API_KEY', 'sk-openai-test');
   setEnv('DEFAULT_MODEL', 'gpt-4-turbo');
   const config = await loadModelConfig();
@@ -64,7 +64,7 @@ it('guesses openai provider for unknown gpt- model', () => {
   expect(adHoc!.provider).toBe('openai');
 });
 
-it('guesses openai provider for o3/o1 models', () => {
+it('guesses openai provider for o3/o1 models', async () => {
   setEnv('OPENAI_API_KEY', 'sk-openai-test');
   setEnv('DEFAULT_MODEL', 'o1-preview');
   const config = await loadModelConfig();
@@ -222,7 +222,48 @@ function guessProvider(
 }
 ```
 
-Also update the return type signature which currently has a hardcoded union — use `ModelProvider` instead.
+### Step 4b: Update guessProvider() return type
+
+The current `guessProvider()` return type at line 215 of `model-config.ts` is a hardcoded union `'anthropic' | 'openrouter' | 'ollama' | 'openai-compatible'` that doesn't include `'openai'`. Change it to use the `ModelProvider` type:
+
+```typescript
+function guessProvider(
+  modelName: string,
+  config: ModelRouterConfig,
+): ModelProvider {
+  // ... (body unchanged from Step 4)
+}
+```
+
+Also import `ModelProvider` in the imports at the top of the file (line 16 area):
+
+```typescript
+import type {
+  ModelRouterConfig,
+  ModelDefinition,
+  ProviderConfig,
+  ModelRoles,
+  ModelProvider,
+} from './model-types.js';
+```
+
+### Step 4c: Change ModelDefinition.provider to string
+
+In `packages/shared/src/model-types.ts`, change `ModelDefinition.provider` from `ModelProvider` to `string`:
+
+```typescript
+export interface ModelDefinition {
+  id: string;
+  modelName: string;
+  /** Provider key — matches a key in ModelRouterConfig.providers */
+  provider: string;
+  maxTokens: number;
+  costPer1MInput?: number;
+  costPer1MOutput?: number;
+}
+```
+
+This is needed because multi-endpoint Ollama providers use compound keys like `ollama@hostname` that aren't in the `ModelProvider` union. The `ModelProvider` type remains as the discriminant on `ProviderConfig` interfaces but `ModelDefinition` references the *provider key* in the config record.
 
 ### Step 5: Run tests to verify they pass
 
@@ -463,7 +504,7 @@ async function createOpenAINativeAdapter(
           type: 'tool_use',
           id: tc.id,
           name: tc.name,
-          input: JSON.parse(tc.args || '{}'),
+          input: safeJsonParse(tc.args || '{}'),
         });
       }
 
@@ -569,6 +610,16 @@ function convertToolsToOpenAI(
   }));
 }
 
+/** Safely parse JSON, returning empty object on failure */
+function safeJsonParse(str: string): Record<string, unknown> {
+  try {
+    return JSON.parse(str);
+  } catch {
+    log.warn({ str: str.slice(0, 200) }, 'failed to parse tool call arguments');
+    return {};
+  }
+}
+
 /** Normalize an OpenAI chat completion choice into ChatResponse */
 function normalizeOpenAIResponse(
   choice: { message: Record<string, unknown>; finish_reason: string | null },
@@ -593,7 +644,7 @@ function normalizeOpenAIResponse(
         type: 'tool_use',
         id: tc.id,
         name: tc.function.name,
-        input: JSON.parse(tc.function.arguments),
+        input: safeJsonParse(tc.function.arguments),
       });
     }
   }
@@ -833,6 +884,7 @@ conversion, and streaming tool call fragment assembly."
 
 **Files:**
 - Modify: `packages/shared/src/model-router.ts`
+- Modify: `packages/shared/src/circuit-breaker.ts:31` (make `resetTimeoutMs` mutable)
 - Test: `packages/shared/src/__tests__/model-router.test.ts`
 
 ### Step 1: Write failing tests for classifyError and cooldown behavior
@@ -923,7 +975,23 @@ cd packages/shared && pnpm test -- --run model-router
 
 Expected: FAIL — no `classifyError`, no auth-lock, no cheapest-first sort.
 
-### Step 3: Implement failure classification
+### Step 3a: Make CircuitBreaker.resetTimeoutMs mutable
+
+In `packages/shared/src/circuit-breaker.ts`, change line 31 from:
+
+```typescript
+  private readonly resetTimeoutMs: number;
+```
+
+to:
+
+```typescript
+  public resetTimeoutMs: number;
+```
+
+This allows the ModelRouter to dynamically adjust cooldown durations based on failure type.
+
+### Step 3b: Implement failure classification
 
 In `packages/shared/src/model-router.ts`:
 
@@ -1033,7 +1101,18 @@ async chat(params: ChatParams): Promise<ChatResponse> {
 }
 ```
 
-4. Expose `resetTimeoutMs` on `CircuitBreaker` if not already public. Check `circuit-breaker.ts` — if `resetTimeoutMs` is private, make it a public property.
+### Step 3c: Add FALLBACK_STRATEGY env var
+
+In `packages/shared/src/model-config.ts`, add to `applyEnvOverrides()` (after the OPENROUTER_API_KEY block):
+
+```typescript
+// FALLBACK_STRATEGY — set fallback ordering
+const fallbackStrategy = process.env.FALLBACK_STRATEGY;
+if (fallbackStrategy === 'cheapest-first' || fallbackStrategy === 'configured') {
+  config.fallbackStrategy = fallbackStrategy;
+  log.info({ fallbackStrategy }, 'FALLBACK_STRATEGY override applied');
+}
+```
 
 ### Step 4: Run tests to verify they pass
 
@@ -1046,7 +1125,7 @@ Expected: All tests PASS.
 ### Step 5: Commit
 
 ```bash
-git add packages/shared/src/model-router.ts packages/shared/src/circuit-breaker.ts packages/shared/src/__tests__/model-router.test.ts
+git add packages/shared/src/model-router.ts packages/shared/src/model-config.ts packages/shared/src/circuit-breaker.ts packages/shared/src/__tests__/model-router.test.ts
 git commit -m "feat(shared): add failure classification and enhanced cooldowns
 
 classifyError() maps HTTP status/message to FailureType.
@@ -1069,8 +1148,10 @@ cheapest-first fallback strategy sorts by costPer1MInput."
 Add to `model-config.test.ts`:
 
 ```typescript
+// Nest inside the existing describe('model-config') block
 describe('OLLAMA_ENDPOINTS', () => {
   beforeEach(() => {
+    setEnv('ANTHROPIC_API_KEY', 'sk-test-key'); // required for validateConfig()
     setEnv('OLLAMA_ENDPOINTS', undefined);
   });
 
@@ -1127,10 +1208,16 @@ In `packages/shared/src/model-config.ts`, add to `defaultProviders()` after the 
 
 ```typescript
 // Ollama endpoints — OLLAMA_ENDPOINTS=host1:port1,host2:port2
+const OLLAMA_ENDPOINT_PATTERN = /^[\w.-]+:\d{1,5}$/;
+
 const ollamaEndpoints = process.env.OLLAMA_ENDPOINTS;
 if (ollamaEndpoints) {
   const endpoints = ollamaEndpoints.split(',').map(e => e.trim()).filter(Boolean);
   for (const endpoint of endpoints) {
+    if (!OLLAMA_ENDPOINT_PATTERN.test(endpoint)) {
+      log.warn({ endpoint }, 'skipping invalid OLLAMA_ENDPOINTS entry (expected host:port)');
+      continue;
+    }
     const isLocalhost = endpoint.startsWith('localhost') || endpoint.startsWith('127.0.0.1');
     const key = isLocalhost ? 'ollama' : `ollama@${endpoint.split(':')[0]}`;
     providers[key] = {
@@ -1141,16 +1228,16 @@ if (ollamaEndpoints) {
 }
 ```
 
-Also update `guessProvider()` — when an ollama provider key is present (any key starting with `ollama`), return the first one:
+Also update `guessProvider()` — when an ollama provider key is present (any key starting with `ollama`), return the actual provider key (not the literal `'ollama'`), since `ModelDefinition.provider` is now `string`:
 
 ```typescript
-} else if (Object.keys(config.providers).some(k => k.startsWith('ollama'))) {
-  guessed = 'ollama';
+} else if (Object.keys(config.providers).find(k => k.startsWith('ollama'))) {
+  guessed = Object.keys(config.providers).find(k => k.startsWith('ollama'))!;
 ```
 
-Wait — this won't work because the provider key is `ollama@hostname` but models reference `provider: 'ollama'`. Multi-endpoint Ollama models will have their provider set to the endpoint key. The `guessProvider` just needs to return `'ollama'` and the router's `getAdapter()` uses the model's `provider` field to find the adapter.
+**Note:** Task 1 Step 4c changed `ModelDefinition.provider` from `ModelProvider` to `string`, which allows multi-endpoint Ollama models to reference compound provider keys like `ollama@sherlock`. The `ModelProvider` type remains as the discriminant on `ProviderConfig` but `ModelDefinition.provider` is now a free-form key into the `providers` record.
 
-Actually for now, `OLLAMA_ENDPOINTS` just creates provider entries. Model discovery (`discoverOllamaModels`) is deferred — users will reference Ollama models by setting `DEFAULT_MODEL` to a model name and the system will route based on which provider that model is registered with. For v1, the provider entries are sufficient.
+For v1, `OLLAMA_ENDPOINTS` creates provider entries. Model discovery (`discoverOllamaModels`) is deferred to a follow-up issue — users reference Ollama models by setting `DEFAULT_MODEL` to a model name, and `guessProvider()` routes to the first available `ollama*` provider.
 
 ### Step 4: Run tests to verify they pass
 
@@ -1248,10 +1335,7 @@ app.patch('/conversations/:id/model', (req, res) => {
       const config = modelRouter.routerConfig;
       const exists = config.models.some(m => m.id === model || m.modelName === model);
       if (!exists) {
-        res.status(400).json({
-          error: `unknown model '${model}'`,
-          available: config.models.map(m => m.id),
-        });
+        res.status(400).json({ error: `unknown model '${model}'` });
         return;
       }
     }
@@ -1284,22 +1368,43 @@ This is a minimal change — the `modelOverride` field already exists on `ChatPa
 
 ### Step 4: Write tests
 
-Add to brain's test file or create a focused test for the API endpoint. Since the brain tests may use supertest or similar, follow the existing test pattern:
+In the brain's `api-routes.test.ts`, add mocks for the new db functions to the existing `vi.mock('../db.js')` factory:
 
 ```typescript
-// In api-routes test file:
-it('PATCH /conversations/:id/model sets model override', async () => {
-  // Create a conversation first
-  // Then PATCH it
-  // Then verify GET returns the override
-});
+// In the vi.hoisted block, add:
+const mockSetConversationModelOverride = vi.fn();
+const mockGetConversationModelOverride = vi.fn().mockReturnValue(null);
 
-it('PATCH /conversations/:id/model with null clears override', async () => {
-  // Set then clear
-});
+// In the vi.mock('../db.js') factory, add:
+setConversationModelOverride: mockSetConversationModelOverride,
+getConversationModelOverride: mockGetConversationModelOverride,
+```
 
-it('PATCH /conversations/:id/model rejects unknown model', async () => {
-  // Should return 400
+Then add the test cases:
+
+```typescript
+describe('PATCH /conversations/:id/model', () => {
+  it('sets model override', async () => {
+    // Create a conversation first
+    // Then PATCH it with { model: 'haiku-4.5' }
+    // Expect 200 { ok: true, model: 'haiku-4.5' }
+    // Expect mockSetConversationModelOverride called
+  });
+
+  it('clears override with null', async () => {
+    // PATCH with { model: null }
+    // Expect mockSetConversationModelOverride called with (id, null)
+  });
+
+  it('rejects unknown model with 400', async () => {
+    // PATCH with { model: 'nonexistent' }
+    // Expect 400 { error: "unknown model 'nonexistent'" }
+  });
+
+  it('returns 404 for unknown conversation', async () => {
+    // PATCH /conversations/nonexistent/model
+    // Expect 404
+  });
 });
 ```
 
@@ -1510,6 +1615,81 @@ if let Some(ref key) = file_config.credentials.openai_api_key {
 if let Some(ref endpoints) = file_config.credentials.ollama_endpoints {
     std::env::set_var("OLLAMA_ENDPOINTS", endpoints);
     app.config.ollama_endpoints = Some(endpoints.clone());
+}
+```
+
+### Step 5b: Update back_to_secrets() navigation
+
+In `tools/installer/src/app.rs`, update `back_to_secrets()` to handle the new Providers phase:
+
+```rust
+/// Only valid from Confirm → back to Secrets (skipping Providers)
+pub fn back_to_secrets(&mut self) {
+    if self.phase == Phase::Confirm {
+        self.phase = Phase::Secrets;
+        // Reset secret input state for re-entry
+        self.current_secret_index = 0;
+        self.secret_input = String::new();
+    }
+}
+```
+
+This keeps the existing behavior (Confirm → Secrets) unchanged. The Providers phase is forward-only for now — users can't navigate back to it from Confirm. This is acceptable since provider settings are stored in config and rarely need re-entry.
+
+### Step 5c: Add TUI rendering for Providers phase
+
+In `tools/installer/src/tui.rs`, add a `render_providers()` function and a match arm for `Phase::Providers` in the main render function. The Providers phase displays a summary of detected providers:
+
+```rust
+fn render_providers(frame: &mut Frame, area: Rect, app: &App) {
+    let mut lines = vec![
+        Line::from(Span::styled("Providers Configured:", Style::default().fg(FG).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+    ];
+
+    // Always show Anthropic
+    lines.push(Line::from(vec![
+        Span::styled("  ✓ ", Style::default().fg(SUCCESS)),
+        Span::styled("Anthropic (Claude)", Style::default().fg(FG)),
+    ]));
+
+    // Show OpenAI if configured
+    if app.config.openai_api_key.is_some() {
+        lines.push(Line::from(vec![
+            Span::styled("  ✓ ", Style::default().fg(SUCCESS)),
+            Span::styled("OpenAI (GPT-4o, o3)", Style::default().fg(FG)),
+        ]));
+    }
+
+    // Show Ollama if configured
+    if app.config.ollama_endpoints.is_some() {
+        lines.push(Line::from(vec![
+            Span::styled("  ✓ ", Style::default().fg(SUCCESS)),
+            Span::styled("Ollama (local models)", Style::default().fg(FG)),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Press Enter to continue",
+        Style::default().fg(MUTED),
+    )));
+
+    let block = Block::default().borders(Borders::ALL).border_style(Style::default().fg(ACCENT));
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, area);
+}
+```
+
+Also add the match arm in the main `render()` function and the key-hint match.
+
+In `tools/installer/src/main.rs`, add key handling for the Providers phase (in `handle_key()`):
+
+```rust
+Phase::Providers => {
+    if key.code == KeyCode::Enter {
+        app.advance();
+    }
 }
 ```
 
