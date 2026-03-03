@@ -98,3 +98,57 @@ fn missing_credentials_section_errors() {
         bakerst_install::config_file::load_config(f.path().to_str().unwrap());
     assert!(result.is_err());
 }
+
+#[test]
+fn openai_only_config_is_valid() {
+    let yaml = r#"
+credentials:
+  openai_api_key: "sk-openai-test"
+  default_model: "gpt-4o"
+
+features: {}
+
+verify:
+  expected_pods: []
+"#;
+    let mut f = NamedTempFile::new().unwrap();
+    write!(f, "{}", yaml).unwrap();
+    let config = bakerst_install::config_file::load_config(f.path().to_str().unwrap()).unwrap();
+    assert_eq!(config.credentials.openai_api_key, Some("sk-openai-test".into()));
+    assert!(config.credentials.anthropic_api_key.is_none());
+}
+
+#[test]
+fn ollama_only_config_is_valid() {
+    let yaml = r#"
+credentials:
+  ollama_endpoints: "localhost:11434"
+
+features: {}
+
+verify:
+  expected_pods: []
+"#;
+    let mut f = NamedTempFile::new().unwrap();
+    write!(f, "{}", yaml).unwrap();
+    let config = bakerst_install::config_file::load_config(f.path().to_str().unwrap()).unwrap();
+    assert_eq!(config.credentials.ollama_endpoints, Some("localhost:11434".into()));
+}
+
+#[test]
+fn empty_credentials_requires_at_least_one_provider() {
+    let yaml = r#"
+credentials: {}
+
+features: {}
+
+verify:
+  expected_pods: []
+"#;
+    let mut f = NamedTempFile::new().unwrap();
+    write!(f, "{}", yaml).unwrap();
+    let result = bakerst_install::config_file::load_config(f.path().to_str().unwrap());
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("at least one provider"), "Error was: {}", err);
+}

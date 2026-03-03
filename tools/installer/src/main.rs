@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-use app::{App, FeatureSelection, ItemStatus, Phase, SecretPrompt};
+use app::{App, FeatureSelection, ItemStatus, Phase, ProviderStep, ProviderType, SecretPrompt};
 use health::HealthEvent;
 use images::PullEvent;
 use manifest::ReleaseManifest;
@@ -196,10 +196,44 @@ async fn run_preflight(app: &mut App, cli: &Cli) {
     app.advance();
 }
 
+/// Keys handled in the Providers phase, not Secrets
+const PROVIDER_KEYS: &[&str] = &[
+    "ANTHROPIC_API_KEY",
+    "DEFAULT_MODEL",
+    "OPENAI_API_KEY",
+    "OLLAMA_ENDPOINTS",
+    "VOYAGE_API_KEY",
+];
+
+/// Model presets: (api_id, display_name, description)
+const ANTHROPIC_MODELS: &[(&str, &str, &str)] = &[
+    ("claude-sonnet-4-20250514", "Sonnet 4", "balanced"),
+    ("claude-opus-4-20250514", "Opus 4", "most capable"),
+    ("claude-haiku-4-5-20251001", "Haiku 4.5", "fastest"),
+];
+const OPENAI_MODELS: &[(&str, &str, &str)] = &[
+    ("gpt-4o", "GPT-4o", "flagship"),
+    ("gpt-4o-mini", "GPT-4o Mini", "fast/cheap"),
+    ("o3-mini", "o3-mini", "reasoning"),
+];
+
+/// Get model list for a provider
+pub fn models_for_provider(provider: ProviderType) -> &'static [(&'static str, &'static str, &'static str)] {
+    match provider {
+        ProviderType::Anthropic => ANTHROPIC_MODELS,
+        ProviderType::OpenAI => OPENAI_MODELS,
+        ProviderType::Ollama => &[], // Ollama uses free-form text entry
+    }
+}
+
 fn build_secret_prompts(app: &mut App, manifest: &ReleaseManifest) {
     app.secret_prompts.clear();
 
     for secret in &manifest.required_secrets {
+        // Skip provider-phase keys — those are handled in the Providers phase
+        if PROVIDER_KEYS.contains(&secret.key.as_str()) {
+            continue;
+        }
         app.secret_prompts.push(SecretPrompt {
             key: secret.key.clone(),
             description: secret.description.clone(),
@@ -209,8 +243,6 @@ fn build_secret_prompts(app: &mut App, manifest: &ReleaseManifest) {
             value: None,
         });
     }
-
-    // Agent name uses default ("Baker") — no prompt needed
 }
 
 fn build_feature_selections(app: &mut App, manifest: &ReleaseManifest) {
@@ -250,11 +282,7 @@ async fn handle_key(
 
         Phase::Secrets => handle_secrets_key(app, key),
 
-        Phase::Providers => {
-            if key.code == KeyCode::Enter {
-                app.advance();
-            }
-        }
+        Phase::Providers => handle_providers_key(app, key),
 
         Phase::Features => handle_features_key(app, key),
 
@@ -339,25 +367,8 @@ fn submit_current_secret(app: &mut App) {
     let value = if input.is_empty() { None } else { Some(input) };
     app.secret_prompts[idx].value = value.clone();
 
-    // Map secret values into config
+    // Map secret values into config (only non-provider keys reach here)
     match app.secret_prompts[idx].key.as_str() {
-        "ANTHROPIC_API_KEY" => app.config.api_key = value,
-        "DEFAULT_MODEL" => {
-            // Map numeric choices to model names
-            app.config.default_model = value.map(|v| match v.trim() {
-                "1" | "" => "claude-sonnet-4-20250514".to_string(),
-                "2" => "claude-opus-4-20250514".to_string(),
-                "3" => "claude-haiku-4-5-20251001".to_string(),
-                other => other.to_string(),
-            });
-        }
-        "VOYAGE_API_KEY" => app.config.voyage_api_key = value,
-        "OPENAI_API_KEY" => {
-            app.config.openai_api_key = value;
-        }
-        "OLLAMA_ENDPOINTS" => {
-            app.config.ollama_endpoints = value;
-        }
         "AGENT_NAME" => {
             if let Some(ref v) = value {
                 if !v.is_empty() {
@@ -378,6 +389,253 @@ fn submit_current_secret(app: &mut App) {
 
     app.current_secret_index += 1;
     app.secret_input.clear();
+}
+
+fn handle_providers_key(app: &mut App, key: event::KeyEvent) {
+    match app.provider_step {
+        ProviderStep::BrainProvider => handle_provider_select(app, key, true),
+        ProviderStep::BrainModel => handle_model_select(app, key, true),
+        ProviderStep::BrainCredential => handle_credential_input(app, key, true),
+        ProviderStep::WorkerChoice => handle_worker_choice(app, key),
+        ProviderStep::WorkerProvider => handle_provider_select(app, key, false),
+        ProviderStep::WorkerModel => handle_model_select(app, key, false),
+        ProviderStep::WorkerCredential => handle_credential_input(app, key, false),
+        ProviderStep::Done => {
+            if key.code == KeyCode::Enter {
+                app.advance();
+            }
+        }
+    }
+}
+
+fn handle_provider_select(app: &mut App, key: event::KeyEvent, is_brain: bool) {
+    match key.code {
+        KeyCode::Up => {
+            if app.provider_cursor > 0 {
+                app.provider_cursor -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if app.provider_cursor < 2 {
+                app.provider_cursor += 1;
+            }
+        }
+        KeyCode::Enter => {
+            let provider = match app.provider_cursor {
+                0 => ProviderType::Anthropic,
+                1 => ProviderType::OpenAI,
+                _ => ProviderType::Ollama,
+            };
+            if is_brain {
+                app.brain_provider = Some(provider);
+            } else {
+                app.worker_provider = Some(provider);
+            }
+            app.provider_cursor = 0;
+            app.provider_input.clear();
+            app.provider_step = if is_brain {
+                ProviderStep::BrainModel
+            } else {
+                ProviderStep::WorkerModel
+            };
+        }
+        _ => {}
+    }
+}
+
+fn handle_model_select(app: &mut App, key: event::KeyEvent, is_brain: bool) {
+    let provider = if is_brain {
+        app.brain_provider.unwrap_or(ProviderType::Anthropic)
+    } else {
+        app.worker_provider.unwrap_or(ProviderType::Anthropic)
+    };
+
+    let models = models_for_provider(provider);
+
+    if models.is_empty() {
+        // Ollama: free-form text entry for model name
+        match key.code {
+            KeyCode::Char(c) => app.provider_input.push(c),
+            KeyCode::Backspace => { app.provider_input.pop(); }
+            KeyCode::Enter => {
+                if app.provider_input.is_empty() {
+                    return; // require a model name
+                }
+                let model_id = app.provider_input.clone();
+                if is_brain {
+                    app.brain_model_display = Some(model_id.clone());
+                    app.brain_model_id = Some(model_id);
+                } else {
+                    app.worker_model_display = Some(model_id.clone());
+                    app.worker_model_id = Some(model_id);
+                }
+                app.provider_input.clear();
+                app.provider_cursor = 0;
+                app.provider_step = if is_brain {
+                    ProviderStep::BrainCredential
+                } else {
+                    ProviderStep::WorkerCredential
+                };
+            }
+            KeyCode::Esc => {
+                // Go back to provider selection
+                app.provider_input.clear();
+                app.provider_cursor = 0;
+                app.provider_step = if is_brain {
+                    ProviderStep::BrainProvider
+                } else {
+                    ProviderStep::WorkerProvider
+                };
+            }
+            _ => {}
+        }
+    } else {
+        // Anthropic/OpenAI: preset list
+        match key.code {
+            KeyCode::Up => {
+                if app.provider_cursor > 0 {
+                    app.provider_cursor -= 1;
+                }
+            }
+            KeyCode::Down => {
+                if app.provider_cursor < models.len().saturating_sub(1) {
+                    app.provider_cursor += 1;
+                }
+            }
+            KeyCode::Enter => {
+                let (model_id, display, _desc) = models[app.provider_cursor];
+                if is_brain {
+                    app.brain_model_id = Some(model_id.to_string());
+                    app.brain_model_display = Some(display.to_string());
+                } else {
+                    app.worker_model_id = Some(model_id.to_string());
+                    app.worker_model_display = Some(display.to_string());
+                }
+                app.provider_cursor = 0;
+                app.provider_input.clear();
+                app.provider_step = if is_brain {
+                    ProviderStep::BrainCredential
+                } else {
+                    ProviderStep::WorkerCredential
+                };
+            }
+            KeyCode::Esc => {
+                app.provider_cursor = 0;
+                app.provider_step = if is_brain {
+                    ProviderStep::BrainProvider
+                } else {
+                    ProviderStep::WorkerProvider
+                };
+            }
+            _ => {}
+        }
+    }
+}
+
+fn handle_credential_input(app: &mut App, key: event::KeyEvent, is_brain: bool) {
+    let provider = if is_brain {
+        app.brain_provider.unwrap_or(ProviderType::Anthropic)
+    } else {
+        app.worker_provider.unwrap_or(ProviderType::Anthropic)
+    };
+
+    // Check if credential already collected for this provider (worker reusing brain's provider)
+    let already_has_credential = match provider {
+        ProviderType::Anthropic => app.config.anthropic_api_key.is_some(),
+        ProviderType::OpenAI => app.config.openai_api_key.is_some(),
+        ProviderType::Ollama => app.config.ollama_endpoints.is_some(),
+    };
+
+    if !is_brain && already_has_credential {
+        // Skip credential entry — reuse what brain already set
+        store_model_config(app, is_brain);
+        app.provider_step = ProviderStep::Done;
+        app.provider_input.clear();
+        return;
+    }
+
+    match key.code {
+        KeyCode::Char(c) => app.provider_input.push(c),
+        KeyCode::Backspace => { app.provider_input.pop(); }
+        KeyCode::Enter => {
+            if app.provider_input.is_empty() {
+                return; // credential is required
+            }
+            // Store credential on config
+            match provider {
+                ProviderType::Anthropic => {
+                    app.config.anthropic_api_key = Some(app.provider_input.clone());
+                }
+                ProviderType::OpenAI => {
+                    app.config.openai_api_key = Some(app.provider_input.clone());
+                }
+                ProviderType::Ollama => {
+                    app.config.ollama_endpoints = Some(app.provider_input.clone());
+                }
+            }
+            app.provider_input.clear();
+            store_model_config(app, is_brain);
+            app.provider_cursor = 0;
+            app.provider_step = if is_brain {
+                ProviderStep::WorkerChoice
+            } else {
+                ProviderStep::Done
+            };
+        }
+        KeyCode::Esc => {
+            app.provider_input.clear();
+            app.provider_cursor = 0;
+            app.provider_step = if is_brain {
+                ProviderStep::BrainModel
+            } else {
+                ProviderStep::WorkerModel
+            };
+        }
+        _ => {}
+    }
+}
+
+/// Store the selected model into config.default_model (brain sets the default)
+fn store_model_config(app: &mut App, is_brain: bool) {
+    if is_brain {
+        app.config.default_model = app.brain_model_id.clone();
+    }
+    // Worker model stored on app but the k8s secret uses DEFAULT_MODEL for both.
+    // If worker differs from brain, we'll need per-service model config in secrets.
+    // For now the system uses DEFAULT_MODEL as the shared model identifier.
+}
+
+fn handle_worker_choice(app: &mut App, key: event::KeyEvent) {
+    // cursor 0 = "Same as brain", 1 = "Configure different"
+    match key.code {
+        KeyCode::Up => {
+            if app.provider_cursor > 0 {
+                app.provider_cursor -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if app.provider_cursor < 1 {
+                app.provider_cursor += 1;
+            }
+        }
+        KeyCode::Enter => {
+            if app.provider_cursor == 0 {
+                // Same as brain
+                app.worker_same_as_brain = true;
+                app.worker_provider = app.brain_provider;
+                app.worker_model_id = app.brain_model_id.clone();
+                app.worker_model_display = app.brain_model_display.clone();
+                app.provider_cursor = 0;
+                app.provider_step = ProviderStep::Done;
+            } else {
+                // Configure different
+                app.worker_same_as_brain = false;
+                app.provider_cursor = 0;
+                app.provider_step = ProviderStep::WorkerProvider;
+            }
+        }
+        _ => {}
+    }
 }
 
 fn handle_features_key(app: &mut App, key: event::KeyEvent) {
@@ -454,8 +712,8 @@ fn handle_confirm_key(app: &mut App, key: event::KeyEvent) {
                 // Confirm — advance to Pull
                 app.advance();
             } else {
-                // Cancel — back to Secrets
-                app.back_to_secrets();
+                // Cancel — back to Providers
+                app.back_to_providers();
             }
         }
         KeyCode::Char('q') => {
@@ -882,7 +1140,7 @@ async fn create_all_secrets(
 ) -> Result<()> {
     // Brain secrets
     let mut brain_data = BTreeMap::new();
-    if let Some(ref key) = config.api_key {
+    if let Some(ref key) = config.anthropic_api_key {
         brain_data.insert("ANTHROPIC_API_KEY".into(), key.clone());
     }
     if let Some(ref model) = config.default_model {
@@ -903,7 +1161,7 @@ async fn create_all_secrets(
 
     // Worker secrets
     let mut worker_data = BTreeMap::new();
-    if let Some(ref key) = config.api_key {
+    if let Some(ref key) = config.anthropic_api_key {
         worker_data.insert("ANTHROPIC_API_KEY".into(), key.clone());
     }
     if let Some(ref model) = config.default_model {
@@ -1119,10 +1377,6 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
     // [2/8] Secrets from environment
     println!("[2/8] Secrets: loading from environment...");
     let api_key = std::env::var("ANTHROPIC_API_KEY").ok();
-    if api_key.is_none() {
-        eprintln!("  ERROR: ANTHROPIC_API_KEY must be set");
-        std::process::exit(1);
-    }
     let default_model = std::env::var("BAKERST_DEFAULT_MODEL")
         .or_else(|_| std::env::var("DEFAULT_MODEL"))
         .ok();
@@ -1131,6 +1385,14 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
         .or_else(|| std::env::var("BAKERST_OPENAI_API_KEY").ok());
     let ollama_endpoints = std::env::var("OLLAMA_ENDPOINTS").ok()
         .or_else(|| std::env::var("BAKERST_OLLAMA_ENDPOINTS").ok());
+
+    // Require at least one provider
+    if api_key.is_none() && openai_api_key.is_none() && ollama_endpoints.is_none() {
+        eprintln!("  ERROR: At least one provider must be configured.");
+        eprintln!("  Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, OLLAMA_ENDPOINTS");
+        std::process::exit(1);
+    }
+
     let agent_name = std::env::var("AGENT_NAME").unwrap_or_else(|_| "Baker".into());
     let auth_token =
         std::env::var("AUTH_TOKEN").unwrap_or_else(|_| templates::generate_auth_token());
@@ -1247,7 +1509,7 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
 
     // Build template vars using shared function
     let ni_config = app::InstallConfig {
-        api_key: api_key.clone(),
+        anthropic_api_key: api_key.clone(),
         default_model: default_model.clone(),
         openai_api_key: openai_api_key.clone(),
         ollama_endpoints: ollama_endpoints.clone(),

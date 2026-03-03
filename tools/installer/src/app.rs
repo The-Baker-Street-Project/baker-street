@@ -69,10 +69,39 @@ pub enum ItemStatus {
     Skipped,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderType {
+    Anthropic,
+    OpenAI,
+    Ollama,
+}
+
+impl ProviderType {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ProviderType::Anthropic => "Anthropic",
+            ProviderType::OpenAI => "OpenAI",
+            ProviderType::Ollama => "Ollama",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderStep {
+    BrainProvider,
+    BrainModel,
+    BrainCredential,
+    WorkerChoice,
+    WorkerProvider,
+    WorkerModel,
+    WorkerCredential,
+    Done,
+}
+
 /// Collected secrets and configuration
 #[derive(Debug, Clone, Default)]
 pub struct InstallConfig {
-    pub api_key: Option<String>,
+    pub anthropic_api_key: Option<String>,
     pub default_model: Option<String>,
     pub openai_api_key: Option<String>,
     pub ollama_endpoints: Option<String>,
@@ -116,6 +145,20 @@ pub struct App {
     pub secret_prompts: Vec<SecretPrompt>,
     pub current_secret_index: usize,
     pub secret_input: String,
+
+    // Providers phase
+    pub provider_step: ProviderStep,
+    pub provider_cursor: usize,
+    pub provider_input: String,
+
+    pub brain_provider: Option<ProviderType>,
+    pub brain_model_id: Option<String>,
+    pub brain_model_display: Option<String>,
+
+    pub worker_same_as_brain: bool,
+    pub worker_provider: Option<ProviderType>,
+    pub worker_model_id: Option<String>,
+    pub worker_model_display: Option<String>,
 
     // Features phase
     pub feature_cursor: usize,
@@ -165,6 +208,20 @@ impl App {
             current_secret_index: 0,
             secret_input: String::new(),
 
+            // Providers
+            provider_step: ProviderStep::BrainProvider,
+            provider_cursor: 0,
+            provider_input: String::new(),
+
+            brain_provider: None,
+            brain_model_id: None,
+            brain_model_display: None,
+
+            worker_same_as_brain: true,
+            worker_provider: None,
+            worker_model_id: None,
+            worker_model_display: None,
+
             // Features
             feature_cursor: 0,
             collecting_feature_secrets: false,
@@ -202,13 +259,14 @@ impl App {
         }
     }
 
-    /// Only valid from Confirm → back to Secrets
-    pub fn back_to_secrets(&mut self) {
+    /// Go back to Providers from Confirm
+    pub fn back_to_providers(&mut self) {
         if self.phase == Phase::Confirm {
-            self.phase = Phase::Secrets;
-            // Reset secret input state for re-entry
-            self.current_secret_index = 0;
-            self.secret_input = String::new();
+            self.phase = Phase::Providers;
+            // Reset provider step to beginning for re-entry
+            self.provider_step = ProviderStep::BrainProvider;
+            self.provider_cursor = 0;
+            self.provider_input.clear();
         }
     }
 }
@@ -249,18 +307,25 @@ mod tests {
     }
 
     #[test]
-    fn app_back_to_secrets_only_from_confirm() {
+    fn app_back_to_providers_only_from_confirm() {
         let mut app = App::new("bakerst".into());
         app.phase = Phase::Confirm;
-        app.back_to_secrets();
-        assert_eq!(app.phase, Phase::Secrets);
+        app.back_to_providers();
+        assert_eq!(app.phase, Phase::Providers);
     }
 
     #[test]
-    fn app_back_to_secrets_noop_from_other_phases() {
+    fn app_back_to_providers_noop_from_other_phases() {
         let mut app = App::new("bakerst".into());
         app.phase = Phase::Deploy;
-        app.back_to_secrets();
+        app.back_to_providers();
         assert_eq!(app.phase, Phase::Deploy);
+    }
+
+    #[test]
+    fn provider_type_labels() {
+        assert_eq!(ProviderType::Anthropic.label(), "Anthropic");
+        assert_eq!(ProviderType::OpenAI.label(), "OpenAI");
+        assert_eq!(ProviderType::Ollama.label(), "Ollama");
     }
 }
