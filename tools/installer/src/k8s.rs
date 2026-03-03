@@ -217,6 +217,25 @@ pub async fn create_os_configmap(client: &Client, namespace: &str) -> Result<()>
     Ok(())
 }
 
+/// Restart a deployment by patching the pod template annotation (equivalent to `kubectl rollout restart`).
+pub async fn restart_deployment(client: &Client, namespace: &str, name: &str) -> Result<()> {
+    let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string();
+    let patch = serde_json::json!({
+        "spec": { "template": { "metadata": { "annotations": {
+            "kubectl.kubernetes.io/restartedAt": now
+        }}}}
+    });
+    api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+        .await
+        .with_context(|| format!("restart deployment {}", name))?;
+    Ok(())
+}
+
 /// Delete a namespace (cascades to all resources within).
 pub async fn delete_namespace(client: &Client, name: &str) -> Result<()> {
     let api: Api<Namespace> = Api::all(client.clone());

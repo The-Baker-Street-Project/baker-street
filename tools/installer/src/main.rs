@@ -1097,6 +1097,11 @@ async fn run_deploy_sequence(
     let r = k8s::apply_yaml(&client, &namespace, &yaml).await.map(|_| ());
     report_step!("Network Policies", r.map_err(|e| anyhow::anyhow!("{}", e)));
 
+    // Step 13: Restart active deployments to pick up new images/config
+    for dep in &["brain-blue", "worker", "gateway", "ui"] {
+        let _ = k8s::restart_deployment(&client, &namespace, dep).await;
+    }
+
     // Optional extensions
     if !skip_extensions {
         for img in &manifest.images {
@@ -1218,6 +1223,13 @@ fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, config: &app
     vars.insert("NAMESPACE".into(), namespace.into());
     vars.insert("VERSION".into(), manifest.version.clone());
     vars.insert("AGENT_NAME".into(), config.agent_name.clone());
+
+    // Deploy version = manifest version + deploy timestamp (unique per install)
+    let deploy_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    vars.insert("DEPLOY_VERSION".into(), format!("{}-{}", manifest.version, deploy_ts));
     vars.insert("DOOR_POLICY".into(), "open".into());
     for img in &manifest.images {
         let key = match img.component.as_str() {
@@ -1539,9 +1551,15 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
         println!("  Deployed: {}", name);
     }
 
+    // Restart active deployments to pick up new images/config
+    for dep in &["brain-blue", "worker", "gateway", "ui"] {
+        k8s::restart_deployment(&client, ns, dep).await?;
+        println!("  Restarted: {}", dep);
+    }
+
     // [7/8] Health
     println!("[7/8] Health check...");
-    let deployments = vec!["nats", "qdrant", "brain", "worker", "gateway", "ui"];
+    let deployments = vec!["nats", "qdrant", "brain-blue", "worker", "gateway", "ui"];
     for dep in &deployments {
         match health::wait_for_rollout(&client, ns, dep, Duration::from_secs(180)).await {
             Ok(_) => println!("  {}: ready", dep),

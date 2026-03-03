@@ -1,10 +1,12 @@
+# Brain Blue (active slot)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: brain
+  name: brain-blue
   namespace: {{NAMESPACE}}
   labels:
     app: brain
+    slot: blue
 spec:
   replicas: 1
   strategy:
@@ -12,10 +14,12 @@ spec:
   selector:
     matchLabels:
       app: brain
+      slot: blue
   template:
     metadata:
       labels:
         app: brain
+        slot: blue
     spec:
       serviceAccountName: brain
       securityContext:
@@ -38,6 +42,7 @@ spec:
       containers:
         - name: brain
           image: {{IMAGE_BRAIN}}
+          imagePullPolicy: Never
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -83,7 +88,130 @@ spec:
             - name: BRAIN_ROLE
               value: "active"
             - name: BRAIN_VERSION
-              value: ""
+              value: "{{DEPLOY_VERSION}}"
+{{FEATURE_VARS}}
+            - name: AGENT_NAME
+              value: "{{AGENT_NAME}}"
+          envFrom:
+            - secretRef:
+                name: bakerst-brain-secrets
+                optional: true
+          volumeMounts:
+            - name: operating-system
+              mountPath: /etc/bakerst
+              readOnly: true
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+      volumes:
+        - name: operating-system
+          configMap:
+            name: bakerst-os
+        - name: data
+          persistentVolumeClaim:
+            claimName: brain-data
+        - name: tmp
+          emptyDir: {}
+---
+# Brain Green (standby slot)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: brain-green
+  namespace: {{NAMESPACE}}
+  labels:
+    app: brain
+    slot: green
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: brain
+      slot: green
+  template:
+    metadata:
+      labels:
+        app: brain
+        slot: green
+    spec:
+      serviceAccountName: brain
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: fix-data-ownership
+          image: alpine:3
+          command: ["chown", "-R", "1000:1000", "/data"]
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: brain
+          image: {{IMAGE_BRAIN}}
+          imagePullPolicy: Never
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - containerPort: 3000
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          env:
+            - name: PORT
+              value: "3000"
+            - name: NATS_URL
+              value: "nats://nats.{{NAMESPACE}}.svc.cluster.local:4222"
+            - name: QDRANT_URL
+              value: "http://qdrant.{{NAMESPACE}}.svc.cluster.local:6333"
+            - name: CRONS_PATH
+              value: "/etc/bakerst/CRONS.json"
+            - name: DATA_DIR
+              value: "/data"
+            - name: OS_DIR
+              value: "/etc/bakerst"
+            - name: PLUGINS_PATH
+              value: "/etc/bakerst/PLUGINS.json"
+            - name: NODE_EXTRA_CA_CERTS
+              value: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+            - name: CORS_ORIGINS
+              value: "http://localhost:8080,http://localhost:30080"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.bakerst-telemetry.svc.cluster.local:4318"
+            - name: BRAIN_ROLE
+              value: "pending"
+            - name: BRAIN_VERSION
+              value: "{{DEPLOY_VERSION}}"
 {{FEATURE_VARS}}
             - name: AGENT_NAME
               value: "{{AGENT_NAME}}"
@@ -125,6 +253,7 @@ spec:
   type: NodePort
   selector:
     app: brain
+    slot: blue
   ports:
     - port: 3000
       targetPort: 3000
