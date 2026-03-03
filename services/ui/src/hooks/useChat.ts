@@ -1,6 +1,9 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { chatStream } from '../api/stream';
 import { getConversationMessages } from '../api/client';
+
+const STORAGE_MESSAGES = 'bakerst_chat_messages';
+const STORAGE_CONVERSATION = 'bakerst_active_conversation';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -14,11 +17,41 @@ export interface ToolCall {
   result?: string;
 }
 
+function loadStoredMessages(): ChatMessage[] {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_MESSAGES);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadStoredConversation(): string | undefined {
+  return sessionStorage.getItem(STORAGE_CONVERSATION) ?? undefined;
+}
+
 export function useChat(initialConversationId?: string) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    initialConversationId ? [] : loadStoredMessages(),
+  );
   const [isStreaming, setIsStreaming] = useState(false);
-  const [conversationId, setConversationId] = useState<string | undefined>(initialConversationId);
+  const [conversationId, setConversationId] = useState<string | undefined>(
+    initialConversationId ?? loadStoredConversation(),
+  );
   const abortRef = useRef<AbortController | null>(null);
+
+  // Persist messages and conversationId to sessionStorage on change
+  useEffect(() => {
+    sessionStorage.setItem(STORAGE_MESSAGES, JSON.stringify(messages));
+  }, [messages]);
+
+  useEffect(() => {
+    if (conversationId) {
+      sessionStorage.setItem(STORAGE_CONVERSATION, conversationId);
+    } else {
+      sessionStorage.removeItem(STORAGE_CONVERSATION);
+    }
+  }, [conversationId]);
 
   const loadConversation = useCallback(async (id: string) => {
     const { messages: msgs } = await getConversationMessages(id);
@@ -78,7 +111,6 @@ export function useChat(initialConversationId?: string) {
           } else if (event.type === 'done') {
             if (event.conversationId) {
               setConversationId(event.conversationId);
-              sessionStorage.setItem('bakerst_active_conversation', event.conversationId);
             }
           }
         }
@@ -105,7 +137,6 @@ export function useChat(initialConversationId?: string) {
   const newChat = useCallback(() => {
     setMessages([]);
     setConversationId(undefined);
-    sessionStorage.removeItem('bakerst_active_conversation');
   }, []);
 
   return { messages, isStreaming, conversationId, sendMessage, stopStreaming, loadConversation, newChat, setMessages, setConversationId };
