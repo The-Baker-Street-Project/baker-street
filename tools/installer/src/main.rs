@@ -146,16 +146,10 @@ async fn run_preflight(app: &mut App, cli: &Cli) {
     // Check 3: Fetch/load manifest
     app.preflight_checks
         .push(("Release manifest".into(), ItemStatus::InProgress));
-    let manifest_result = if let Some(ref path) = cli.manifest {
+    let manifest_result: Result<ReleaseManifest, String> = if let Some(ref path) = cli.manifest {
         manifest::load_manifest_from_file(path).map_err(|e| e.to_string())
     } else {
-        match manifest::fetch_manifest(cli.release_version.as_deref()).await {
-            Ok(m) => Ok(m),
-            Err(_) => {
-                // Fallback to default manifest
-                Ok(manifest::default_manifest())
-            }
-        }
+        manifest::embedded_manifest().map_err(|e| e.to_string())
     };
 
     match manifest_result {
@@ -256,6 +250,12 @@ async fn handle_key(
 
         Phase::Secrets => handle_secrets_key(app, key),
 
+        Phase::Providers => {
+            if key.code == KeyCode::Enter {
+                app.advance();
+            }
+        }
+
         Phase::Features => handle_features_key(app, key),
 
         Phase::Confirm => handle_confirm_key(app, key),
@@ -352,6 +352,12 @@ fn submit_current_secret(app: &mut App) {
             });
         }
         "VOYAGE_API_KEY" => app.config.voyage_api_key = value,
+        "OPENAI_API_KEY" => {
+            app.config.openai_api_key = value;
+        }
+        "OLLAMA_ENDPOINTS" => {
+            app.config.ollama_endpoints = value;
+        }
         "AGENT_NAME" => {
             if let Some(ref v) = value {
                 if !v.is_empty() {
@@ -887,6 +893,12 @@ async fn create_all_secrets(
     }
     brain_data.insert("AUTH_TOKEN".into(), config.auth_token.clone());
     brain_data.insert("AGENT_NAME".into(), config.agent_name.clone());
+    if let Some(ref key) = config.openai_api_key {
+        brain_data.insert("OPENAI_API_KEY".into(), key.clone());
+    }
+    if let Some(ref endpoints) = config.ollama_endpoints {
+        brain_data.insert("OLLAMA_ENDPOINTS".into(), endpoints.clone());
+    }
     k8s::create_secret(client, namespace, "bakerst-brain-secrets", &brain_data).await?;
 
     // Worker secrets
@@ -898,6 +910,12 @@ async fn create_all_secrets(
         worker_data.insert("DEFAULT_MODEL".into(), model.clone());
     }
     worker_data.insert("AGENT_NAME".into(), config.agent_name.clone());
+    if let Some(ref key) = config.openai_api_key {
+        worker_data.insert("OPENAI_API_KEY".into(), key.clone());
+    }
+    if let Some(ref endpoints) = config.ollama_endpoints {
+        worker_data.insert("OLLAMA_ENDPOINTS".into(), endpoints.clone());
+    }
     k8s::create_secret(client, namespace, "bakerst-worker-secrets", &worker_data).await?;
 
     // Gateway secrets
@@ -1090,12 +1108,7 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
     let manifest = if let Some(ref path) = cli.manifest {
         manifest::load_manifest_from_file(path)?
     } else {
-        manifest::fetch_manifest(cli.release_version.as_deref())
-            .await
-            .unwrap_or_else(|_| {
-                println!("  WARNING: Could not fetch manifest, using defaults");
-                manifest::default_manifest()
-            })
+        manifest::embedded_manifest()?
     };
     println!(
         "  Manifest: v{} ({} images)",
@@ -1114,6 +1127,10 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
         .or_else(|_| std::env::var("DEFAULT_MODEL"))
         .ok();
     let voyage_api_key = std::env::var("VOYAGE_API_KEY").ok();
+    let openai_api_key = std::env::var("OPENAI_API_KEY").ok()
+        .or_else(|| std::env::var("BAKERST_OPENAI_API_KEY").ok());
+    let ollama_endpoints = std::env::var("OLLAMA_ENDPOINTS").ok()
+        .or_else(|| std::env::var("BAKERST_OLLAMA_ENDPOINTS").ok());
     let agent_name = std::env::var("AGENT_NAME").unwrap_or_else(|_| "Baker".into());
     let auth_token =
         std::env::var("AUTH_TOKEN").unwrap_or_else(|_| templates::generate_auth_token());
@@ -1177,6 +1194,13 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
     }
     brain_secrets.insert("AUTH_TOKEN".into(), auth_token.clone());
     brain_secrets.insert("AGENT_NAME".into(), agent_name.clone());
+    if let Some(ref key) = openai_api_key {
+        brain_secrets.insert("OPENAI_API_KEY".into(), key.clone());
+        // Also add to worker below
+    }
+    if let Some(ref endpoints) = ollama_endpoints {
+        brain_secrets.insert("OLLAMA_ENDPOINTS".into(), endpoints.clone());
+    }
     k8s::create_secret(&client, ns, "bakerst-brain-secrets", &brain_secrets).await?;
 
     let mut worker_secrets = BTreeMap::new();
@@ -1187,6 +1211,12 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
         worker_secrets.insert("DEFAULT_MODEL".into(), model.clone());
     }
     worker_secrets.insert("AGENT_NAME".into(), agent_name.clone());
+    if let Some(ref key) = openai_api_key {
+        worker_secrets.insert("OPENAI_API_KEY".into(), key.clone());
+    }
+    if let Some(ref endpoints) = ollama_endpoints {
+        worker_secrets.insert("OLLAMA_ENDPOINTS".into(), endpoints.clone());
+    }
     k8s::create_secret(&client, ns, "bakerst-worker-secrets", &worker_secrets).await?;
 
     let mut gateway_secrets = BTreeMap::new();
@@ -1219,6 +1249,8 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
     let ni_config = app::InstallConfig {
         api_key: api_key.clone(),
         default_model: default_model.clone(),
+        openai_api_key: openai_api_key.clone(),
+        ollama_endpoints: ollama_endpoints.clone(),
         voyage_api_key: voyage_api_key.clone(),
         agent_name: agent_name.clone(),
         auth_token: auth_token.clone(),
@@ -1286,6 +1318,12 @@ async fn run_config_install(cli: &Cli, config_path: &str) -> Result<()> {
     }
     if let Some(ref token) = config.credentials.auth_token {
         std::env::set_var("AUTH_TOKEN", token);
+    }
+    if let Some(ref key) = config.credentials.openai_api_key {
+        std::env::set_var("OPENAI_API_KEY", key);
+    }
+    if let Some(ref endpoints) = config.credentials.ollama_endpoints {
+        std::env::set_var("OLLAMA_ENDPOINTS", endpoints);
     }
 
     // Set feature secrets as env vars

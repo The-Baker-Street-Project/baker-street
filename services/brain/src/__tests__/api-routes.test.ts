@@ -16,6 +16,8 @@ const {
   mockListConversations,
   mockGetConversation,
   mockGetMessages,
+  mockSetConversationModelOverride,
+  mockGetConversationModelOverride,
 } = vi.hoisted(() => ({
   mockListSkills: vi.fn().mockReturnValue([]),
   mockGetSkill: vi.fn(),
@@ -27,6 +29,8 @@ const {
   mockListConversations: vi.fn().mockReturnValue([]),
   mockGetConversation: vi.fn(),
   mockGetMessages: vi.fn().mockReturnValue([]),
+  mockSetConversationModelOverride: vi.fn(),
+  mockGetConversationModelOverride: vi.fn().mockReturnValue(null),
 }));
 
 // ---------------------------------------------------------------------------
@@ -37,6 +41,8 @@ vi.mock('../db.js', () => ({
   listConversations: mockListConversations,
   getConversation: mockGetConversation,
   getMessages: mockGetMessages,
+  setConversationModelOverride: mockSetConversationModelOverride,
+  getConversationModelOverride: mockGetConversationModelOverride,
   listSkills: mockListSkills,
   getSkill: mockGetSkill,
   upsertSkill: mockUpsertSkill,
@@ -500,5 +506,69 @@ describe('POST /skills/:id/promote', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('agent-owned');
     expect(mockUpsertSkill).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: Conversation model override
+// ---------------------------------------------------------------------------
+
+describe('PATCH /conversations/:id/model', () => {
+  it('sets model override', async () => {
+    mockGetConversation.mockReturnValue({ id: 'c1', title: 'Test' });
+    const mockRouter = {
+      routerConfig: {
+        models: [
+          { id: 'haiku-4.5', modelName: 'claude-haiku-4-5-20251001' },
+          { id: 'gpt-4o', modelName: 'gpt-4o' },
+        ],
+      },
+    };
+    const app = makeApp({ modelRouter: mockRouter });
+    const res = await request(app)
+      .patch('/conversations/c1/model')
+      .send({ model: 'gpt-4o' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, model: 'gpt-4o' });
+    expect(mockSetConversationModelOverride).toHaveBeenCalledWith('c1', 'gpt-4o');
+  });
+
+  it('clears override with null', async () => {
+    mockGetConversation.mockReturnValue({ id: 'c1', title: 'Test' });
+    const app = makeApp({ modelRouter: {} as any });
+    const res = await request(app)
+      .patch('/conversations/c1/model')
+      .send({ model: null });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, model: null });
+    expect(mockSetConversationModelOverride).toHaveBeenCalledWith('c1', null);
+  });
+
+  it('rejects unknown model with 400', async () => {
+    mockGetConversation.mockReturnValue({ id: 'c1', title: 'Test' });
+    const mockRouter = {
+      routerConfig: {
+        models: [{ id: 'haiku-4.5', modelName: 'claude-haiku-4-5-20251001' }],
+      },
+    };
+    const app = makeApp({ modelRouter: mockRouter });
+    const res = await request(app)
+      .patch('/conversations/c1/model')
+      .send({ model: 'nonexistent' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("unknown model 'nonexistent'");
+  });
+
+  it('returns 404 for unknown conversation', async () => {
+    mockGetConversation.mockReturnValue(undefined);
+    const app = makeApp();
+    const res = await request(app)
+      .patch('/conversations/nonexistent/model')
+      .send({ model: 'gpt-4o' });
+
+    expect(res.status).toBe(404);
   });
 });

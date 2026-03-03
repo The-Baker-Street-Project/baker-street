@@ -13,6 +13,8 @@ pub struct ConfigFile {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Credentials {
     pub anthropic_api_key: Option<String>,
+    pub openai_api_key: Option<String>,
+    pub ollama_endpoints: Option<String>,
     pub voyage_api_key: Option<String>,
     pub agent_name: Option<String>,
     pub auth_token: Option<String>,

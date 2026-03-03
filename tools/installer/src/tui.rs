@@ -110,11 +110,11 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 
     let keys = match app.phase {
         Phase::Secrets => "Enter to submit  |  Esc to skip optional",
+        Phase::Providers => "Enter \u{25b8}",
         Phase::Features => "\u{2191}\u{2193} move  Space toggle  Enter \u{25b8}",
         Phase::Confirm => "\u{2190}\u{2192} select  Enter \u{25b8}",
         Phase::Complete => "o open browser  q quit",
         Phase::Preflight | Phase::Pull | Phase::Deploy | Phase::Health => "q quit  (auto-advancing...)",
-        //_ => "Enter \u{25b8}",
     };
 
     let bar = Paragraph::new(Line::from(vec![
@@ -142,6 +142,7 @@ fn render_phase(frame: &mut Frame, area: Rect, app: &App) {
     match app.phase {
         Phase::Preflight => render_preflight(frame, area, app),
         Phase::Secrets => render_secrets(frame, area, app),
+        Phase::Providers => render_providers(frame, area, app),
         Phase::Features => render_features(frame, area, app),
         Phase::Confirm => render_confirm(frame, area, app),
         Phase::Pull => render_pull(frame, area, app),
@@ -287,7 +288,51 @@ fn render_secrets(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(paragraph, area);
 }
 
-// ---------- Phase 3: Features ----------
+// ---------- Phase 3: Providers ----------
+
+fn render_providers(frame: &mut Frame, area: Rect, app: &App) {
+    let mut lines = vec![
+        Line::from(Span::styled(
+            " Providers Configured",
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+
+    // Always show Anthropic
+    lines.push(Line::from(vec![
+        Span::styled("  \u{2713} ", Style::default().fg(SUCCESS)),
+        Span::styled("Anthropic (Claude)", Style::default().fg(FG)),
+    ]));
+
+    // Show OpenAI if configured
+    if app.config.openai_api_key.is_some() {
+        lines.push(Line::from(vec![
+            Span::styled("  \u{2713} ", Style::default().fg(SUCCESS)),
+            Span::styled("OpenAI (GPT-4o, o3)", Style::default().fg(FG)),
+        ]));
+    }
+
+    // Show Ollama if configured
+    if app.config.ollama_endpoints.is_some() {
+        lines.push(Line::from(vec![
+            Span::styled("  \u{2713} ", Style::default().fg(SUCCESS)),
+            Span::styled("Ollama (local models)", Style::default().fg(FG)),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Press Enter to continue",
+        Style::default().fg(MUTED),
+    )));
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, area);
+}
 
 fn render_features(frame: &mut Frame, area: Rect, app: &App) {
     let mut lines = vec![
@@ -369,6 +414,17 @@ fn render_confirm(frame: &mut Frame, area: Rect, app: &App) {
     lines.push(box_line(box_width, &format!("   Anthropic: {}", auth_status), FG, false));
     if let Some(ref model) = app.config.default_model {
         lines.push(box_line(box_width, &format!("   Model: {}", model), FG, false));
+    }
+    if app.config.openai_api_key.is_some() {
+        lines.push(box_line(box_width, "   OpenAI: API Key set", FG, false));
+    }
+    if app.config.ollama_endpoints.is_some() {
+        lines.push(box_line(
+            box_width,
+            &format!("   Ollama: {}", app.config.ollama_endpoints.as_deref().unwrap_or("")),
+            FG,
+            false,
+        ));
     }
 
     // Configuration section

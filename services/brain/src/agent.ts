@@ -15,6 +15,7 @@ import {
   initMemoryState,
   getUndeliveredChangelog,
   markChangelogDelivered,
+  getConversationModelOverride,
   listSkills,
   listSchedules,
 } from './db.js';
@@ -738,6 +739,9 @@ export function createAgent(
     const maxIterations = 10;
 
     for (let i = 0; i < maxIterations; i++) {
+      // Check for conversation-level model override
+      const modelOverride = getConversationModelOverride(conversationId);
+
       const response = await withSpan('brain.llm.call', {
         'llm.role': 'agent',
         'llm.iteration': i,
@@ -747,6 +751,7 @@ export function createAgent(
           system: systemBlocks,
           tools: allTools,
           messages,
+          ...(modelOverride ? { modelOverride } : {}),
         });
       });
 
@@ -911,11 +916,15 @@ export function createAgent(
 
     try {
       for (let i = 0; i < maxIterations; i++) {
+        // Check for conversation-level model override
+        const streamModelOverride = getConversationModelOverride(conversationId);
+
         const streamGen = modelRouter.chatStream({
           role: 'agent',
           system: systemBlocks,
           tools: allTools,
           messages,
+          ...(streamModelOverride ? { modelOverride: streamModelOverride } : {}),
         });
 
         let response: import('@bakerst/shared').ChatResponse | undefined;

@@ -499,6 +499,8 @@ if [[ "$SKIP_SECRETS" == false ]]; then
     [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
     [[ -n "${DEFAULT_MODEL:-}" ]]         && echo "DEFAULT_MODEL=$DEFAULT_MODEL"
     [[ -n "${VOYAGE_API_KEY:-}" ]]        && echo "VOYAGE_API_KEY=$VOYAGE_API_KEY"
+    [[ -n "${OPENAI_API_KEY:-}" ]]       && echo "OPENAI_API_KEY=$OPENAI_API_KEY"
+    [[ -n "${OLLAMA_ENDPOINTS:-}" ]]     && echo "OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS"
     [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]    && echo "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN"
     [[ -n "${TELEGRAM_ALLOWED_CHAT_IDS:-}" ]] && echo "TELEGRAM_ALLOWED_CHAT_IDS=$TELEGRAM_ALLOWED_CHAT_IDS"
     [[ -n "${DISCORD_BOT_TOKEN:-}" ]]     && echo "DISCORD_BOT_TOKEN=$DISCORD_BOT_TOKEN"
@@ -611,6 +613,8 @@ BRAIN_ARGS=()
 [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && BRAIN_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
 [[ -n "${DEFAULT_MODEL:-}" ]]         && BRAIN_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
 [[ -n "${VOYAGE_API_KEY:-}" ]]        && BRAIN_ARGS+=(--from-literal="VOYAGE_API_KEY=$VOYAGE_API_KEY")
+[[ -n "${OPENAI_API_KEY:-}" ]]       && BRAIN_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
+[[ -n "${OLLAMA_ENDPOINTS:-}" ]]     && BRAIN_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
 BRAIN_ARGS+=(--from-literal="AUTH_TOKEN=$AUTH_TOKEN")
 [[ -n "${AGENT_NAME:-}" ]] && BRAIN_ARGS+=(--from-literal="AGENT_NAME=$AGENT_NAME")
 
@@ -628,6 +632,8 @@ kubectl create secret generic bakerst-brain-secrets \
 WORKER_ARGS=()
 [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && WORKER_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
 [[ -n "${DEFAULT_MODEL:-}" ]]         && WORKER_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
+[[ -n "${OPENAI_API_KEY:-}" ]]       && WORKER_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
+[[ -n "${OLLAMA_ENDPOINTS:-}" ]]     && WORKER_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
 
 [[ -n "${AGENT_NAME:-}" ]] && WORKER_ARGS+=(--from-literal="AGENT_NAME=$AGENT_NAME")
 
@@ -935,6 +941,8 @@ info "Version:     ${VERSION}"
 info "Mode:        $(if [[ "$USE_DEV" == true ]]; then echo "dev"; else echo "production"; fi)"
 info "Anthropic:   $(if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then echo "API key set"; else echo "not configured"; fi)"
 info "Voyage:      $(if [[ -n "${VOYAGE_API_KEY:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
+info "OpenAI:      $(if [[ -n "${OPENAI_API_KEY:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
+info "Ollama:      $(if [[ -n "${OLLAMA_ENDPOINTS:-}" ]]; then echo "${OLLAMA_ENDPOINTS}"; else echo "not configured"; fi)"
 info "Telegram:    $(if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured (gateway scaled to 0)"; fi)"
 info "Discord:     $(if [[ -n "${DISCORD_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
 info "GitHub:      $(if [[ -n "${GITHUB_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"

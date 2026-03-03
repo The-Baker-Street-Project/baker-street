@@ -2,6 +2,7 @@
 pub enum Phase {
     Preflight,
     Secrets,
+    Providers,
     Features,
     Confirm,
     Pull,
@@ -15,23 +16,25 @@ impl Phase {
         match self {
             Phase::Preflight => 0,
             Phase::Secrets => 1,
-            Phase::Features => 2,
-            Phase::Confirm => 3,
-            Phase::Pull => 4,
-            Phase::Deploy => 5,
-            Phase::Health => 6,
-            Phase::Complete => 7,
+            Phase::Providers => 2,
+            Phase::Features => 3,
+            Phase::Confirm => 4,
+            Phase::Pull => 5,
+            Phase::Deploy => 6,
+            Phase::Health => 7,
+            Phase::Complete => 8,
         }
     }
 
     pub fn total() -> usize {
-        8
+        9
     }
 
     pub fn label(&self) -> &'static str {
         match self {
             Phase::Preflight => "Preflight",
             Phase::Secrets => "Secrets",
+            Phase::Providers => "Providers",
             Phase::Features => "Features",
             Phase::Confirm => "Confirm",
             Phase::Pull => "Pull Images",
@@ -44,7 +47,8 @@ impl Phase {
     pub fn next(&self) -> Option<Phase> {
         match self {
             Phase::Preflight => Some(Phase::Secrets),
-            Phase::Secrets => Some(Phase::Features),
+            Phase::Secrets => Some(Phase::Providers),
+            Phase::Providers => Some(Phase::Features),
             Phase::Features => Some(Phase::Confirm),
             Phase::Confirm => Some(Phase::Pull),
             Phase::Pull => Some(Phase::Deploy),
@@ -70,6 +74,8 @@ pub enum ItemStatus {
 pub struct InstallConfig {
     pub api_key: Option<String>,
     pub default_model: Option<String>,
+    pub openai_api_key: Option<String>,
+    pub ollama_endpoints: Option<String>,
     pub voyage_api_key: Option<String>,
     pub agent_name: String,
     pub auth_token: String,
@@ -219,7 +225,7 @@ mod tests {
             phase = next;
             count += 1;
         }
-        assert_eq!(count, 7);
+        assert_eq!(count, 8);
         assert_eq!(phase, Phase::Complete);
     }
 
@@ -231,7 +237,7 @@ mod tests {
     #[test]
     fn phase_index_is_sequential() {
         assert_eq!(Phase::Preflight.index(), 0);
-        assert_eq!(Phase::Complete.index(), 7);
+        assert_eq!(Phase::Complete.index(), 8);
     }
 
     #[test]

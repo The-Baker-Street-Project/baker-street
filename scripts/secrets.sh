@@ -31,7 +31,7 @@ fi
 kubectl apply -f "$REPO_ROOT/k8s/namespace.yaml"
 
 # --- Brain secrets ---
-# Needs: ANTHROPIC_*, VOYAGE_API_KEY, AUTH_TOKEN
+# Needs: ANTHROPIC_*, OPENAI_API_KEY, OLLAMA_ENDPOINTS, VOYAGE_API_KEY, AUTH_TOKEN
 
 BRAIN_ARGS=()
 
@@ -43,6 +43,12 @@ if [ -n "${DEFAULT_MODEL:-}" ]; then
 fi
 if [ -n "${VOYAGE_API_KEY:-}" ]; then
   BRAIN_ARGS+=(--from-literal="VOYAGE_API_KEY=$VOYAGE_API_KEY")
+fi
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  BRAIN_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
+fi
+if [ -n "${OLLAMA_ENDPOINTS:-}" ]; then
+  BRAIN_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
 fi
 BRAIN_ARGS+=(--from-literal="AUTH_TOKEN=$AUTH_TOKEN")
 if [ -n "${AGENT_NAME:-}" ]; then
@@ -61,7 +67,7 @@ kubectl create secret generic bakerst-brain-secrets \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # --- Worker secrets ---
-# Needs: ANTHROPIC_*
+# Needs: ANTHROPIC_*, OPENAI_API_KEY, OLLAMA_ENDPOINTS
 
 WORKER_ARGS=()
 
@@ -70,6 +76,12 @@ if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
 fi
 if [ -n "${DEFAULT_MODEL:-}" ]; then
   WORKER_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
+fi
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  WORKER_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
+fi
+if [ -n "${OLLAMA_ENDPOINTS:-}" ]; then
+  WORKER_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
 fi
 
 if [ -n "${AGENT_NAME:-}" ]; then

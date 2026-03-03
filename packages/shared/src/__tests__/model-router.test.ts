@@ -362,6 +362,303 @@ describe('ModelRouter', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // OpenAI native adapter
+  // -------------------------------------------------------------------------
+
+  describe('OpenAI native adapter', () => {
+    function makeOpenAIConfig(overrides?: Partial<ModelRouterConfig>): ModelRouterConfig {
+      return {
+        providers: {
+          openai: {
+            provider: 'openai' as const,
+            apiKey: 'sk-openai-test',
+          },
+        },
+        models: [
+          {
+            id: 'gpt-4o',
+            modelName: 'gpt-4o',
+            provider: 'openai' as const,
+            maxTokens: 4096,
+            costPer1MInput: 2.5,
+            costPer1MOutput: 10,
+          },
+        ],
+        roles: {
+          agent: 'gpt-4o',
+          observer: 'gpt-4o',
+        },
+        ...overrides,
+      };
+    }
+
+    const mockOpenAITextResponse = {
+      choices: [{
+        message: { role: 'assistant', content: 'Hello from GPT' },
+        finish_reason: 'stop',
+      }],
+      model: 'gpt-4o',
+      usage: { prompt_tokens: 10, completion_tokens: 20 },
+    };
+
+    it('routes text chat to OpenAI and normalizes response', async () => {
+      mockOpenAICreate.mockResolvedValue(mockOpenAITextResponse);
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      const response = await router.chat(makeParams());
+
+      expect(response.content).toEqual([{ type: 'text', text: 'Hello from GPT' }]);
+      expect(response.stopReason).toBe('end_turn');
+      expect(response.model).toBe('gpt-4o');
+      expect(response.usage).toEqual({ inputTokens: 10, outputTokens: 20 });
+    });
+
+    it('converts system blocks to OpenAI system message', async () => {
+      mockOpenAICreate.mockResolvedValue(mockOpenAITextResponse);
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      await router.chat(makeParams({
+        system: [{ type: 'text', text: 'You are helpful.' }],
+      }));
+
+      const callArgs = mockOpenAICreate.mock.calls[0][0];
+      expect(callArgs.messages[0]).toEqual({
+        role: 'system',
+        content: 'You are helpful.',
+      });
+    });
+
+    it('streams text deltas from OpenAI', async () => {
+      // Mock async iterable stream
+      const streamChunks = [
+        { choices: [{ delta: { content: 'Hello' }, finish_reason: null }] },
+        { choices: [{ delta: { content: ' world' }, finish_reason: null }] },
+        { choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 10 } },
+      ];
+      mockOpenAICreate.mockResolvedValue({
+        [Symbol.asyncIterator]: async function* () {
+          for (const chunk of streamChunks) yield chunk;
+        },
+      });
+
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      const events: any[] = [];
+      for await (const event of router.chatStream(makeParams())) {
+        events.push(event);
+      }
+
+      const textDeltas = events.filter(e => e.type === 'text_delta');
+      expect(textDeltas).toHaveLength(2);
+      expect(textDeltas[0].text).toBe('Hello');
+      expect(textDeltas[1].text).toBe(' world');
+
+      const done = events.find(e => e.type === 'message_done');
+      expect(done).toBeDefined();
+      expect(done.response.stopReason).toBe('end_turn');
+    });
+
+    it('translates tool definitions from Anthropic to OpenAI format', async () => {
+      mockOpenAICreate.mockResolvedValue(mockOpenAITextResponse);
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      await router.chat(makeParams({
+        tools: [{
+          name: 'search',
+          description: 'Search the web',
+          input_schema: {
+            type: 'object',
+            properties: { q: { type: 'string' } },
+            required: ['q'],
+          },
+        }],
+      }));
+
+      const callArgs = mockOpenAICreate.mock.calls[0][0];
+      expect(callArgs.tools).toEqual([{
+        type: 'function',
+        function: {
+          name: 'search',
+          description: 'Search the web',
+          parameters: {
+            type: 'object',
+            properties: { q: { type: 'string' } },
+            required: ['q'],
+          },
+        },
+      }]);
+    });
+
+    it('converts OpenAI tool_calls response to tool_use content blocks', async () => {
+      mockOpenAICreate.mockResolvedValue({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_abc',
+              type: 'function',
+              function: { name: 'search', arguments: '{"q":"test"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        model: 'gpt-4o',
+        usage: { prompt_tokens: 10, completion_tokens: 15 },
+      });
+
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      const response = await router.chat(makeParams({
+        tools: [{
+          name: 'search',
+          description: 'Search',
+          input_schema: { type: 'object', properties: { q: { type: 'string' } } },
+        }],
+      }));
+
+      expect(response.stopReason).toBe('tool_use');
+      expect(response.content).toEqual([{
+        type: 'tool_use',
+        id: 'call_abc',
+        name: 'search',
+        input: { q: 'test' },
+      }]);
+    });
+
+    it('converts tool_result messages to OpenAI tool role', async () => {
+      mockOpenAICreate.mockResolvedValue(mockOpenAITextResponse);
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      await router.chat(makeParams({
+        messages: [
+          { role: 'user', content: 'Search for test' },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'call_abc', name: 'search', input: { q: 'test' } },
+            ],
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'call_abc', content: 'Found 5 results' },
+            ],
+          },
+        ],
+      }));
+
+      const callArgs = mockOpenAICreate.mock.calls[0][0];
+      // Should have: user, assistant with tool_calls, tool message
+      expect(callArgs.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ role: 'tool', tool_call_id: 'call_abc', content: 'Found 5 results' }),
+      ]));
+    });
+
+    it('assembles fragmented tool call arguments during streaming', async () => {
+      const streamChunks = [
+        { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_123', function: { name: 'search', arguments: '{"q":' } }] }, finish_reason: null }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"hello"}' } }] }, finish_reason: null }] },
+        { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+      ];
+      mockOpenAICreate.mockResolvedValue({
+        [Symbol.asyncIterator]: async function* () {
+          for (const chunk of streamChunks) yield chunk;
+        },
+      });
+
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      const events: any[] = [];
+      for await (const event of router.chatStream(makeParams({
+        tools: [{
+          name: 'search',
+          description: 'Search',
+          input_schema: { type: 'object', properties: { q: { type: 'string' } } },
+        }],
+      }))) {
+        events.push(event);
+      }
+
+      const done = events.find(e => e.type === 'message_done');
+      expect(done.response.stopReason).toBe('tool_use');
+      expect(done.response.content).toEqual([{
+        type: 'tool_use',
+        id: 'call_123',
+        name: 'search',
+        input: { q: 'hello' },
+      }]);
+    });
+  });
+
+  describe('failure classification and cooldowns', () => {
+    it('locks provider permanently on auth failure (401)', async () => {
+      const err = new Error('Unauthorized') as any;
+      err.status = 401;
+      mockMessagesCreate
+        .mockRejectedValueOnce(err)
+        .mockResolvedValue({
+          ...mockAnthropicResponse,
+          model: 'claude-haiku-4-5-20251001',
+        });
+
+      const config = makeConfig({ fallbackChain: ['sonnet-4', 'haiku-4.5'] });
+      const router = await ModelRouter.create(config);
+
+      // First call fails with 401, falls back to haiku
+      const response = await router.chat(makeParams());
+      expect(response.model).toBe('claude-haiku-4-5-20251001');
+
+      // Second call should skip anthropic entirely (auth-locked)
+      mockMessagesCreate.mockClear();
+      mockMessagesCreate.mockResolvedValue({
+        ...mockAnthropicResponse,
+        model: 'claude-haiku-4-5-20251001',
+      });
+      const response2 = await router.chat(makeParams());
+      // Should only have called once (haiku), not twice (sonnet then haiku)
+      expect(mockMessagesCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it('maps rate limit (429) to 60s cooldown', async () => {
+      const err = new Error('Rate limited') as any;
+      err.status = 429;
+
+      mockMessagesCreate.mockRejectedValue(err);
+
+      const router = await ModelRouter.create(makeConfig());
+
+      // Trip the breaker with rate limit errors
+      for (let i = 0; i < 5; i++) {
+        try { await router.chat(makeParams()); } catch { /* expected */ }
+      }
+
+      // Breaker should be open — verify it rejects immediately
+      await expect(router.chat(makeParams())).rejects.toThrow(/circuit breaker.*open/i);
+    });
+
+    it('sorts fallback candidates by cost when cheapest-first strategy', async () => {
+      mockMessagesCreate
+        .mockRejectedValueOnce(new Error('primary failed'))
+        .mockResolvedValue({
+          ...mockAnthropicResponse,
+          model: 'claude-haiku-4-5-20251001',
+        });
+
+      const config = makeConfig({
+        models: [
+          { id: 'sonnet-4', modelName: 'claude-sonnet-4-20250514', provider: 'anthropic', maxTokens: 4096, costPer1MInput: 3 },
+          { id: 'opus-4', modelName: 'claude-opus-4-20250514', provider: 'anthropic', maxTokens: 4096, costPer1MInput: 15 },
+          { id: 'haiku-4.5', modelName: 'claude-haiku-4-5-20251001', provider: 'anthropic', maxTokens: 2048, costPer1MInput: 0.8 },
+        ],
+        fallbackChain: ['sonnet-4', 'opus-4', 'haiku-4.5'],
+        fallbackStrategy: 'cheapest-first',
+      });
+
+      const router = await ModelRouter.create(config);
+      const response = await router.chat(makeParams());
+
+      // After sonnet fails, cheapest-first should try haiku (0.8) before opus (15)
+      const calls = mockMessagesCreate.mock.calls;
+      expect(calls[0][0].model).toBe('claude-sonnet-4-20250514'); // primary
+      expect(calls[1][0].model).toBe('claude-haiku-4-5-20251001'); // cheapest fallback
+    });
+  });
+
   describe('getAdapter() lazy init', () => {
     it('lazy-inits Ollama adapter', async () => {
       const config: ModelRouterConfig = {

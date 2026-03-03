@@ -9,7 +9,7 @@
 // Provider enum
 // ---------------------------------------------------------------------------
 
-export type ModelProvider = 'anthropic' | 'openrouter' | 'ollama' | 'openai-compatible';
+export type ModelProvider = 'anthropic' | 'openrouter' | 'ollama' | 'openai-compatible' | 'openai';
 
 // ---------------------------------------------------------------------------
 // Provider credential configuration
@@ -40,11 +40,17 @@ export interface OpenAICompatibleProviderConfig {
   baseURL: string;
 }
 
+export interface OpenAIProviderConfig {
+  provider: 'openai';
+  apiKey: string;
+}
+
 export type ProviderConfig =
   | AnthropicProviderConfig
   | OpenRouterProviderConfig
   | OllamaProviderConfig
-  | OpenAICompatibleProviderConfig;
+  | OpenAICompatibleProviderConfig
+  | OpenAIProviderConfig;
 
 // ---------------------------------------------------------------------------
 // Model definition
@@ -55,8 +61,8 @@ export interface ModelDefinition {
   id: string;
   /** Model string sent to the provider API (e.g. "claude-sonnet-4-20250514") */
   modelName: string;
-  /** Which provider to use */
-  provider: ModelProvider;
+  /** Provider key — matches a key in ModelRouterConfig.providers */
+  provider: string;
   /** Max tokens for this model's responses */
   maxTokens: number;
   /** Approximate cost per 1M input tokens (USD), used for cost-limit checks */
@@ -94,6 +100,8 @@ export interface ModelRouterConfig {
   roles: ModelRoles;
   /** Ordered list of model IDs to try if the primary model fails */
   fallbackChain?: string[];
+  /** Strategy for automatic fallback ordering */
+  fallbackStrategy?: 'configured' | 'cheapest-first';
 }
 
 // ---------------------------------------------------------------------------
