@@ -755,9 +755,8 @@ if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
     ext_name=$(basename "$ext_dir")
     k8s_dir="${ext_dir}k8s"
 
-    # Skip ext-github if no token
-    if [[ "$ext_name" == "extension-github" && -z "${GITHUB_TOKEN:-}" ]]; then
-      warn "Skipping ${ext_name} — no GITHUB_TOKEN configured"
+    # Skip deprecated standalone extensions (superseded by ext-toolbox)
+    if [[ "$ext_name" == "extension-utilities" || "$ext_name" == "extension-github" ]]; then
       continue
     fi
 

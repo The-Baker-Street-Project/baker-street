@@ -7,9 +7,6 @@
     { "component": "ui", "image": "bakerst-ui:latest", "version": "0.2.0", "required": true },
     { "component": "gateway", "image": "bakerst-gateway:latest", "version": "0.2.0", "required": true },
     { "component": "sysadmin", "image": "bakerst-sysadmin:latest", "version": "0.2.0", "required": false },
-    { "component": "ext-utilities", "image": "bakerst-ext-utilities:latest", "version": "0.2.0", "required": false },
-    { "component": "ext-github", "image": "bakerst-ext-github:latest", "version": "0.2.0", "required": false },
-    { "component": "ext-obsidian", "image": "bakerst-ext-obsidian:latest", "version": "0.2.0", "required": false },
     { "component": "ext-toolbox", "image": "bakerst-ext-toolbox:latest", "version": "0.2.0", "required": false },
     { "component": "voice", "image": "bakerst-voice:latest", "version": "0.2.0", "required": false },
     { "component": "ext-browser", "image": "bakerst-ext-browser:latest", "version": "0.2.0", "required": false }
