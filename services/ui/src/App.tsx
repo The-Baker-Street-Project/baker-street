@@ -24,7 +24,11 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 }
 
 function AppRoutes() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isValidating } = useAuth();
+
+  if (isValidating) {
+    return <div className="flex items-center justify-center h-screen text-gray-400">Verifying session…</div>;
+  }
 
   return (
     <Routes>
