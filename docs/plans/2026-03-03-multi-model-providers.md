@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript ESM, `openai` SDK (already a dep), `@anthropic-ai/sdk`, vitest, Rust (installer), ratatui
 
-<!-- Validated: PENDING — findings from 2026-03-03 review being addressed -->
+<!-- Validated: 2026-03-03 | Design ✅ | Dev ✅ | Security ✅ | Backlog ✅ -->
 
 ---
 
