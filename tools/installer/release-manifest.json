@@ -2,17 +2,17 @@
   "schemaVersion": 1,
   "version": "0.2.0",
   "images": [
-    { "component": "brain", "image": "ghcr.io/the-baker-street-project/bakerst-brain:0.1.0", "version": "0.1.0", "required": true },
-    { "component": "worker", "image": "ghcr.io/the-baker-street-project/bakerst-worker:0.1.0", "version": "0.1.0", "required": true },
-    { "component": "ui", "image": "ghcr.io/the-baker-street-project/bakerst-ui:0.1.0", "version": "0.1.0", "required": true },
-    { "component": "gateway", "image": "ghcr.io/the-baker-street-project/bakerst-gateway:0.1.0", "version": "0.1.0", "required": true },
-    { "component": "sysadmin", "image": "ghcr.io/the-baker-street-project/bakerst-sysadmin:0.1.0", "version": "0.1.0", "required": false },
-    { "component": "ext-utilities", "image": "ghcr.io/the-baker-street-project/bakerst-ext-utilities:0.1.0", "version": "0.1.0", "required": false },
-    { "component": "ext-github", "image": "ghcr.io/the-baker-street-project/bakerst-ext-github:0.1.0", "version": "0.1.0", "required": false },
-    { "component": "ext-obsidian", "image": "ghcr.io/the-baker-street-project/bakerst-ext-obsidian:0.1.0", "version": "0.1.0", "required": false },
-    { "component": "ext-toolbox", "image": "ghcr.io/the-baker-street-project/bakerst-ext-toolbox:0.1.0", "version": "0.1.0", "required": false },
-    { "component": "voice", "image": "ghcr.io/the-baker-street-project/bakerst-voice:0.1.0", "version": "0.1.0", "required": false },
-    { "component": "ext-browser", "image": "ghcr.io/the-baker-street-project/bakerst-ext-browser:0.1.0", "version": "0.1.0", "required": false }
+    { "component": "brain", "image": "bakerst-brain:latest", "version": "0.2.0", "required": true },
+    { "component": "worker", "image": "bakerst-worker:latest", "version": "0.2.0", "required": true },
+    { "component": "ui", "image": "bakerst-ui:latest", "version": "0.2.0", "required": true },
+    { "component": "gateway", "image": "bakerst-gateway:latest", "version": "0.2.0", "required": true },
+    { "component": "sysadmin", "image": "bakerst-sysadmin:latest", "version": "0.2.0", "required": false },
+    { "component": "ext-utilities", "image": "bakerst-ext-utilities:latest", "version": "0.2.0", "required": false },
+    { "component": "ext-github", "image": "bakerst-ext-github:latest", "version": "0.2.0", "required": false },
+    { "component": "ext-obsidian", "image": "bakerst-ext-obsidian:latest", "version": "0.2.0", "required": false },
+    { "component": "ext-toolbox", "image": "bakerst-ext-toolbox:latest", "version": "0.2.0", "required": false },
+    { "component": "voice", "image": "bakerst-voice:latest", "version": "0.2.0", "required": false },
+    { "component": "ext-browser", "image": "bakerst-ext-browser:latest", "version": "0.2.0", "required": false }
   ],
   "requiredSecrets": [
     {

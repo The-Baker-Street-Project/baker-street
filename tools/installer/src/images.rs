@@ -23,9 +23,31 @@ fn is_local_docker_error(stderr: &str) -> bool {
         || lower.contains("cannot connect to the docker daemon")
 }
 
+/// Check if an image is a local build (no registry domain — no dots in the name part).
+fn is_local_image(image: &str) -> bool {
+    let name_part = image.split(':').next().unwrap_or(image);
+    !name_part.contains('.')
+}
+
 /// Pull a single image via `docker pull`, with retries.
+/// Local images (no registry domain) are verified with `docker image inspect` instead.
 /// Credential helper and docker-not-running errors fail immediately (no retry).
 async fn pull_one(image: &str) -> Result<Duration, String> {
+    // Local images: just verify they exist, don't try to pull from a registry
+    if is_local_image(image) {
+        let start = Instant::now();
+        let output = Command::new("docker")
+            .args(["image", "inspect", image])
+            .output()
+            .await
+            .map_err(|e| format!("failed to run docker: {}", e))?;
+
+        if output.status.success() {
+            return Ok(start.elapsed());
+        }
+        return Err(format!("local image not found: {}", image));
+    }
+
     for attempt in 1..=MAX_RETRIES {
         let start = Instant::now();
         let output = Command::new("docker")
