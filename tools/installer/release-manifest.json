@@ -30,13 +30,6 @@
       "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"]
     },
     {
-      "key": "VOYAGE_API_KEY",
-      "description": "Voyage AI API key for embeddings",
-      "required": false,
-      "inputType": "secret",
-      "targetSecrets": ["bakerst-brain-secrets"]
-    },
-    {
       "key": "AUTH_TOKEN",
       "description": "API auth token (auto-generated if not provided)",
       "required": false,

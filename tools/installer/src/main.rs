@@ -345,7 +345,6 @@ fn submit_current_secret(app: &mut App) {
                 other => other.to_string(),
             });
         }
-        "VOYAGE_API_KEY" => app.config.voyage_api_key = value,
         "AGENT_NAME" => {
             if let Some(ref v) = value {
                 if !v.is_empty() {
@@ -876,12 +875,8 @@ async fn create_all_secrets(
     if let Some(ref model) = config.default_model {
         brain_data.insert("DEFAULT_MODEL".into(), model.clone());
     }
-    if let Some(ref key) = config.voyage_api_key {
-        brain_data.insert("VOYAGE_API_KEY".into(), key.clone());
-    }
     brain_data.insert("AUTH_TOKEN".into(), config.auth_token.clone());
     brain_data.insert("AGENT_NAME".into(), config.agent_name.clone());
-    k8s::create_secret(client, namespace, "bakerst-brain-secrets", &brain_data).await?;
 
     // Worker secrets
     let mut worker_data = BTreeMap::new();
@@ -892,12 +887,12 @@ async fn create_all_secrets(
         worker_data.insert("DEFAULT_MODEL".into(), model.clone());
     }
     worker_data.insert("AGENT_NAME".into(), config.agent_name.clone());
-    k8s::create_secret(client, namespace, "bakerst-worker-secrets", &worker_data).await?;
 
     // Gateway secrets
     let mut gateway_data = BTreeMap::new();
     gateway_data.insert("AUTH_TOKEN".into(), config.auth_token.clone());
-    // Check for telegram/discord feature secrets
+
+    // Route feature secrets to the correct K8s secrets
     for feature in &config.features {
         if !feature.enabled {
             continue;
@@ -905,11 +900,13 @@ async fn create_all_secrets(
         for (key, value) in &feature.secrets {
             if let Some(ref v) = value {
                 match key.as_str() {
+                    "VOYAGE_API_KEY" => {
+                        brain_data.insert("VOYAGE_API_KEY".into(), v.clone());
+                    }
                     "TELEGRAM_BOT_TOKEN" | "DISCORD_BOT_TOKEN" | "DISCORD_APP_ID" => {
                         gateway_data.insert(key.clone(), v.clone());
                     }
                     "GITHUB_TOKEN" => {
-                        // GitHub gets its own secret
                         let mut gh_data = BTreeMap::new();
                         gh_data.insert("GITHUB_TOKEN".into(), v.clone());
                         k8s::create_secret(client, namespace, "bakerst-github-secrets", &gh_data)
@@ -926,6 +923,10 @@ async fn create_all_secrets(
             }
         }
     }
+
+    // Create all scoped secrets
+    k8s::create_secret(client, namespace, "bakerst-brain-secrets", &brain_data).await?;
+    k8s::create_secret(client, namespace, "bakerst-worker-secrets", &worker_data).await?;
     k8s::create_secret(client, namespace, "bakerst-gateway-secrets", &gateway_data).await?;
 
     Ok(())
@@ -1102,7 +1103,6 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
     let default_model = std::env::var("BAKERST_DEFAULT_MODEL")
         .or_else(|_| std::env::var("DEFAULT_MODEL"))
         .ok();
-    let voyage_api_key = std::env::var("VOYAGE_API_KEY").ok();
     let agent_name = std::env::var("AGENT_NAME").unwrap_or_else(|_| "Baker".into());
     let auth_token =
         std::env::var("AUTH_TOKEN").unwrap_or_else(|_| templates::generate_auth_token());
@@ -1161,12 +1161,8 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
     if let Some(ref model) = default_model {
         brain_secrets.insert("DEFAULT_MODEL".into(), model.clone());
     }
-    if let Some(ref key) = voyage_api_key {
-        brain_secrets.insert("VOYAGE_API_KEY".into(), key.clone());
-    }
     brain_secrets.insert("AUTH_TOKEN".into(), auth_token.clone());
     brain_secrets.insert("AGENT_NAME".into(), agent_name.clone());
-    k8s::create_secret(&client, ns, "bakerst-brain-secrets", &brain_secrets).await?;
 
     let mut worker_secrets = BTreeMap::new();
     if let Some(ref key) = api_key {
@@ -1176,15 +1172,18 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
         worker_secrets.insert("DEFAULT_MODEL".into(), model.clone());
     }
     worker_secrets.insert("AGENT_NAME".into(), agent_name.clone());
-    k8s::create_secret(&client, ns, "bakerst-worker-secrets", &worker_secrets).await?;
 
     let mut gateway_secrets = BTreeMap::new();
     gateway_secrets.insert("AUTH_TOKEN".into(), auth_token.clone());
-    // Add feature secrets from environment
+
+    // Route feature secrets from environment
     for feature in &manifest.optional_features {
         for secret_key in &feature.secrets {
             if let Ok(val) = std::env::var(secret_key) {
                 match secret_key.as_str() {
+                    "VOYAGE_API_KEY" => {
+                        brain_secrets.insert("VOYAGE_API_KEY".into(), val);
+                    }
                     "TELEGRAM_BOT_TOKEN" | "DISCORD_BOT_TOKEN" | "DISCORD_APP_ID" => {
                         gateway_secrets.insert(secret_key.clone(), val);
                     }
@@ -1198,6 +1197,9 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
             }
         }
     }
+
+    k8s::create_secret(&client, ns, "bakerst-brain-secrets", &brain_secrets).await?;
+    k8s::create_secret(&client, ns, "bakerst-worker-secrets", &worker_secrets).await?;
     k8s::create_secret(&client, ns, "bakerst-gateway-secrets", &gateway_secrets).await?;
     println!("  Secrets created");
 
@@ -1208,7 +1210,6 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
     let ni_config = app::InstallConfig {
         api_key: api_key.clone(),
         default_model: default_model.clone(),
-        voyage_api_key: voyage_api_key.clone(),
         agent_name: agent_name.clone(),
         auth_token: auth_token.clone(),
         features: feature_selections,

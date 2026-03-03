@@ -70,7 +70,6 @@ pub enum ItemStatus {
 pub struct InstallConfig {
     pub api_key: Option<String>,
     pub default_model: Option<String>,
-    pub voyage_api_key: Option<String>,
     pub agent_name: String,
     pub auth_token: String,
     pub features: Vec<FeatureSelection>,
