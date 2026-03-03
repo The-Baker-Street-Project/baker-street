@@ -4,6 +4,7 @@ import { TOKEN_KEY } from '../api/constants';
 interface AuthContextValue {
   token: string | null;
   isAuthenticated: boolean;
+  isValidating: boolean;
   login: (token: string) => Promise<boolean>;
   logout: () => void;
 }
@@ -12,6 +13,26 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
+  const [isValidating, setIsValidating] = useState(() => !!localStorage.getItem(TOKEN_KEY));
+
+  // Validate stored token on mount
+  useEffect(() => {
+    const stored = localStorage.getItem(TOKEN_KEY);
+    if (!stored) return;
+    fetch('/api/conversations', {
+      headers: { 'Authorization': `Bearer ${stored}` },
+    })
+      .then((res) => {
+        if (res.status === 401) {
+          localStorage.removeItem(TOKEN_KEY);
+          setToken(null);
+        }
+      })
+      .catch(() => {
+        // Network error — keep token, let user retry
+      })
+      .finally(() => setIsValidating(false));
+  }, []);
 
   const login = useCallback(async (newToken: string): Promise<boolean> => {
     // Validate the token by calling an authenticated endpoint
@@ -52,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [logout]);
 
   return (
-    <AuthContext.Provider value={{ token, isAuthenticated: !!token, login, logout }}>
+    <AuthContext.Provider value={{ token, isAuthenticated: !!token, isValidating, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
