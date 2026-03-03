@@ -281,6 +281,7 @@ if (-not $SkipSecrets) {
     $orderedKeys = @(
         'ANTHROPIC_API_KEY', 'DEFAULT_MODEL',
         'VOYAGE_API_KEY',
+        'OPENAI_API_KEY', 'OLLAMA_ENDPOINTS',
         'TELEGRAM_BOT_TOKEN', 'TELEGRAM_ALLOWED_CHAT_IDS',
         'DISCORD_BOT_TOKEN', 'DISCORD_ALLOWED_CHANNEL_IDS',
         'AUTH_TOKEN', 'AGENT_NAME'
