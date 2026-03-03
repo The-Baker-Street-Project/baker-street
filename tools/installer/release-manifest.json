@@ -44,6 +44,20 @@
       "targetSecrets": ["bakerst-brain-secrets", "bakerst-gateway-secrets"]
     },
     {
+      "key": "OPENAI_API_KEY",
+      "description": "OpenAI API key for GPT models (optional)",
+      "required": false,
+      "inputType": "secret",
+      "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"]
+    },
+    {
+      "key": "OLLAMA_ENDPOINTS",
+      "description": "Comma-separated Ollama endpoints (e.g. localhost:11434,192.168.4.94:11434)",
+      "required": false,
+      "inputType": "text",
+      "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"]
+    },
+    {
       "key": "AGENT_NAME",
       "description": "AI persona name",
       "required": false,

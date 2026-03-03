@@ -90,6 +90,18 @@ mod tests {
     }
 
     #[test]
+    fn embedded_manifest_has_openai_secret() {
+        let m = embedded_manifest().unwrap();
+        assert!(m.required_secrets.iter().any(|s| s.key == "OPENAI_API_KEY"));
+    }
+
+    #[test]
+    fn embedded_manifest_has_ollama_endpoints() {
+        let m = embedded_manifest().unwrap();
+        assert!(m.required_secrets.iter().any(|s| s.key == "OLLAMA_ENDPOINTS"));
+    }
+
+    #[test]
     fn embedded_manifest_has_features() {
         let m = embedded_manifest().unwrap();
         assert!(!m.optional_features.is_empty());
