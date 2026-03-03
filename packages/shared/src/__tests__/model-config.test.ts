@@ -63,6 +63,7 @@ describe('model-config', () => {
     setEnv('MODEL_ROUTER_CONFIG_PATH', undefined);
     setEnv('DEFAULT_MODEL', undefined);
     setEnv('OBSERVER_MODEL', undefined);
+    setEnv('OLLAMA_ENDPOINTS', undefined);
   });
 
   afterEach(() => {
@@ -225,6 +226,50 @@ describe('model-config', () => {
       }));
       setEnv('MODEL_ROUTER_CONFIG_PATH', '/bad.json');
       await expect(loadModelConfig()).rejects.toThrow('invalid config file');
+    });
+  });
+
+  describe('OLLAMA_ENDPOINTS', () => {
+    beforeEach(() => {
+      setEnv('ANTHROPIC_API_KEY', 'sk-test-key'); // required for validateConfig()
+      setEnv('OLLAMA_ENDPOINTS', undefined);
+    });
+
+    it('parses OLLAMA_ENDPOINTS into multiple provider entries', async () => {
+      setEnv('OLLAMA_ENDPOINTS', 'localhost:11434,192.168.4.94:11434');
+      const config = await loadModelConfig();
+
+      expect(config.providers).toHaveProperty('ollama');
+      expect(config.providers['ollama']).toEqual({
+        provider: 'ollama',
+        baseURL: 'http://localhost:11434/v1',
+      });
+
+      expect(config.providers).toHaveProperty('ollama@192.168.4.94');
+      expect(config.providers['ollama@192.168.4.94']).toEqual({
+        provider: 'ollama',
+        baseURL: 'http://192.168.4.94:11434/v1',
+      });
+    });
+
+    it('handles single OLLAMA_ENDPOINTS entry', async () => {
+      setEnv('OLLAMA_ENDPOINTS', 'localhost:11434');
+      const config = await loadModelConfig();
+      expect(config.providers).toHaveProperty('ollama');
+      expect(Object.keys(config.providers).filter(k => k.startsWith('ollama'))).toHaveLength(1);
+    });
+
+    it('skips empty OLLAMA_ENDPOINTS', async () => {
+      setEnv('OLLAMA_ENDPOINTS', '');
+      const config = await loadModelConfig();
+      expect(Object.keys(config.providers).filter(k => k.startsWith('ollama'))).toHaveLength(0);
+    });
+
+    it('trims whitespace from OLLAMA_ENDPOINTS entries', async () => {
+      setEnv('OLLAMA_ENDPOINTS', ' localhost:11434 , 192.168.4.94:11434 ');
+      const config = await loadModelConfig();
+      expect(config.providers).toHaveProperty('ollama');
+      expect(config.providers).toHaveProperty('ollama@192.168.4.94');
     });
   });
 

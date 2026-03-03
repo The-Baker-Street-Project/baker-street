@@ -14,7 +14,6 @@ import type {
   ModelDefinition,
   ProviderConfig,
   ModelRoles,
-  ModelProvider,
 } from './model-types.js';
 
 const log = logger.child({ module: 'model-config' });
@@ -48,6 +47,26 @@ function defaultProviders(): Record<string, ProviderConfig> {
       provider: 'openai',
       apiKey: openaiKey,
     };
+  }
+
+  // Ollama endpoints — OLLAMA_ENDPOINTS=host1:port1,host2:port2
+  const OLLAMA_ENDPOINT_PATTERN = /^[\w.-]+:\d{1,5}$/;
+
+  const ollamaEndpoints = process.env.OLLAMA_ENDPOINTS;
+  if (ollamaEndpoints) {
+    const endpoints = ollamaEndpoints.split(',').map(e => e.trim()).filter(Boolean);
+    for (const endpoint of endpoints) {
+      if (!OLLAMA_ENDPOINT_PATTERN.test(endpoint)) {
+        log.warn({ endpoint }, 'skipping invalid OLLAMA_ENDPOINTS entry (expected host:port)');
+        continue;
+      }
+      const isLocalhost = endpoint.startsWith('localhost') || endpoint.startsWith('127.0.0.1');
+      const key = isLocalhost ? 'ollama' : `ollama@${endpoint.split(':')[0]}`;
+      providers[key] = {
+        provider: 'ollama',
+        baseURL: `http://${endpoint}/v1`,
+      };
+    }
   }
 
   return providers;
@@ -257,8 +276,8 @@ function applyEnvOverrides(config: ModelRouterConfig): ModelRouterConfig {
 function guessProvider(
   modelName: string,
   config: ModelRouterConfig,
-): ModelProvider {
-  let guessed: ModelProvider;
+): string {
+  let guessed: string;
 
   if (modelName.startsWith('claude')) {
     guessed = 'anthropic';
@@ -266,8 +285,8 @@ function guessProvider(
     guessed = 'openai';
   } else if (config.providers['openrouter']) {
     guessed = 'openrouter';
-  } else if (config.providers['ollama']) {
-    guessed = 'ollama';
+  } else if (Object.keys(config.providers).find(k => k.startsWith('ollama'))) {
+    guessed = Object.keys(config.providers).find(k => k.startsWith('ollama'))!;
   } else {
     guessed = 'anthropic';
   }
