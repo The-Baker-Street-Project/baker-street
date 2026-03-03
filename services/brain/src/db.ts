@@ -40,12 +40,20 @@ export function getDb(): Database.Database {
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS conversations (
-      id         TEXT PRIMARY KEY,
-      title      TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      id             TEXT PRIMARY KEY,
+      title          TEXT,
+      model_override TEXT,
+      created_at     TEXT NOT NULL,
+      updated_at     TEXT NOT NULL
     )
   `);
+
+  // Migration: add model_override column if it doesn't exist
+  try {
+    db.exec(`ALTER TABLE conversations ADD COLUMN model_override TEXT`);
+  } catch {
+    // Column already exists — ignore
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
@@ -446,6 +454,20 @@ export function getMessages(conversationId: string): MessageRow[] {
   return db.prepare(
     'SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC'
   ).all(conversationId) as MessageRow[];
+}
+
+// --- Conversation Model Override ---
+
+export function getConversationModelOverride(conversationId: string): string | null {
+  const db = getDb();
+  const row = db.prepare('SELECT model_override FROM conversations WHERE id = ?').get(conversationId) as { model_override: string | null } | undefined;
+  return row?.model_override ?? null;
+}
+
+export function setConversationModelOverride(conversationId: string, model: string | null): void {
+  const db = getDb();
+  db.prepare('UPDATE conversations SET model_override = ?, updated_at = ? WHERE id = ?')
+    .run(model, new Date().toISOString(), conversationId);
 }
 
 // --- Observational Memory ---
