@@ -455,6 +455,134 @@ describe('ModelRouter', () => {
       expect(done).toBeDefined();
       expect(done.response.stopReason).toBe('end_turn');
     });
+
+    it('translates tool definitions from Anthropic to OpenAI format', async () => {
+      mockOpenAICreate.mockResolvedValue(mockOpenAITextResponse);
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      await router.chat(makeParams({
+        tools: [{
+          name: 'search',
+          description: 'Search the web',
+          input_schema: {
+            type: 'object',
+            properties: { q: { type: 'string' } },
+            required: ['q'],
+          },
+        }],
+      }));
+
+      const callArgs = mockOpenAICreate.mock.calls[0][0];
+      expect(callArgs.tools).toEqual([{
+        type: 'function',
+        function: {
+          name: 'search',
+          description: 'Search the web',
+          parameters: {
+            type: 'object',
+            properties: { q: { type: 'string' } },
+            required: ['q'],
+          },
+        },
+      }]);
+    });
+
+    it('converts OpenAI tool_calls response to tool_use content blocks', async () => {
+      mockOpenAICreate.mockResolvedValue({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_abc',
+              type: 'function',
+              function: { name: 'search', arguments: '{"q":"test"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        model: 'gpt-4o',
+        usage: { prompt_tokens: 10, completion_tokens: 15 },
+      });
+
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      const response = await router.chat(makeParams({
+        tools: [{
+          name: 'search',
+          description: 'Search',
+          input_schema: { type: 'object', properties: { q: { type: 'string' } } },
+        }],
+      }));
+
+      expect(response.stopReason).toBe('tool_use');
+      expect(response.content).toEqual([{
+        type: 'tool_use',
+        id: 'call_abc',
+        name: 'search',
+        input: { q: 'test' },
+      }]);
+    });
+
+    it('converts tool_result messages to OpenAI tool role', async () => {
+      mockOpenAICreate.mockResolvedValue(mockOpenAITextResponse);
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      await router.chat(makeParams({
+        messages: [
+          { role: 'user', content: 'Search for test' },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'call_abc', name: 'search', input: { q: 'test' } },
+            ],
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'call_abc', content: 'Found 5 results' },
+            ],
+          },
+        ],
+      }));
+
+      const callArgs = mockOpenAICreate.mock.calls[0][0];
+      // Should have: user, assistant with tool_calls, tool message
+      expect(callArgs.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ role: 'tool', tool_call_id: 'call_abc', content: 'Found 5 results' }),
+      ]));
+    });
+
+    it('assembles fragmented tool call arguments during streaming', async () => {
+      const streamChunks = [
+        { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_123', function: { name: 'search', arguments: '{"q":' } }] }, finish_reason: null }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"hello"}' } }] }, finish_reason: null }] },
+        { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+      ];
+      mockOpenAICreate.mockResolvedValue({
+        [Symbol.asyncIterator]: async function* () {
+          for (const chunk of streamChunks) yield chunk;
+        },
+      });
+
+      const router = await ModelRouter.create(makeOpenAIConfig());
+      const events: any[] = [];
+      for await (const event of router.chatStream(makeParams({
+        tools: [{
+          name: 'search',
+          description: 'Search',
+          input_schema: { type: 'object', properties: { q: { type: 'string' } } },
+        }],
+      }))) {
+        events.push(event);
+      }
+
+      const done = events.find(e => e.type === 'message_done');
+      expect(done.response.stopReason).toBe('tool_use');
+      expect(done.response.content).toEqual([{
+        type: 'tool_use',
+        id: 'call_123',
+        name: 'search',
+        input: { q: 'hello' },
+      }]);
+    });
   });
 
   describe('getAdapter() lazy init', () => {
