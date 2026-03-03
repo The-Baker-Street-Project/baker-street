@@ -1072,7 +1072,10 @@ async fn run_deploy_sequence(
     let r = k8s::apply_yaml(&client, &namespace, &yaml).await.map(|_| ());
     report_step!("Qdrant", r.map_err(|e| anyhow::anyhow!("{}", e)));
 
-    // Step 8: Brain
+    // Clean up orphaned "brain" deployment from pre-blue/green installs
+    let _ = k8s::delete_deployment(&client, &namespace, "brain").await;
+
+    // Step 8: Brain (blue/green)
     let yaml = render_template(templates::BRAIN_YAML, &vars);
     let r = k8s::apply_yaml(&client, &namespace, &yaml).await.map(|_| ());
     report_step!("Brain", r.map_err(|e| anyhow::anyhow!("{}", e)));
@@ -1544,6 +1547,9 @@ async fn run_non_interactive(cli: &Cli) -> Result<()> {
         ("UI", templates::UI_YAML),
         ("Network Policies", templates::NETWORK_POLICIES_YAML),
     ];
+
+    // Clean up orphaned "brain" deployment from pre-blue/green installs
+    let _ = k8s::delete_deployment(&client, ns, "brain").await;
 
     for (name, template) in &deploy_steps {
         let rendered = render_template(template, &vars);

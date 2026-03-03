@@ -236,6 +236,13 @@ pub async fn restart_deployment(client: &Client, namespace: &str, name: &str) ->
     Ok(())
 }
 
+/// Delete a single deployment (idempotent — ignores "not found").
+pub async fn delete_deployment(client: &Client, namespace: &str, name: &str) -> Result<()> {
+    let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+    api.delete(name, &DeleteParams::default()).await.ok();
+    Ok(())
+}
+
 /// Delete a namespace (cascades to all resources within).
 pub async fn delete_namespace(client: &Client, name: &str) -> Result<()> {
     let api: Api<Namespace> = Api::all(client.clone());
