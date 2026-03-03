@@ -358,7 +358,8 @@ function normalizeOpenAIResponse(
   };
 }
 
-/** Convert Anthropic-style messages to OpenAI format, preserving tool_use and tool_result blocks */
+/** Convert Anthropic-style messages to OpenAI format, preserving tool_use and tool_result blocks.
+ *  Returns a loosely-typed array — callers cast to ChatCompletionMessageParam[] at the SDK boundary. */
 function convertToOpenAIMessagesWithTools(
   params: ChatParams,
 ): Array<Record<string, unknown>> {
@@ -461,8 +462,8 @@ async function createOpenAINativeAdapter(
       const response = await client.chat.completions.create({
         model: model.modelName,
         max_tokens: params.maxTokens ?? model.maxTokens,
-        messages,
-        ...(tools && tools.length > 0 ? { tools } : {}),
+        messages: messages as unknown as Parameters<typeof client.chat.completions.create>[0]['messages'],
+        ...(tools && tools.length > 0 ? { tools: tools as Parameters<typeof client.chat.completions.create>[0]['tools'] } : {}),
       });
 
       const choice = response.choices[0];
@@ -470,7 +471,7 @@ async function createOpenAINativeAdapter(
         throw new Error('openai native adapter: no choices in response');
       }
 
-      return normalizeOpenAIResponse(choice, response.model, response.usage);
+      return normalizeOpenAIResponse(choice as any, response.model, response.usage);
     },
 
     async *chatStream(model: ModelDefinition, params: ChatParams): AsyncGenerator<ModelStreamEvent> {
@@ -480,8 +481,8 @@ async function createOpenAINativeAdapter(
       const stream = await client.chat.completions.create({
         model: model.modelName,
         max_tokens: params.maxTokens ?? model.maxTokens,
-        messages,
-        ...(tools && tools.length > 0 ? { tools } : {}),
+        messages: messages as unknown as Parameters<typeof client.chat.completions.create>[0]['messages'],
+        ...(tools && tools.length > 0 ? { tools: tools as Parameters<typeof client.chat.completions.create>[0]['tools'] } : {}),
         stream: true,
       });
 
