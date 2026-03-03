@@ -14,6 +14,7 @@ import type {
   ModelDefinition,
   ProviderConfig,
   ModelRoles,
+  ModelProvider,
 } from './model-types.js';
 
 const log = logger.child({ module: 'model-config' });
@@ -38,6 +39,14 @@ function defaultProviders(): Record<string, ProviderConfig> {
     providers['openrouter'] = {
       provider: 'openrouter',
       apiKey: openRouterKey,
+    };
+  }
+
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (openaiKey) {
+    providers['openai'] = {
+      provider: 'openai',
+      apiKey: openaiKey,
     };
   }
 
@@ -70,6 +79,35 @@ function defaultModels(): ModelDefinition[] {
       costPer1MInput: 0.8,
       costPer1MOutput: 4,
     },
+    // OpenAI models (only included when OPENAI_API_KEY is set)
+    ...(process.env.OPENAI_API_KEY
+      ? [
+          {
+            id: 'gpt-4o',
+            modelName: 'gpt-4o',
+            provider: 'openai' as const,
+            maxTokens: 4096,
+            costPer1MInput: 2.5,
+            costPer1MOutput: 10,
+          },
+          {
+            id: 'gpt-4o-mini',
+            modelName: 'gpt-4o-mini',
+            provider: 'openai' as const,
+            maxTokens: 4096,
+            costPer1MInput: 0.15,
+            costPer1MOutput: 0.6,
+          },
+          {
+            id: 'o3-mini',
+            modelName: 'o3-mini',
+            provider: 'openai' as const,
+            maxTokens: 4096,
+            costPer1MInput: 1.1,
+            costPer1MOutput: 4.4,
+          },
+        ]
+      : []),
   ];
 }
 
@@ -212,11 +250,13 @@ function applyEnvOverrides(config: ModelRouterConfig): ModelRouterConfig {
 function guessProvider(
   modelName: string,
   config: ModelRouterConfig,
-): 'anthropic' | 'openrouter' | 'ollama' | 'openai-compatible' {
-  let guessed: 'anthropic' | 'openrouter' | 'ollama' | 'openai-compatible';
+): ModelProvider {
+  let guessed: ModelProvider;
 
   if (modelName.startsWith('claude')) {
     guessed = 'anthropic';
+  } else if (modelName.startsWith('gpt-') || modelName.startsWith('o1') || modelName.startsWith('o3')) {
+    guessed = 'openai';
   } else if (config.providers['openrouter']) {
     guessed = 'openrouter';
   } else if (config.providers['ollama']) {

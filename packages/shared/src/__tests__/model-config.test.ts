@@ -59,6 +59,7 @@ describe('model-config', () => {
     // Ensure basic providers are available
     setEnv('ANTHROPIC_API_KEY', 'sk-test-key');
     setEnv('OPENROUTER_API_KEY', undefined);
+    setEnv('OPENAI_API_KEY', undefined);
     setEnv('MODEL_ROUTER_CONFIG_PATH', undefined);
     setEnv('DEFAULT_MODEL', undefined);
     setEnv('OBSERVER_MODEL', undefined);
@@ -95,6 +96,28 @@ describe('model-config', () => {
     it('does not include openrouter when OPENROUTER_API_KEY not set', () => {
       const config = createDefaultConfig();
       expect(config.providers).not.toHaveProperty('openrouter');
+    });
+
+    it('includes openai provider when OPENAI_API_KEY is set', () => {
+      setEnv('OPENAI_API_KEY', 'sk-openai-test');
+      const config = createDefaultConfig();
+      expect(config.providers).toHaveProperty('openai');
+      expect(config.providers['openai'].provider).toBe('openai');
+    });
+
+    it('does not include openai when OPENAI_API_KEY not set', () => {
+      const config = createDefaultConfig();
+      expect(config.providers).not.toHaveProperty('openai');
+    });
+
+    it('includes openai model definitions when OPENAI_API_KEY set', () => {
+      setEnv('OPENAI_API_KEY', 'sk-openai-test');
+      const config = createDefaultConfig();
+      const openaiModels = config.models.filter(m => m.provider === 'openai');
+      expect(openaiModels.length).toBeGreaterThanOrEqual(3);
+      expect(openaiModels.map(m => m.id)).toEqual(
+        expect.arrayContaining(['gpt-4o', 'gpt-4o-mini', 'o3-mini'])
+      );
     });
   });
 
@@ -151,6 +174,30 @@ describe('model-config', () => {
       setEnv('OPENROUTER_API_KEY', 'or-new-key');
       const config = await loadModelConfig();
       expect(config.providers).toHaveProperty('openrouter');
+    });
+
+    it('applies DEFAULT_MODEL override with gpt- prefix model', async () => {
+      setEnv('OPENAI_API_KEY', 'sk-openai-test');
+      setEnv('DEFAULT_MODEL', 'gpt-4o');
+      const config = await loadModelConfig();
+      expect(config.roles.agent).toBe('gpt-4o');
+    });
+
+    it('guesses openai provider for unknown gpt- model', async () => {
+      setEnv('OPENAI_API_KEY', 'sk-openai-test');
+      setEnv('DEFAULT_MODEL', 'gpt-4-turbo');
+      const config = await loadModelConfig();
+      expect(config.roles.agent).toBe('custom-agent');
+      const adHoc = config.models.find(m => m.id === 'custom-agent');
+      expect(adHoc!.provider).toBe('openai');
+    });
+
+    it('guesses openai provider for o3/o1 models', async () => {
+      setEnv('OPENAI_API_KEY', 'sk-openai-test');
+      setEnv('DEFAULT_MODEL', 'o1-preview');
+      const config = await loadModelConfig();
+      const adHoc = config.models.find(m => m.id === 'custom-agent');
+      expect(adHoc!.provider).toBe('openai');
     });
   });
 
