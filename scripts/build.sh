@@ -44,14 +44,8 @@ docker build --network host -t bakerst-sysadmin:latest -f "$REPO_ROOT/services/s
 echo "==> Building bakerst-voice..."
 docker build --network host -t bakerst-voice:latest -f "$REPO_ROOT/services/voice/Dockerfile" "$REPO_ROOT"
 
-echo "==> Building bakerst-ext-utilities..."
-docker build --network host -t bakerst-ext-utilities:latest -f "$REPO_ROOT/examples/extension-utilities/Dockerfile" "$REPO_ROOT"
-
-echo "==> Building bakerst-ext-github..."
-docker build --network host -t bakerst-ext-github:latest -f "$REPO_ROOT/examples/extension-github/Dockerfile" "$REPO_ROOT"
-
-echo "==> Building bakerst-ext-obsidian..."
-docker build --network host -t bakerst-ext-obsidian:latest -f "$REPO_ROOT/examples/extension-obsidian/Dockerfile" "$REPO_ROOT"
+echo "==> Building bakerst-ext-toolbox..."
+docker build --network host -t bakerst-ext-toolbox:latest -f "$REPO_ROOT/examples/extension-toolbox/Dockerfile" "$REPO_ROOT"
 
 echo "==> Done. Images:"
 docker images | grep bakerst
