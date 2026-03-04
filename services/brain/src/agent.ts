@@ -26,6 +26,7 @@ import { loadInstructionSkills } from './skill-loader.js';
 import { executeSelfManagementTool, type SystemInfo } from './self-management.js';
 import { SCHEDULE_TOOLS, executeScheduleTool } from './schedule-tools.js';
 import type { ScheduleManager } from './schedule-manager.js';
+import { ToolSearchIndex } from './tool-search.js';
 import type { TaskPodManager, TaskPodRequest } from './task-pod-manager.js';
 import type { CompanionManager } from './companion-manager.js';
 import { noopGuardrailHook, noopAuditSink, type GuardrailHook, type AuditSink } from '@bakerst/core';
@@ -676,6 +677,58 @@ export function createAgent(
 
     resolvedAllTools = combined;
     return resolvedAllTools;
+  }
+
+  // New: create tool search index instance for brain-side search strategy
+  const toolSearchIndex = new ToolSearchIndex();
+
+  /**
+   * Given the resolved model's provider, build the tools array for the LLM call.
+   * - Anthropic/OpenRouter: send all tools with defer_loading=true on extension tools
+   * - Others: send core tools + search_tools only; extension tools held in search index
+   *
+   * Defined inside createAgent() to access closure variables (tools, scheduleManager).
+   */
+  function buildToolsForRequest(
+    allTools: ToolDefinition[],
+    providerType: string,
+    activatedTools: ToolDefinition[],
+  ): { tools: ToolDefinition[]; usesSearchIndex: boolean } {
+    // Core tools = built-in brain tools + schedule tools (always small, ~10-15)
+    // Extension tools = everything from unified registry
+    const coreToolNames = new Set([
+      ...tools.map((t) => t.name),
+      ...(scheduleManager ? standingOrderTools.map((t) => t.name) : []),
+    ]);
+
+    const coreTools = allTools.filter((t) => coreToolNames.has(t.name));
+    const extensionTools = allTools.filter((t) => !coreToolNames.has(t.name));
+
+    if (providerType === 'anthropic' || providerType === 'openrouter') {
+      // Strategy 1: Anthropic native defer_loading
+      return {
+        tools: [
+          ...coreTools,
+          ...extensionTools.map((t) => ({ ...t, defer_loading: true })),
+        ],
+        usesSearchIndex: false,
+      };
+    }
+
+    // Strategy 2: Brain-side search for OpenAI, Ollama, etc.
+    toolSearchIndex.remove('extensions');
+    if (extensionTools.length > 0) {
+      toolSearchIndex.add('extensions', extensionTools);
+    }
+
+    return {
+      tools: [
+        ...coreTools,
+        ...(extensionTools.length > 0 ? [toolSearchIndex.getSearchToolDefinition()] : []),
+        ...activatedTools,
+      ],
+      usesSearchIndex: true,
+    };
   }
 
   // Eagerly resolve for backward compat with plugin-only path
