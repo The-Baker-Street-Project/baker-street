@@ -67,3 +67,16 @@ describe('ToolSearchIndex', () => {
     expect(index.count()).toBe(3);
   });
 });
+
+describe('buildToolsForRequest strategy selection', () => {
+  it('search index updates when extensions change', () => {
+    const idx = new ToolSearchIndex();
+    idx.add('ext', [makeTool('ext_a', 'Extension A')]);
+    expect(idx.count()).toBe(1);
+    idx.remove('ext');
+    idx.add('ext', [makeTool('ext_b', 'Extension B'), makeTool('ext_c', 'Extension C')]);
+    expect(idx.count()).toBe(2);
+    expect(idx.search('ext_a')).toHaveLength(0);
+    expect(idx.search('ext_b')).toHaveLength(1);
+  });
+});
