@@ -1,4 +1,4 @@
-FROM node:20-bookworm
+FROM node:22-bookworm
 
 # Use a shared browser path accessible by all users
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright

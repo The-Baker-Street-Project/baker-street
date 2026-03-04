@@ -47,5 +47,11 @@ docker build --network host -t bakerst-voice:latest -f "$REPO_ROOT/services/voic
 echo "==> Building bakerst-ext-toolbox..."
 docker build --network host -t bakerst-ext-toolbox:latest -f "$REPO_ROOT/examples/extension-toolbox/Dockerfile" "$REPO_ROOT"
 
+echo "==> Building bakerst-ext-browser..."
+docker build --network host -t bakerst-ext-browser:latest -f "$REPO_ROOT/examples/extension-browser/Dockerfile" "$REPO_ROOT"
+
+echo "==> Building bakerst-install CLI..."
+make -C "$REPO_ROOT/tools/installer" install
+
 echo "==> Done. Images:"
 docker images | grep bakerst
