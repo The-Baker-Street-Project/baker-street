@@ -761,6 +761,19 @@ export class ModelRouter {
     return model;
   }
 
+  /** Resolve model definition by role and optional override. Used for tool strategy selection. */
+  resolveModelDefinition(role: keyof ModelRoles = 'agent', modelOverride?: string): ModelDefinition {
+    const modelId = modelOverride ?? this.config.roles[role];
+    if (!modelId) {
+      throw new Error(`model-router: no model configured for role '${role}'`);
+    }
+    const model = this.config.models.find((m) => m.id === modelId);
+    if (!model) {
+      throw new Error(`model-router: unknown model id '${modelId}' for role '${role}'`);
+    }
+    return model;
+  }
+
   private async getAdapter(provider: string): Promise<ProviderAdapter> {
     const existing = this.adapters.get(provider);
     if (existing) return existing;
