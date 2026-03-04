@@ -25,6 +25,7 @@ import { runReflector } from './reflector.js';
 import { loadInstructionSkills } from './skill-loader.js';
 import { executeSelfManagementTool, type SystemInfo } from './self-management.js';
 import { SCHEDULE_TOOLS, executeScheduleTool } from './schedule-tools.js';
+import { savePrompt, listSavedPrompts, deleteSavedPrompt } from './saved-prompts.js';
 import type { ScheduleManager } from './schedule-manager.js';
 import { ToolSearchIndex } from './tool-search.js';
 import type { TaskPodManager, TaskPodRequest } from './task-pod-manager.js';
@@ -446,10 +447,46 @@ const standingOrderTools: ToolDefinition[] = [
       required: ['id'],
     },
   },
+  {
+    name: 'save_prompt',
+    description: 'Save a prompt for later recall. Use when the user says "save this", "remember this prompt", or similar.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        text: { type: 'string', description: 'The prompt text to save' },
+        label: { type: 'string', description: 'Optional short label for the prompt' },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'list_saved_prompts',
+    description: 'List all saved prompts. Use when the user says "show saved prompts", "my saved prompts", or "/saved-prompts".',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        limit: { type: 'number', description: 'Max prompts to return (default 20)' },
+      },
+    },
+  },
+  {
+    name: 'delete_saved_prompt',
+    description: 'Delete a saved prompt by ID.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'The prompt ID to delete' },
+      },
+      required: ['id'],
+    },
+  },
 ];
 
 /** Self-management tool names */
 const SELF_MGMT_TOOLS = new Set(['manage_skill', 'list_skills', 'search_registry', 'get_system_info']);
+
+/** Saved-prompt tool names */
+const SAVED_PROMPT_TOOLS = new Set(['save_prompt', 'list_saved_prompts', 'delete_saved_prompt']);
 
 async function executeTool(
   toolName: string,
@@ -475,6 +512,39 @@ async function executeTool(
       return { result: 'Error: Scheduler not enabled' };
     }
     return executeScheduleTool(toolName, toolInput, scheduleManager);
+  }
+
+  // Handle saved prompt tools
+  if (SAVED_PROMPT_TOOLS.has(toolName)) {
+    switch (toolName) {
+      case 'save_prompt': {
+        const { text, label } = toolInput as { text: string; label?: string };
+        const saved = savePrompt(text, label);
+        return {
+          result: `Prompt saved (${saved.id}). Label: ${saved.label ?? 'none'}. Preview: "${text.slice(0, 80)}${text.length > 80 ? '...' : ''}"`,
+        };
+      }
+      case 'list_saved_prompts': {
+        const { limit } = toolInput as { limit?: number };
+        const prompts = listSavedPrompts(limit ?? 20);
+        if (prompts.length === 0) {
+          return { result: 'No saved prompts found.' };
+        }
+        const lines = prompts.map((p) => {
+          const preview = p.text.length > 60 ? p.text.slice(0, 60) + '...' : p.text;
+          const lbl = p.label ? ` [${p.label}]` : '';
+          return `- ${p.id}${lbl} (${p.created_at.split('T')[0]}): "${preview}"`;
+        });
+        return { result: `${prompts.length} saved prompt(s):\n\n${lines.join('\n')}` };
+      }
+      case 'delete_saved_prompt': {
+        const { id } = toolInput as { id: string };
+        const deleted = deleteSavedPrompt(id);
+        return { result: deleted ? `Prompt ${id} deleted.` : `Prompt ${id} not found.` };
+      }
+      default:
+        return { result: `Unknown saved prompt tool: ${toolName}` };
+    }
   }
 
   // Delegate to unified registry (skills + plugins) if it owns this tool

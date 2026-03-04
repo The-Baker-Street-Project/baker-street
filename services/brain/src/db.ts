@@ -298,6 +298,17 @@ export function getDb(): Database.Database {
     )
   `);
 
+  // --- Saved Prompts ---
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS saved_prompts (
+      id         TEXT PRIMARY KEY,
+      text       TEXT NOT NULL,
+      label      TEXT,
+      created_at TEXT NOT NULL
+    )
+  `);
+
   log.info('database initialized');
   return db;
 }
