@@ -319,7 +319,8 @@ pub async fn patch_brain_service_selector(
     let patch = serde_json::json!({
         "spec": {
             "selector": {
-                "app": format!("brain-{}", slot)
+                "app": "brain",
+                "slot": slot
             }
         }
     });
@@ -340,10 +341,8 @@ pub async fn get_brain_service_selector(
         .spec
         .and_then(|s| s.selector)
         .unwrap_or_default();
-    let app = selector.get("app").cloned().unwrap_or_else(|| "brain-blue".into());
-    // Extract slot from "brain-blue" or "brain-green"
-    let slot = app.strip_prefix("brain-").unwrap_or("blue");
-    Ok(slot.to_string())
+    let slot = selector.get("slot").cloned().unwrap_or_else(|| "blue".into());
+    Ok(slot)
 }
 
 /// List known secrets with their key names (not values) for status display.
