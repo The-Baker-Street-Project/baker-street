@@ -1061,6 +1061,14 @@ async fn handle_auto_advance(
 ) -> Result<()> {
     match app.phase {
         Phase::Secrets => {
+            // Skip secrets that were pre-populated from env vars
+            if app.use_env_vars == Some(true) {
+                while app.current_secret_index < app.secret_prompts.len()
+                    && app.secret_prompts[app.current_secret_index].value.is_some()
+                {
+                    app.current_secret_index += 1;
+                }
+            }
             if app.current_secret_index >= app.secret_prompts.len() {
                 if app.collecting_feature_secrets {
                     app.collecting_feature_secrets = false;
