@@ -110,6 +110,7 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     );
 
     let keys = match app.phase {
+        Phase::EnvVarChoice => "[1/E] Env vars  [2/M] Manual",
         Phase::Secrets => "Enter to submit  |  Esc to skip optional",
         Phase::Providers => match app.provider_step {
             ProviderStep::BrainProvider | ProviderStep::WorkerProvider | ProviderStep::WorkerChoice => {
@@ -162,6 +163,7 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
 fn render_phase(frame: &mut Frame, area: Rect, app: &App) {
     match app.phase {
         Phase::Preflight => render_preflight(frame, area, app),
+        Phase::EnvVarChoice => render_env_var_choice(frame, area, app),
         Phase::Secrets => render_secrets(frame, area, app),
         Phase::Providers => render_providers(frame, area, app),
         Phase::Features => render_features(frame, area, app),
@@ -208,7 +210,39 @@ fn render_preflight(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(paragraph, area);
 }
 
-// ---------- Phase 2: Secrets ----------
+// ---------- Phase 2: Env Var Choice ----------
+
+fn render_env_var_choice(frame: &mut Frame, area: Rect, app: &App) {
+    let mut lines: Vec<Line> = vec![
+        Line::from(Span::styled(
+            " Environment Variables Detected",
+            Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+    ];
+    for (key, masked) in &app.detected_env_vars {
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {}: ", key), Style::default().fg(INFO)),
+            Span::styled(masked.as_str(), Style::default().fg(MUTED)),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  [1/E] Use environment variables",
+        Style::default().fg(SUCCESS),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  [2/M] Enter manually",
+        Style::default().fg(FG),
+    )));
+
+    let paragraph = Paragraph::new(lines)
+        .style(Style::default().bg(BG))
+        .block(Block::default().borders(Borders::NONE));
+    frame.render_widget(paragraph, area);
+}
+
+// ---------- Phase 3: Secrets ----------
 
 fn render_secrets(frame: &mut Frame, area: Rect, app: &App) {
     let heading = if app.collecting_feature_secrets {

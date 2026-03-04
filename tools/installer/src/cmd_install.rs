@@ -176,7 +176,35 @@ async fn run_preflight(app: &mut App, cli: &Cli) {
         }
     }
 
-    app.advance();
+    // After preflight passes, detect env vars
+    let known_keys = [
+        "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_ENDPOINTS",
+        "VOYAGE_API_KEY", "TELEGRAM_BOT_TOKEN",
+        "GITHUB_TOKEN", "OBSIDIAN_VAULT_PATH",
+        "STT_API_KEY", "TTS_API_KEY", "PICOVOICE_ACCESS_KEY",
+    ];
+    app.detected_env_vars.clear();
+    for key in &known_keys {
+        if let Ok(val) = std::env::var(key) {
+            if !val.is_empty() {
+                let masked = if val.chars().count() > 12 {
+                    let prefix: String = val.chars().take(3).collect();
+                    let suffix: String = val.chars().rev().take(3).collect::<String>().chars().rev().collect();
+                    format!("{}...{}", prefix, suffix)
+                } else {
+                    "****".to_string()
+                };
+                app.detected_env_vars.push((key.to_string(), masked));
+            }
+        }
+    }
+
+    if app.detected_env_vars.is_empty() {
+        // No env vars found — skip choice, go straight to manual entry
+        app.phase = Phase::Secrets;
+    } else {
+        app.phase = Phase::EnvVarChoice;
+    }
 }
 
 /// Keys handled in the Providers phase, not Secrets
@@ -262,6 +290,7 @@ async fn handle_key(
             }
         }
 
+        Phase::EnvVarChoice => handle_env_var_choice_key(app, key),
         Phase::Secrets => handle_secrets_key(app, key),
         Phase::Providers => handle_providers_key(app, key),
         Phase::Features => handle_features_key(app, key),
@@ -297,6 +326,51 @@ async fn handle_key(
     }
 
     Ok(())
+}
+
+fn handle_env_var_choice_key(app: &mut App, key: event::KeyEvent) {
+    match key.code {
+        KeyCode::Char('1') | KeyCode::Char('e') => {
+            app.use_env_vars = Some(true);
+            // Pre-populate secret prompts from env
+            for prompt in &mut app.secret_prompts {
+                if let Ok(val) = std::env::var(&prompt.key) {
+                    if !val.is_empty() {
+                        prompt.value = Some(val);
+                    }
+                }
+            }
+            // Pre-populate feature secrets from env
+            for feature in &mut app.config.features {
+                for (k, v) in &mut feature.secrets {
+                    if let Ok(val) = std::env::var(k) {
+                        if !val.is_empty() {
+                            *v = Some(val);
+                        }
+                    }
+                }
+            }
+            // Pre-populate provider credentials from env
+            if let Ok(val) = std::env::var("ANTHROPIC_API_KEY") {
+                if !val.is_empty() { app.config.anthropic_api_key = Some(val); }
+            }
+            if let Ok(val) = std::env::var("OPENAI_API_KEY") {
+                if !val.is_empty() { app.config.openai_api_key = Some(val); }
+            }
+            if let Ok(val) = std::env::var("OLLAMA_ENDPOINTS") {
+                if !val.is_empty() { app.config.ollama_endpoints = Some(val); }
+            }
+            if let Ok(val) = std::env::var("VOYAGE_API_KEY") {
+                if !val.is_empty() { app.config.voyage_api_key = Some(val); }
+            }
+            app.phase = Phase::Secrets;
+        }
+        KeyCode::Char('2') | KeyCode::Char('m') => {
+            app.use_env_vars = Some(false);
+            app.phase = Phase::Secrets;
+        }
+        _ => {}
+    }
 }
 
 fn handle_secrets_key(app: &mut App, key: event::KeyEvent) {
@@ -626,14 +700,14 @@ fn handle_features_key(app: &mut App, key: event::KeyEvent) {
             let mut feature_prompts = Vec::new();
             for feature in &app.config.features {
                 if feature.enabled {
-                    for (key, _) in &feature.secrets {
+                    for (key, existing_val) in &feature.secrets {
                         feature_prompts.push(SecretPrompt {
                             key: key.clone(),
                             description: format!("{} — {}", feature.name, key),
                             required: false,
                             is_secret: key.contains("TOKEN") || key.contains("KEY"),
                             is_feature: true,
-                            value: None,
+                            value: existing_val.clone(),
                         });
                     }
                 }

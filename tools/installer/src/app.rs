@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
     Preflight,
+    EnvVarChoice,
     Secrets,
     Providers,
     Features,
@@ -15,24 +16,26 @@ impl Phase {
     pub fn index(&self) -> usize {
         match self {
             Phase::Preflight => 0,
-            Phase::Secrets => 1,
-            Phase::Providers => 2,
-            Phase::Features => 3,
-            Phase::Confirm => 4,
-            Phase::Pull => 5,
-            Phase::Deploy => 6,
-            Phase::Health => 7,
-            Phase::Complete => 8,
+            Phase::EnvVarChoice => 1,
+            Phase::Secrets => 2,
+            Phase::Providers => 3,
+            Phase::Features => 4,
+            Phase::Confirm => 5,
+            Phase::Pull => 6,
+            Phase::Deploy => 7,
+            Phase::Health => 8,
+            Phase::Complete => 9,
         }
     }
 
     pub fn total() -> usize {
-        9
+        10
     }
 
     pub fn label(&self) -> &'static str {
         match self {
             Phase::Preflight => "Preflight",
+            Phase::EnvVarChoice => "Secret Source",
             Phase::Secrets => "Secrets",
             Phase::Providers => "Providers",
             Phase::Features => "Features",
@@ -46,7 +49,8 @@ impl Phase {
 
     pub fn next(&self) -> Option<Phase> {
         match self {
-            Phase::Preflight => Some(Phase::Secrets),
+            Phase::Preflight => Some(Phase::EnvVarChoice),
+            Phase::EnvVarChoice => Some(Phase::Secrets),
             Phase::Secrets => Some(Phase::Providers),
             Phase::Providers => Some(Phase::Features),
             Phase::Features => Some(Phase::Confirm),
@@ -141,6 +145,10 @@ pub struct App {
     // Preflight results
     pub preflight_checks: Vec<(String, ItemStatus)>,
 
+    // Env var choice phase
+    pub use_env_vars: Option<bool>,
+    pub detected_env_vars: Vec<(String, String)>, // (key, masked_value)
+
     // Secrets phase
     pub secret_prompts: Vec<SecretPrompt>,
     pub current_secret_index: usize,
@@ -202,6 +210,10 @@ impl App {
 
             // Preflight
             preflight_checks: Vec::new(),
+
+            // Env var choice
+            use_env_vars: None,
+            detected_env_vars: Vec::new(),
 
             // Secrets
             secret_prompts: Vec::new(),
@@ -283,7 +295,7 @@ mod tests {
             phase = next;
             count += 1;
         }
-        assert_eq!(count, 8);
+        assert_eq!(count, 9);
         assert_eq!(phase, Phase::Complete);
     }
 
@@ -295,7 +307,7 @@ mod tests {
     #[test]
     fn phase_index_is_sequential() {
         assert_eq!(Phase::Preflight.index(), 0);
-        assert_eq!(Phase::Complete.index(), 8);
+        assert_eq!(Phase::Complete.index(), 9);
     }
 
     #[test]
@@ -303,7 +315,7 @@ mod tests {
         let mut app = App::new("bakerst".into());
         assert_eq!(app.phase, Phase::Preflight);
         assert!(app.advance());
-        assert_eq!(app.phase, Phase::Secrets);
+        assert_eq!(app.phase, Phase::EnvVarChoice);
     }
 
     #[test]
