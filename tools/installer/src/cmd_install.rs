@@ -1159,6 +1159,27 @@ pub(crate) async fn create_all_secrets(
     }
     k8s::create_secret(client, namespace, "bakerst-gateway-secrets", &gateway_data).await?;
 
+    // Voice secrets
+    let mut voice_data = BTreeMap::new();
+    voice_data.insert("AUTH_TOKEN".into(), config.auth_token.clone());
+    // STT_API_KEY, TTS_API_KEY, PICOVOICE_ACCESS_KEY are optional — populated from features
+    for f in &config.features {
+        if !f.enabled {
+            continue;
+        }
+        for (k, v) in &f.secrets {
+            if let Some(val) = v {
+                match k.as_str() {
+                    "STT_API_KEY" | "TTS_API_KEY" | "PICOVOICE_ACCESS_KEY" => {
+                        voice_data.insert(k.clone(), val.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    k8s::create_secret(client, namespace, "bakerst-voice-secrets", &voice_data).await?;
+
     Ok(())
 }
 
@@ -1448,6 +1469,20 @@ async fn run_non_interactive(cli: &Cli, _args: &InstallArgs) -> Result<()> {
         }
     }
     k8s::create_secret(&client, ns, "bakerst-gateway-secrets", &gateway_secrets).await?;
+
+    // Voice secrets
+    let mut voice_secrets = BTreeMap::new();
+    voice_secrets.insert("AUTH_TOKEN".into(), auth_token.clone());
+    // Check env for optional voice keys
+    for key in ["STT_API_KEY", "TTS_API_KEY", "PICOVOICE_ACCESS_KEY"] {
+        if let Ok(val) = std::env::var(key) {
+            if !val.is_empty() {
+                voice_secrets.insert(key.into(), val);
+            }
+        }
+    }
+    k8s::create_secret(&client, ns, "bakerst-voice-secrets", &voice_secrets).await?;
+
     println!("  Secrets created");
 
     k8s::create_os_configmap(&client, ns).await?;

@@ -38,7 +38,7 @@
       "description": "API auth token (auto-generated if not provided)",
       "required": false,
       "inputType": "secret",
-      "targetSecrets": ["bakerst-brain-secrets", "bakerst-gateway-secrets"]
+      "targetSecrets": ["bakerst-brain-secrets", "bakerst-gateway-secrets", "bakerst-voice-secrets"]
     },
     {
       "key": "OPENAI_API_KEY",
@@ -104,6 +104,13 @@
       "description": "Enable Obsidian vault integration",
       "defaultEnabled": false,
       "secrets": ["OBSIDIAN_VAULT_PATH"]
+    },
+    {
+      "id": "voice",
+      "name": "Voice Talk Mode",
+      "description": "Enable voice interaction with wake word detection",
+      "defaultEnabled": false,
+      "secrets": ["STT_API_KEY", "TTS_API_KEY", "PICOVOICE_ACCESS_KEY"]
     }
   ],
   "defaults": {

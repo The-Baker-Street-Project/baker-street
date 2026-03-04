@@ -18,6 +18,13 @@ spec:
         app: bakerst-extension
         extension: agent-browser
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: agent-browser
           image: {{IMAGE_BROWSER}}
@@ -58,20 +65,17 @@ spec:
               cpu: "2000m"
               memory: "4Gi"
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 999
-            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
-              drop:
-                - ALL
-            seccompProfile:
-              type: RuntimeDefault
+              drop: [ALL]
           volumeMounts:
             - name: dshm
               mountPath: /dev/shm
             - name: tmp
               mountPath: /tmp
+            - name: home
+              mountPath: /home/pwuser
       volumes:
         - name: dshm
           emptyDir:
@@ -80,6 +84,9 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: 512Mi
+        - name: home
+          emptyDir:
+            sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
