@@ -26,15 +26,15 @@ spec:
             - name: BRAIN_URL
               value: "http://brain.{{NAMESPACE}}.svc.cluster.local:3000"
             - name: WHISPER_URL
-              value: "http://host.docker.internal:8083"
+              value: "{{WHISPER_URL}}"
             - name: TTS_PROVIDER
-              value: "openai"
+              value: "{{TTS_PROVIDER}}"
             - name: TTS_BASE_URL
-              value: "http://192.168.4.42:8084"
+              value: "{{TTS_BASE_URL}}"
             - name: TTS_MODEL
-              value: "mlx-community/Kokoro-82M-bf16"
+              value: "{{TTS_MODEL}}"
             - name: TTS_VOICE
-              value: "bf_emma"
+              value: "{{TTS_VOICE}}"
             - name: AUTH_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -51,6 +51,12 @@ spec:
                 secretKeyRef:
                   name: bakerst-voice-secrets
                   key: TTS_API_KEY
+                  optional: true
+            - name: PICOVOICE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bakerst-voice-secrets
+                  key: PICOVOICE_ACCESS_KEY
                   optional: true
           resources:
             requests:

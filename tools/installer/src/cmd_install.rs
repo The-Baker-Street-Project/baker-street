@@ -1280,6 +1280,11 @@ pub(crate) fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, c
         .as_secs();
     vars.insert("DEPLOY_VERSION".into(), format!("{}-{}", manifest.version, deploy_ts));
     vars.insert("DOOR_POLICY".into(), "open".into());
+    vars.insert("WHISPER_URL".into(), "".into());
+    vars.insert("TTS_PROVIDER".into(), "openai".into());
+    vars.insert("TTS_BASE_URL".into(), "".into());
+    vars.insert("TTS_MODEL".into(), "".into());
+    vars.insert("TTS_VOICE".into(), "bf_emma".into());
     for img in &manifest.images {
         let key = match img.component.as_str() {
             "brain" => "IMAGE_BRAIN",
