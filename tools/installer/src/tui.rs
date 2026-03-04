@@ -12,7 +12,7 @@ use ratatui::{
 };
 use std::io::stdout;
 
-use crate::app::{App, ItemStatus, Phase, ProviderStep, ProviderType};
+use crate::app::{App, ClusterType, ItemStatus, Phase, ProviderStep, ProviderType};
 use crate::cmd_install::models_for_provider;
 use crate::templates::mask_secret;
 
@@ -136,7 +136,14 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
         Phase::Features => "\u{2191}\u{2193} move  Space toggle  Enter \u{25b8}",
         Phase::Confirm => "\u{2190}\u{2192} select  Enter \u{25b8}",
         Phase::Complete => "o open browser  q quit",
-        Phase::Preflight | Phase::Pull | Phase::Deploy | Phase::Health => "q quit  (auto-advancing...)",
+        Phase::Preflight => {
+            if app.context_picker_active {
+                "\u{2191}\u{2193} select  Enter \u{25b8}  q quit"
+            } else {
+                "q quit  (auto-advancing...)"
+            }
+        }
+        Phase::Pull | Phase::Deploy | Phase::Health => "q quit  (auto-advancing...)",
     };
 
     let bar = Paragraph::new(Line::from(vec![
@@ -199,6 +206,49 @@ fn render_preflight(frame: &mut Frame, area: Rect, app: &App) {
                 Span::styled(icon, Style::default().fg(color)),
                 Span::raw(" "),
                 Span::styled(label.clone(), Style::default().fg(FG)),
+            ]));
+        }
+    }
+
+    // Context picker overlay
+    if app.context_picker_active && !app.available_contexts.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  Select a Kubernetes context:",
+            Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+
+        for (i, ctx) in app.available_contexts.iter().enumerate() {
+            let selected = i == app.selected_context_idx;
+            let prefix = if selected { "\u{25b8} " } else { "  " };
+            let fg = if selected { ACCENT } else { FG };
+
+            let cloud_warning = if ctx.cluster_type == ClusterType::Cloud {
+                " \u{26a0} not recommended"
+            } else {
+                ""
+            };
+
+            lines.push(Line::from(vec![
+                Span::raw("    "),
+                Span::styled(prefix, Style::default().fg(ACCENT)),
+                Span::styled(
+                    ctx.name.clone(),
+                    Style::default().fg(fg).add_modifier(if selected {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
+                ),
+                Span::styled(
+                    format!("  ({})", ctx.cluster_type.display_name()),
+                    Style::default().fg(MUTED),
+                ),
+                Span::styled(
+                    cloud_warning.to_string(),
+                    Style::default().fg(WARNING),
+                ),
             ]));
         }
     }

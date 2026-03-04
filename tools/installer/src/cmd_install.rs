@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-use crate::app::{App, FeatureSelection, InstallConfig, ItemStatus, Phase, ProviderStep, ProviderType, SecretPrompt};
+use crate::app::{App, ClusterType, FeatureSelection, InstallConfig, ItemStatus, K8sContext, Phase, ProviderStep, ProviderType, SecretPrompt};
 use crate::cli::{Cli, InstallArgs};
 use crate::config_file;
 use crate::health::{self, HealthEvent};
@@ -109,22 +109,68 @@ async fn run_preflight(app: &mut App, cli: &Cli) {
         }
     }
 
-    // Check 2: Kubernetes cluster
+    // Check 2: Kubernetes contexts
     app.preflight_checks
         .push(("Kubernetes cluster".into(), ItemStatus::InProgress));
-    match k8s::check_cluster().await {
-        Ok(version) => {
-            app.cluster_name = format!("k8s {}", version);
-            app.preflight_checks[1] = (
-                format!("Kubernetes cluster (v{})", version),
-                ItemStatus::Done,
-            );
-        }
-        Err(e) => {
-            app.cluster_name = "disconnected".into();
+
+    // Check for BAKERST_KUBECONTEXT env var
+    let env_context = std::env::var("BAKERST_KUBECONTEXT").ok();
+
+    // Detect all available contexts
+    match detect_k8s_contexts().await {
+        Ok(contexts) if contexts.is_empty() => {
+            app.cluster_name = "no cluster".into();
             app.preflight_checks[1] = (
                 "Kubernetes cluster".into(),
-                ItemStatus::Failed(format!("{}", e)),
+                ItemStatus::Failed(
+                    "No Kubernetes cluster found.\n\
+                     Install Docker Desktop and enable Kubernetes,\n\
+                     or install k3s: curl -sfL https://get.k3s.io | sh -".into()
+                ),
+            );
+        }
+        Ok(contexts) => {
+            app.available_contexts = contexts.clone();
+
+            let selected = if let Some(ref env_ctx) = env_context {
+                contexts.iter().position(|c| c.name == *env_ctx)
+            } else if contexts.len() == 1 {
+                Some(0)
+            } else {
+                contexts.iter().position(|c| c.is_current)
+            };
+
+            if let Some(idx) = selected {
+                let ctx = &contexts[idx];
+                app.selected_context_idx = idx;
+                app.cluster_name = format!("{} ({})", ctx.name, ctx.cluster_type.display_name());
+
+                if ctx.cluster_type == ClusterType::Cloud {
+                    app.preflight_checks[1] = (
+                        format!("Kubernetes: {} - cloud cluster", ctx.name),
+                        ItemStatus::Done,
+                    );
+                } else {
+                    app.preflight_checks[1] = (
+                        format!("Kubernetes: {} ({})", ctx.name, ctx.cluster_type.display_name()),
+                        ItemStatus::Done,
+                    );
+                }
+
+                let _ = switch_k8s_context(&ctx.name).await;
+            } else if contexts.len() > 1 {
+                app.context_picker_active = true;
+                app.preflight_checks[1] = (
+                    format!("Kubernetes: {} contexts found - select one", contexts.len()),
+                    ItemStatus::InProgress,
+                );
+            }
+        }
+        Err(e) => {
+            app.cluster_name = "error".into();
+            app.preflight_checks[1] = (
+                "Kubernetes cluster".into(),
+                ItemStatus::Failed(format!("kubectl error: {}", e)),
             );
         }
     }
@@ -193,6 +239,11 @@ async fn run_preflight(app: &mut App, cli: &Cli) {
                 }
             }
         }
+    }
+
+    // Don't advance if context picker is waiting for user input
+    if app.context_picker_active {
+        return;
     }
 
     if app.detected_env_vars.is_empty() {
@@ -287,6 +338,54 @@ fn build_feature_selections(app: &mut App, manifest: &ReleaseManifest) {
 }
 
 // ============================================================
+//  K8s context detection
+// ============================================================
+
+async fn detect_k8s_contexts() -> Result<Vec<K8sContext>, String> {
+    let output = tokio::process::Command::new("kubectl")
+        .args(["config", "get-contexts", "--no-headers"])
+        .output()
+        .await
+        .map_err(|e| format!("kubectl not found: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut contexts = Vec::new();
+
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 3 { continue; }
+
+        let (is_current, name, cluster) = if parts[0] == "*" {
+            (true, parts[1].to_string(), parts[2].to_string())
+        } else {
+            (false, parts[0].to_string(), parts[1].to_string())
+        };
+
+        let cluster_type = ClusterType::from_context_name(&name, &cluster);
+        contexts.push(K8sContext { name, cluster, is_current, cluster_type });
+    }
+
+    Ok(contexts)
+}
+
+async fn switch_k8s_context(name: &str) -> Result<(), String> {
+    let output = tokio::process::Command::new("kubectl")
+        .args(["config", "use-context", name])
+        .output()
+        .await
+        .map_err(|e| format!("{}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    Ok(())
+}
+
+// ============================================================
 //  Key handling
 // ============================================================
 
@@ -299,7 +398,9 @@ async fn handle_key(
 ) -> Result<()> {
     match app.phase {
         Phase::Preflight => {
-            if key.code == KeyCode::Char('q') {
+            if app.context_picker_active {
+                handle_context_picker_key(app, key).await;
+            } else if key.code == KeyCode::Char('q') {
                 app.should_quit = true;
             }
         }
@@ -340,6 +441,54 @@ async fn handle_key(
     }
 
     Ok(())
+}
+
+async fn handle_context_picker_key(app: &mut App, key: event::KeyEvent) {
+    let count = app.available_contexts.len();
+    if count == 0 { return; }
+
+    match key.code {
+        KeyCode::Up => {
+            if app.selected_context_idx > 0 {
+                app.selected_context_idx -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if app.selected_context_idx < count - 1 {
+                app.selected_context_idx += 1;
+            }
+        }
+        KeyCode::Enter => {
+            let ctx = &app.available_contexts[app.selected_context_idx];
+            app.cluster_name = format!("{} ({})", ctx.name, ctx.cluster_type.display_name());
+
+            if ctx.cluster_type == ClusterType::Cloud {
+                app.preflight_checks[1] = (
+                    format!("Kubernetes: {} - cloud cluster", ctx.name),
+                    ItemStatus::Done,
+                );
+            } else {
+                app.preflight_checks[1] = (
+                    format!("Kubernetes: {} ({})", ctx.name, ctx.cluster_type.display_name()),
+                    ItemStatus::Done,
+                );
+            }
+
+            let _ = switch_k8s_context(&ctx.name).await;
+            app.context_picker_active = false;
+
+            // Advance past preflight now that context is selected
+            if app.detected_env_vars.is_empty() {
+                app.phase = Phase::Secrets;
+            } else {
+                app.phase = Phase::EnvVarChoice;
+            }
+        }
+        KeyCode::Char('q') => {
+            app.should_quit = true;
+        }
+        _ => {}
+    }
 }
 
 fn handle_env_var_choice_key(app: &mut App, key: event::KeyEvent) {
