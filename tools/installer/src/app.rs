@@ -1,3 +1,57 @@
+#[derive(Clone, Debug)]
+pub struct K8sContext {
+    pub name: String,
+    pub cluster: String,
+    pub is_current: bool,
+    pub cluster_type: ClusterType,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClusterType {
+    DockerDesktop,
+    Minikube,
+    K3s,
+    Kind,
+    RancherDesktop,
+    Cloud,
+    Unknown,
+}
+
+impl ClusterType {
+    pub fn from_context_name(name: &str, cluster: &str) -> Self {
+        let n = name.to_lowercase();
+        let c = cluster.to_lowercase();
+        if n.contains("docker-desktop") || c.contains("docker-desktop") {
+            ClusterType::DockerDesktop
+        } else if n.contains("minikube") || c.contains("minikube") {
+            ClusterType::Minikube
+        } else if n.contains("k3s") || (n == "default" && c.contains("k3s")) {
+            ClusterType::K3s
+        } else if n.starts_with("kind-") || c.starts_with("kind-") {
+            ClusterType::Kind
+        } else if n.contains("rancher") || c.contains("rancher") {
+            ClusterType::RancherDesktop
+        } else if c.contains("eks") || c.contains("gke") || c.contains("aks")
+            || c.contains("amazonaws") || c.contains("azmk8s") {
+            ClusterType::Cloud
+        } else {
+            ClusterType::Unknown
+        }
+    }
+
+    pub fn display_name(&self) -> &str {
+        match self {
+            ClusterType::DockerDesktop => "Docker Desktop",
+            ClusterType::Minikube => "Minikube",
+            ClusterType::K3s => "k3s",
+            ClusterType::Kind => "kind",
+            ClusterType::RancherDesktop => "Rancher Desktop",
+            ClusterType::Cloud => "Cloud (not recommended)",
+            ClusterType::Unknown => "Unknown",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
     Preflight,
@@ -145,6 +199,11 @@ pub struct App {
     // Preflight results
     pub preflight_checks: Vec<(String, ItemStatus)>,
 
+    // K8s context detection
+    pub available_contexts: Vec<K8sContext>,
+    pub selected_context_idx: usize,
+    pub context_picker_active: bool,
+
     // Env var choice phase
     pub use_env_vars: Option<bool>,
     pub detected_env_vars: Vec<(String, String)>, // (key, masked_value)
@@ -210,6 +269,11 @@ impl App {
 
             // Preflight
             preflight_checks: Vec::new(),
+
+            // K8s context detection
+            available_contexts: Vec::new(),
+            selected_context_idx: 0,
+            context_picker_active: false,
 
             // Env var choice
             use_env_vars: None,
