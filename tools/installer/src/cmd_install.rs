@@ -994,6 +994,8 @@ async fn start_deploy_phase(
                 match img.component.as_str() {
                     "voice" => steps.push(("Voice", "Voice service".into())),
                     "sysadmin" => steps.push(("SysAdmin", "SysAdmin service".into())),
+                    "ext-toolbox" => steps.push(("Toolbox", "Extension: Toolbox".into())),
+                    "ext-browser" => steps.push(("Browser", "Extension: Browser".into())),
                     _ => {}
                 }
             }
