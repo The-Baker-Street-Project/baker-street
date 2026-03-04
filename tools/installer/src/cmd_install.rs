@@ -1310,21 +1310,19 @@ pub(crate) fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, c
 
     // Build FEATURE_VARS block for brain from enabled features
     let mut feature_lines = Vec::new();
-    let mut has_extension = false;
     for feature in &config.features {
         if feature.enabled {
             match feature.id.as_str() {
                 "telegram" => feature_lines.push("            - name: FEATURE_TELEGRAM\n              value: \"true\"".to_string()),
                 "discord" => feature_lines.push("            - name: FEATURE_DISCORD\n              value: \"true\"".to_string()),
                 "voyage" => feature_lines.push("            - name: FEATURE_MEMORY\n              value: \"true\"".to_string()),
-                "github" | "perplexity" | "browser" | "obsidian" => has_extension = true,
+                "github" | "perplexity" | "browser" | "obsidian" => {}
                 _ => {}
             }
         }
     }
-    if has_extension {
-        feature_lines.push("            - name: FEATURE_EXTENSIONS\n              value: \"true\"".to_string());
-    }
+    // Extensions always enabled — ext-toolbox is always deployed
+    feature_lines.push("            - name: FEATURE_EXTENSIONS\n              value: \"true\"".to_string());
     feature_lines.push("            - name: FEATURE_SCHEDULER\n              value: \"true\"".to_string());
     feature_lines.push("            - name: FEATURE_MCP\n              value: \"true\"".to_string());
 
