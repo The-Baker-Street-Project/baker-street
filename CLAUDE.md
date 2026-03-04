@@ -143,6 +143,15 @@ The Greptile plugin is connected to this repo for AI-powered PR code reviews.
 - **Prerequisites**: The repo must be enabled in the [Greptile dashboard](https://app.greptile.com) (connecting GitHub as a provider is not enough — the repo must be explicitly enabled for indexing)
 - **Review time**: 1–5 minutes depending on PR size
 
+## Worktree Hygiene
+
+When finishing a development branch (before creating a PR or after merging), run `git worktree list` to check for orphaned worktrees. For each worktree that isn't the current work:
+
+1. Check if its branch has an open PR (`gh pr list`)
+2. Check if it has commits not on main (`git log main..<branch>`)
+3. If unmerged work exists with no PR — flag it to the user before cleaning up
+4. Verify any significant unmerged features are tracked in Linear before removing
+
 ## Security
 
 - **Network Policies**: `k8s/network-policies.yaml` — default-deny ingress, per-service allow rules
