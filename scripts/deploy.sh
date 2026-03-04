@@ -15,6 +15,12 @@ kubectl create configmap bakerst-os \
   -n bakerst \
   --dry-run=client -o yaml | kubectl apply -f -
 
+echo "==> Deploying backup CronJob..."
+kubectl -n bakerst create configmap bakerst-backup-scripts \
+  --from-file="$REPO_ROOT/scripts/backup.sh" \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f "$REPO_ROOT/k8s/backup/"
+
 echo "==> Applying kustomization..."
 kubectl apply -k "$REPO_ROOT/k8s/"
 

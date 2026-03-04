@@ -79,6 +79,15 @@
       "prompt": "What would you like to call your agent?",
       "default": "Baker",
       "group": "core"
+    },
+    {
+      "key": "BACKUP_PATH",
+      "description": "Host path for nightly backups (e.g. /backups/bakerst)",
+      "required": false,
+      "inputType": "text",
+      "targetSecrets": [],
+      "prompt": "Where should nightly backups be stored? (or skip to disable)",
+      "group": "core"
     }
   ],
 

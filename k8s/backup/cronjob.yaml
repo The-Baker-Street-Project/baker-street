@@ -1,0 +1,76 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: bakerst-backup
+  namespace: bakerst
+  labels:
+    app: bakerst-backup
+spec:
+  schedule: "0 2 * * *"  # 2:00 AM daily
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600  # 10 min max
+      template:
+        metadata:
+          labels:
+            app: bakerst-backup
+        spec:
+          serviceAccountName: backup-sa
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: backup
+              image: alpine:3.19
+              command: ["/bin/sh", "-c", "apk add --no-cache sqlite curl && /bin/sh /scripts/backup.sh"]
+              env:
+                - name: BACKUP_PATH
+                  value: "/backups"
+                - name: BRAIN_DATA_PATH
+                  value: "/brain-data"
+                - name: QDRANT_HOST
+                  value: "http://qdrant:6333"
+                - name: QDRANT_COLLECTION
+                  value: "bakerst_memories"
+                - name: BACKUP_RETENTION
+                  value: "7"
+              volumeMounts:
+                - name: brain-data
+                  mountPath: /brain-data
+                  readOnly: true
+                - name: backup-volume
+                  mountPath: /backups
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: brain-data
+              persistentVolumeClaim:
+                claimName: brain-data
+            - name: backup-volume
+              hostPath:
+                path: /backups/bakerst
+                type: DirectoryOrCreate
+            - name: scripts
+              configMap:
+                name: bakerst-backup-scripts
+                defaultMode: 0755
