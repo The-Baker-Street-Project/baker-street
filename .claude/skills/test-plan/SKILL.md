@@ -77,9 +77,9 @@ Parse the task description to understand what's being built.
 Read all relevant source files to build the specification context.
 
 **Read in order:**
-1. **Zod schemas** from `@buildflow/shared` for the target entity — input schemas, output types, enums
+1. **Zod schemas** from `@bakerst/shared` for the target entity — input schemas, output types, enums
 2. **DB schema** from `packages/db` for the target entity — columns, types, defaults, relations, status enums
-3. **Enum definitions** from `@buildflow/shared` — status values, WBS categories
+3. **Enum definitions** from `@bakerst/shared` — status values, WBS categories
 4. **Reference implementation** — find an existing service/router for a similar entity to learn the established patterns
 5. **CLAUDE.md conventions** — error handling (AppError, ErrorCode), logging, boundary rules, testing expectations
 

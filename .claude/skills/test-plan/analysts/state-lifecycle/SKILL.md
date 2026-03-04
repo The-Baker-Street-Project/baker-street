@@ -23,7 +23,7 @@ This analyst is selected when:
 ## Input
 
 From the orchestrator:
-- Status enum values from `@buildflow/shared` (e.g., `RfiStatus`, `TaskStatus`, `ChangeOrderStatus`)
+- Status enum values from `@bakerst/shared` (e.g., `RfiStatus`, `TaskStatus`, `ChangeOrderStatus`)
 - DB schema showing the status column and its type
 - Task description mentioning transition behavior
 - Reference implementation of transition methods (if any exist for similar entities)
@@ -32,7 +32,7 @@ From the orchestrator:
 
 ### 1. Enumerate Status Values
 
-Read the entity's status enum from `@buildflow/shared`:
+Read the entity's status enum from `@bakerst/shared`:
 
 ```typescript
 // Example: RfiStatus

@@ -1060,6 +1060,45 @@ async fn handle_auto_advance(
     async_tx: &mpsc::UnboundedSender<AsyncMsg>,
 ) -> Result<()> {
     match app.phase {
+        Phase::Providers => {
+            // When using env vars, auto-configure providers from pre-populated credentials
+            if app.use_env_vars == Some(true) && app.provider_step == ProviderStep::BrainProvider {
+                if app.config.anthropic_api_key.is_some() {
+                    app.brain_provider = Some(ProviderType::Anthropic);
+                    app.brain_model_id = Some("claude-sonnet-4-20250514".to_string());
+                    app.brain_model_display = Some("Sonnet 4".to_string());
+                } else if app.config.openai_api_key.is_some() {
+                    app.brain_provider = Some(ProviderType::OpenAI);
+                    app.brain_model_id = Some("gpt-4o".to_string());
+                    app.brain_model_display = Some("GPT-4o".to_string());
+                } else if app.config.ollama_endpoints.is_some() {
+                    app.brain_provider = Some(ProviderType::Ollama);
+                    app.brain_model_id = Some("llama3".to_string());
+                    app.brain_model_display = Some("llama3".to_string());
+                }
+
+                if app.brain_provider.is_some() {
+                    app.worker_same_as_brain = true;
+                    app.worker_provider = app.brain_provider;
+                    app.worker_model_id = app.brain_model_id.clone();
+                    app.worker_model_display = app.brain_model_display.clone();
+                    app.config.default_model = app.brain_model_id.clone();
+                    app.provider_step = ProviderStep::Done;
+                    // Auto-enable features that have ANY secret pre-populated
+                    for feature in &mut app.config.features {
+                        if !feature.secrets.is_empty() {
+                            let any_present = feature.secrets.iter().any(|(_, v)| v.is_some());
+                            if any_present {
+                                feature.enabled = true;
+                            }
+                        }
+                    }
+                    // Advance to Features — user reviews which are enabled
+                    app.advance();
+                }
+            }
+        }
+
         Phase::Secrets => {
             // Skip secrets that were pre-populated from env vars
             if app.use_env_vars == Some(true) {

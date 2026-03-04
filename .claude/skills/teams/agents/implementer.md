@@ -59,20 +59,20 @@ When complete, report:
 ## Dispatch Example
 
 ```python
-# In Claude Code, send a single message with all Task calls:
-Task(
+# In Claude Code, send a single message with all Agent calls:
+Agent(
     description="Team 1: Security",
     prompt=filled_template_1,
     subagent_type="general-purpose",
     model="sonnet"
 )
-Task(
+Agent(
     description="Team 2: MCP Infra",
     prompt=filled_template_2,
     subagent_type="general-purpose",
     model="sonnet"
 )
-Task(
+Agent(
     description="Team 3: Model Router",
     prompt=filled_template_3,
     subagent_type="general-purpose",
