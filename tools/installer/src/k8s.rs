@@ -217,6 +217,27 @@ pub async fn create_os_configmap(client: &Client, namespace: &str) -> Result<()>
     Ok(())
 }
 
+/// Get the current image for a deployment's first container.
+/// Returns `None` if the deployment doesn't exist (e.g., first-time install).
+pub async fn get_deployment_image(
+    client: &Client,
+    namespace: &str,
+    deployment: &str,
+) -> Result<Option<String>> {
+    let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+    match api.get_opt(deployment).await? {
+        Some(dep) => {
+            let image = dep
+                .spec
+                .and_then(|s| s.template.spec)
+                .and_then(|s| s.containers.first().cloned())
+                .and_then(|c| c.image);
+            Ok(image)
+        }
+        None => Ok(None),
+    }
+}
+
 /// Restart a deployment by patching the pod template annotation (equivalent to `kubectl rollout restart`).
 pub async fn restart_deployment(client: &Client, namespace: &str, name: &str) -> Result<()> {
     let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);

@@ -15,7 +15,7 @@ pub async fn run(cli: &Cli, args: &UpdateArgs) -> Result<()> {
     println!("Baker Street Update v{}", env!("CARGO_PKG_VERSION"));
 
     // ── Step 1: Preflight ──
-    println!("[1/7] Preflight...");
+    println!("[1/8] Preflight...");
     let client = kube::Client::try_default().await
         .context("K8s cluster not reachable")?;
     let ns = &cli.namespace;
@@ -62,7 +62,7 @@ pub async fn run(cli: &Cli, args: &UpdateArgs) -> Result<()> {
     println!("  Updating: {} → {}", current_meta.version, manifest.version);
 
     // ── Step 2: Preserve Config ──
-    println!("[2/7] Preserving configuration...");
+    println!("[2/8] Preserving configuration...");
     let config = if args.reconfigure {
         println!("  --reconfigure: prompting for new secrets");
         build_config_from_env(ns, &manifest)?
@@ -72,7 +72,7 @@ pub async fn run(cli: &Cli, args: &UpdateArgs) -> Result<()> {
     println!("  Config preserved (agent: {})", config.agent_name);
 
     // ── Step 3: Re-apply Templates ──
-    println!("[3/7] Applying templates...");
+    println!("[3/8] Applying templates...");
     let vars = cmd_install::build_template_vars(ns, &manifest, &config);
 
     // Update OS ConfigMap
@@ -114,56 +114,94 @@ pub async fn run(cli: &Cli, args: &UpdateArgs) -> Result<()> {
         apply_extensions(&client, ns, &manifest, &vars).await?;
     }
 
-    // ── Step 4: Blue/Green Brain Swap ──
-    println!("[4/7] Blue/green brain swap...");
+    // ── Step 4: Compare images — decide what needs updating ──
+    println!("[4/8] Comparing running images...");
     let active_slot = &current_meta.active_slot;
     let standby_slot = if active_slot == "blue" { "green" } else { "blue" };
-    let standby_deploy = format!("brain-{}", standby_slot);
 
-    println!("  Scaling up {}...", standby_deploy);
-    k8s::scale_deployment(&client, ns, &standby_deploy, 1).await?;
+    let mut brain_needs_update = false;
+    let mut components_to_restart: Vec<String> = Vec::new();
 
-    println!("  Waiting for {} to be healthy...", standby_deploy);
-    match health::wait_for_rollout(&client, ns, &standby_deploy, Duration::from_secs(120)).await {
-        Ok(_) => {
-            println!("  {} healthy — switching service selector", standby_deploy);
-            k8s::patch_brain_service_selector(&client, ns, standby_slot).await?;
-
-            let old_deploy = format!("brain-{}", active_slot);
-            println!("  Scaling down {}...", old_deploy);
-            k8s::scale_deployment(&client, ns, &old_deploy, 0).await?;
-            println!("  Brain swap complete: {} → {}", active_slot, standby_slot);
+    for img in &manifest.images {
+        // Skip extensions if requested
+        if !img.required && args.skip_extensions {
+            continue;
         }
-        Err(e) => {
-            eprintln!("  {} failed health check: {}", standby_deploy, e);
-            eprintln!("  Rolling back — scaling down {}", standby_deploy);
-            k8s::scale_deployment(&client, ns, &standby_deploy, 0).await?;
-            anyhow::bail!("Update aborted: brain standby failed health check");
+        // If --component is set, only check that component
+        if let Some(ref comp) = args.component {
+            if !img.component.eq_ignore_ascii_case(comp) {
+                continue;
+            }
+        }
+
+        // Brain uses blue/green — map to active slot deployment name
+        let deployment_name = if img.component == "brain" {
+            format!("brain-{}", active_slot)
+        } else {
+            img.component.clone()
+        };
+
+        let current = k8s::get_deployment_image(&client, ns, &deployment_name).await?;
+        let target = &img.image;
+
+        if args.force || current.as_deref() != Some(target.as_str()) {
+            println!("  \u{2191} {} ({} \u{2192} {})",
+                img.component,
+                current.as_deref().unwrap_or("none"),
+                target);
+            if img.component == "brain" {
+                brain_needs_update = true;
+            } else {
+                components_to_restart.push(img.component.clone());
+            }
+        } else {
+            println!("  \u{2713} {} (up to date)", img.component);
         }
     }
 
-    // ── Step 5: Rolling Restart Others ──
-    println!("[5/7] Rolling restart...");
-    let restart_targets = if let Some(ref comp) = args.component {
-        vec![comp.clone()]
-    } else {
-        let mut targets = vec!["worker".into(), "gateway".into(), "ui".into()];
-        if !args.skip_extensions {
-            for img in &manifest.images {
-                if !img.required {
-                    match img.component.as_str() {
-                        "ext-toolbox" | "ext-browser" | "voice" | "sysadmin" => {
-                            targets.push(img.component.clone());
-                        }
-                        _ => {}
-                    }
-                }
+    if !brain_needs_update && components_to_restart.is_empty() && !args.force {
+        println!("\nAll components are up to date. Use --force to redeploy anyway.");
+    }
+
+    // ── Step 5: Blue/Green Brain Swap (only if brain changed) ──
+    let final_slot = if brain_needs_update {
+        println!("[5/8] Blue/green brain swap...");
+        let standby_deploy = format!("brain-{}", standby_slot);
+
+        println!("  Scaling up {}...", standby_deploy);
+        k8s::scale_deployment(&client, ns, &standby_deploy, 1).await?;
+
+        println!("  Waiting for {} to be healthy...", standby_deploy);
+        match health::wait_for_rollout(&client, ns, &standby_deploy, Duration::from_secs(120)).await {
+            Ok(_) => {
+                println!("  {} healthy \u{2014} switching service selector", standby_deploy);
+                k8s::patch_brain_service_selector(&client, ns, standby_slot).await?;
+
+                let old_deploy = format!("brain-{}", active_slot);
+                println!("  Scaling down {}...", old_deploy);
+                k8s::scale_deployment(&client, ns, &old_deploy, 0).await?;
+                println!("  Brain swap complete: {} \u{2192} {}", active_slot, standby_slot);
+            }
+            Err(e) => {
+                eprintln!("  {} failed health check: {}", standby_deploy, e);
+                eprintln!("  Rolling back \u{2014} scaling down {}", standby_deploy);
+                k8s::scale_deployment(&client, ns, &standby_deploy, 0).await?;
+                anyhow::bail!("Update aborted: brain standby failed health check");
             }
         }
-        targets
+        standby_slot.to_string()
+    } else {
+        println!("[5/8] Brain up to date \u{2014} skipping blue/green swap.");
+        active_slot.clone()
     };
 
-    for dep in &restart_targets {
+    // ── Step 6: Rolling Restart Changed Components ──
+    println!("[6/8] Rolling restart ({} component(s))...", components_to_restart.len());
+    if components_to_restart.is_empty() {
+        println!("  No non-brain components to restart.");
+    }
+
+    for dep in &components_to_restart {
         match k8s::restart_deployment(&client, ns, dep).await {
             Ok(_) => println!("  Restarted: {}", dep),
             Err(e) => println!("  WARNING: Failed to restart {}: {}", dep, e),
@@ -171,15 +209,15 @@ pub async fn run(cli: &Cli, args: &UpdateArgs) -> Result<()> {
     }
 
     // Wait for rollouts
-    for dep in &restart_targets {
+    for dep in &components_to_restart {
         match health::wait_for_rollout(&client, ns, dep, Duration::from_secs(120)).await {
             Ok(_) => println!("  {}: ready", dep),
             Err(e) => println!("  {}: FAILED ({})", dep, e),
         }
     }
 
-    // ── Step 6: Write Meta ──
-    println!("[6/7] Writing metadata...");
+    // ── Step 7: Write Meta ──
+    println!("[7/8] Writing metadata...");
     let features: Vec<String> = config.features.iter()
         .filter(|f| f.enabled)
         .map(|f| f.id.clone())
@@ -189,13 +227,13 @@ pub async fn run(cli: &Cli, args: &UpdateArgs) -> Result<()> {
     } else {
         current_meta.components.split(',').map(|s| s.to_string()).collect()
     };
-    let new_meta = meta::build_meta(&manifest.version, standby_slot, &features, &components);
+    let new_meta = meta::build_meta(&manifest.version, &final_slot, &features, &components);
     meta::write_meta(&client, ns, &new_meta).await?;
 
-    // ── Step 7: Report ──
-    println!("[7/7] Update complete!");
+    // ── Step 8: Report ──
+    println!("[8/8] Update complete!");
     println!("  Version:    {}", manifest.version);
-    println!("  Brain Slot: {} (active)", standby_slot);
+    println!("  Brain Slot: {} (active)", final_slot);
     println!("  UI:         http://localhost:30080");
 
     Ok(())
