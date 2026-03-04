@@ -5,7 +5,7 @@ description: Use when a feature requires 2-4 parallel implementation streams acr
 
 # Parallel Teams
 
-Run 2-4 implementation teams concurrently using git worktrees + Task tool subagents. Each team gets an isolated worktree, implements from a shared plan, gets reviewed, and merges sequentially.
+Run 2-4 implementation teams concurrently using git worktrees + Agent tool subagents. Each team gets an isolated worktree, implements from a shared plan, gets reviewed, and merges sequentially.
 
 **Core principle:** Worktree isolation + parallel subagents + sequential merge = safe concurrent development.
 
@@ -36,7 +36,7 @@ Create as TaskCreate items (one per phase):
 2. **Plan** - Write per-team implementation plan (`docs/plans/YYYY-MM-DD-<topic>-implementation.md`)
 3. **Worktrees** - Create worktrees + install deps in each
 4. **Parallel Build** - Dispatch build agents (one per team, all in one message)
-5. **Review & Fix** - Dispatch review agents, then fix agents for Critical/Important findings
+5. **Review & Fix** - Dispatch review agents, then fix agents for Blocker/High findings
 6. **Merge & Deploy** - Sequential merge, integration test, deploy, cleanup
 
 ## Phase Reference
@@ -46,8 +46,8 @@ Create as TaskCreate items (one per phase):
 | 1. Design | Divide work into teams with clear boundaries | `docs/plans/*-design.md` | `superpowers:brainstorming` |
 | 2. Plan | Convert design into tasks with exact code + paths | `docs/plans/*-implementation.md` | `superpowers:writing-plans` |
 | 3. Worktrees | `git worktree add .worktrees/<slug> -b feat/<name> main` + install | Worktrees ready, deps installed | `superpowers:using-git-worktrees` |
-| 4. Build | Dispatch `./team-implementer-prompt.md` per team | Commits on each branch | Task tool, model=sonnet |
-| 5. Review | Dispatch `./team-reviewer-prompt.md`, then `./team-fixer-prompt.md` | Review findings + fixes | Task tool, model=sonnet |
+| 4. Build | Dispatch `./agents/implementer.md` per team | Commits on each branch | Agent tool, model=sonnet |
+| 5. Review | Dispatch `./agents/reviewer.md`, then `./agents/fixer.md` | Review findings + fixes | Agent tool, model=sonnet |
 | 6. Merge | Push, PR, merge sequentially; integration test; deploy; cleanup | PRs merged, deployed | `superpowers:finishing-a-development-branch` |
 
 ## Team Boundary Guidelines
@@ -127,11 +127,11 @@ pnpm install && pnpm -r build && pnpm -r test
 
 Above 4 teams, split into sequential waves instead.
 
-## Prompt Templates
+## Agent Templates
 
-- `./team-implementer-prompt.md` - Dispatch one per team (Phase 4)
-- `./team-reviewer-prompt.md` - Dispatch one per branch (Phase 5, first pass)
-- `./team-fixer-prompt.md` - Dispatch for branches with Critical/Important findings (Phase 5, second pass)
+- `./agents/implementer.md` - Dispatch one per team (Phase 4)
+- `./agents/reviewer.md` - Dispatch one per branch (Phase 5, first pass); composes with `/code-review`
+- `./agents/fixer.md` - Dispatch for branches with Blocker/High findings (Phase 5, second pass)
 
 ## Integration
 

@@ -40,7 +40,7 @@ git diff HEAD
 ```
 
 If there are changes:
-- Stage all changes: `git add -A`
+- Stage relevant files: `git add <files>` (review `git status` first — avoid staging untracked junk like .exe, .zip, Zone.Identifier files)
 - Generate a commit message from the diff (follow Conventional Commits if the project uses them, check recent `git log --oneline -10` for style)
 - Show the commit message to the user for approval
 - Commit: `git commit -m "<message>"`

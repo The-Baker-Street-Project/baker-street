@@ -101,7 +101,7 @@ A test is P3 if it verifies ANY of:
 
 - **Import boundary enforcement**: Code imports from correct packages
   - Service doesn't import from router layer
-  - All types come from @buildflow/shared
+  - All types come from @bakerst/shared
 
 - **Idempotency**: Operations that should be safe to retry
   - Updating with same data doesn't change updatedAt

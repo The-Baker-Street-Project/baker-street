@@ -83,8 +83,8 @@ Add commented-out imports for the module under test:
 ```typescript
 // Uncomment as you implement:
 // import { vendorService } from './vendor.service.js';
-// import type { CreateVendorInput } from '@buildflow/shared';
-// import { WbsCategory, ErrorCode } from '@buildflow/shared';
+// import type { CreateVendorInput } from '@bakerst/shared';
+// import { WbsCategory, ErrorCode } from '@bakerst/shared';
 ```
 
 ## Output Format
@@ -96,8 +96,8 @@ import { describe, expect, it } from 'vitest';
 
 // Uncomment as you implement:
 // import { vendorService } from './vendor.service.js';
-// import type { CreateVendorInput } from '@buildflow/shared';
-// import { ErrorCode, WbsCategory } from '@buildflow/shared';
+// import type { CreateVendorInput } from '@bakerst/shared';
+// import { ErrorCode, WbsCategory } from '@bakerst/shared';
 
 /**
  * Test Plan: vendor.service (planId: b7e4f1a2)
@@ -220,7 +220,7 @@ Don't generate test utility files, factories, or shared fixtures. Keep generated
 ### 6. Respect Project File Conventions
 - Test files alongside source: `vendor.service.test.ts` next to `vendor.service.ts`
 - Use `.js` extension in imports (TypeScript module resolution)
-- Import from `@buildflow/shared` for types and enums
+- Import from `@bakerst/shared` for types and enums
 
 ### 7. Don't Overwrite Existing Tests
 If the target test file already exists, report it in the plan output and do NOT overwrite. The team agent decides how to merge.

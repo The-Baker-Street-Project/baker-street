@@ -110,7 +110,7 @@
       "name": "Voice Talk Mode",
       "description": "Enable voice interaction with wake word detection",
       "defaultEnabled": false,
-      "secrets": ["STT_API_KEY", "TTS_API_KEY", "PICOVOICE_ACCESS_KEY"]
+      "secrets": ["PICOVOICE_ACCESS_KEY"]
     }
   ],
   "defaults": {
