@@ -17,6 +17,7 @@ import type { BrainStateMachine } from './brain-state.js';
 import type { CompanionManager } from './companion-manager.js';
 import type { ExtensionManager } from './extension-manager.js';
 import { listConversations, getConversation, getMessages, setConversationModelOverride, listSkills, getSkill, upsertSkill, deleteSkill as deleteSkillDb, getDb, getModelConfigValue, setModelConfigValue, getMemoryState, getObservations, getActiveObservationLog, getReflections, type ScheduleRow } from './db.js';
+import { listSavedPrompts } from './saved-prompts.js';
 import { getSecrets, updateSecrets, restartDeployment } from './k8s-client.js';
 import { noopAuditSink, type AuditSink } from '@bakerst/core';
 import { reloadInstructionSkills } from './skill-loader.js';
@@ -1377,6 +1378,13 @@ export function createApi(
     const id = req.params.id as string;
     const tasks = companionManager.getCompanionTasks(id);
     res.json(tasks);
+  });
+
+  // --- Saved Prompts ---
+
+  app.get('/saved-prompts', (_req: Request, res: Response) => {
+    const prompts = listSavedPrompts(50);
+    res.json({ prompts });
   });
 
   // --- Extensions ---
