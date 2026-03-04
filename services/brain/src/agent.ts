@@ -790,10 +790,17 @@ export function createAgent(
     const jobIds: string[] = [];
     let toolCallCount = 0;
     const maxIterations = 10;
+    let activatedTools: ToolDefinition[] = [];
 
     for (let i = 0; i < maxIterations; i++) {
       // Check for conversation-level model override
       const modelOverride = getConversationModelOverride(conversationId);
+
+      // Resolve model to determine tool strategy (native defer vs brain-side search)
+      const resolvedModel = modelRouter.resolveModelDefinition('agent', modelOverride ?? undefined);
+      const { tools: requestTools, usesSearchIndex } = buildToolsForRequest(
+        allTools, resolvedModel.provider, activatedTools,
+      );
 
       const response = await withSpan('brain.llm.call', {
         'llm.role': 'agent',
@@ -802,7 +809,7 @@ export function createAgent(
         return modelRouter.chat({
           role: 'agent',
           system: systemBlocks,
-          tools: allTools,
+          tools: requestTools,
           messages,
           ...(modelOverride ? { modelOverride } : {}),
         });
@@ -846,6 +853,30 @@ export function createAgent(
         for (const block of response.content) {
           if (block.type === 'tool_use') {
             toolCallCount++;
+
+            // Handle search_tools specially when using brain-side search
+            if (usesSearchIndex && block.name === 'search_tools') {
+              const query = (block.input as { query: string; limit?: number }).query;
+              const limit = (block.input as { query: string; limit?: number }).limit;
+              const results = toolSearchIndex.search(query, limit);
+
+              // Inject found tools for next iteration
+              activatedTools = results.map((r) => r.fullSchema);
+
+              const resultText = results.length > 0
+                ? results.map((r) => `- ${r.name}: ${r.description}`).join('\n')
+                : 'No matching tools found. Try different keywords.';
+
+              log.info({ query, found: results.length, activated: activatedTools.map(t => t.name) }, 'tool search completed');
+
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: block.id,
+                content: `Found ${results.length} tool(s):\n${resultText}\n\nThese tools are now available for use.`,
+              });
+              continue;
+            }
+
             log.info({ tool: block.name, input: block.input }, 'executing tool call');
 
             // Guardrail: check before execution
@@ -966,16 +997,23 @@ export function createAgent(
     let toolCallCount = 0;
     const maxIterations = 10;
     let fullResponseText = '';
+    let activatedTools: ToolDefinition[] = [];
 
     try {
       for (let i = 0; i < maxIterations; i++) {
         // Check for conversation-level model override
         const streamModelOverride = getConversationModelOverride(conversationId);
 
+        // Resolve model to determine tool strategy (native defer vs brain-side search)
+        const resolvedModel = modelRouter.resolveModelDefinition('agent', streamModelOverride ?? undefined);
+        const { tools: requestTools, usesSearchIndex } = buildToolsForRequest(
+          allTools, resolvedModel.provider, activatedTools,
+        );
+
         const streamGen = modelRouter.chatStream({
           role: 'agent',
           system: systemBlocks,
-          tools: allTools,
+          tools: requestTools,
           messages,
           ...(streamModelOverride ? { modelOverride: streamModelOverride } : {}),
         });
@@ -1011,6 +1049,33 @@ export function createAgent(
           for (const block of response.content) {
             if (block.type === 'tool_use') {
               toolCallCount++;
+
+              // Handle search_tools specially when using brain-side search
+              if (usesSearchIndex && block.name === 'search_tools') {
+                const query = (block.input as { query: string; limit?: number }).query;
+                const limit = (block.input as { query: string; limit?: number }).limit;
+                const results = toolSearchIndex.search(query, limit);
+
+                // Inject found tools for next iteration
+                activatedTools = results.map((r) => r.fullSchema);
+
+                const resultText = results.length > 0
+                  ? results.map((r) => `- ${r.name}: ${r.description}`).join('\n')
+                  : 'No matching tools found. Try different keywords.';
+
+                log.info({ query, found: results.length, activated: activatedTools.map(t => t.name) }, 'tool search completed');
+
+                const searchSummary = `Found ${results.length} tool(s)`;
+                yield { type: 'tool_result', tool: 'search_tools', summary: searchSummary };
+
+                toolResults.push({
+                  type: 'tool_result',
+                  tool_use_id: block.id,
+                  content: `Found ${results.length} tool(s):\n${resultText}\n\nThese tools are now available for use.`,
+                });
+                continue;
+              }
+
               yield { type: 'thinking', tool: block.name, input: block.input as Record<string, unknown> };
 
               // Guardrail: check before execution
