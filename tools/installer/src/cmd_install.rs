@@ -449,6 +449,15 @@ fn handle_providers_key(app: &mut App, key: event::KeyEvent) {
         ProviderStep::WorkerCredential => handle_credential_input(app, key, false),
         ProviderStep::Done => {
             if key.code == KeyCode::Enter {
+                // Auto-enable features whose required secrets are all provided
+                for feature in &mut app.config.features {
+                    if !feature.secrets.is_empty() {
+                        let all_present = feature.secrets.iter().all(|(_, v)| v.is_some());
+                        if all_present {
+                            feature.enabled = true;
+                        }
+                    }
+                }
                 app.advance();
             }
         }
