@@ -1,5 +1,6 @@
 import { useState, useRef, type KeyboardEvent } from 'react';
 import type { VoiceState } from '../../hooks/useVoiceChat';
+import { getSlashSuggestions, type SlashCommand } from '../../hooks/useSlashCommands';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -12,6 +13,7 @@ interface ChatInputProps {
 
 export function ChatInput({ onSend, onStop, isStreaming, voiceState, onVoiceStart, onVoiceStop }: ChatInputProps) {
   const [text, setText] = useState('');
+  const [suggestions, setSuggestions] = useState<SlashCommand[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isBusy = isStreaming || voiceState !== 'idle';
@@ -43,11 +45,33 @@ export function ChatInput({ onSend, onStop, isStreaming, voiceState, onVoiceStar
 
   return (
     <div className="border-t border-gray-800 p-4">
-      <div className="flex gap-2 max-w-3xl mx-auto">
+      <div className="flex gap-2 max-w-3xl mx-auto relative">
+        {suggestions.length > 0 && (
+          <div className="absolute bottom-full left-0 w-full bg-gray-800 border border-gray-600 rounded-t-md mb-1 z-10">
+            {suggestions.map((cmd) => (
+              <button
+                key={cmd.name}
+                className="w-full text-left px-3 py-2 hover:bg-gray-700 text-sm"
+                onClick={() => {
+                  setText(cmd.name);
+                  setSuggestions([]);
+                  textareaRef.current?.focus();
+                }}
+              >
+                <span className="text-blue-400">{cmd.name}</span>
+                <span className="text-gray-400 ml-2">{cmd.description}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            const val = e.target.value;
+            setText(val);
+            setSuggestions(getSlashSuggestions(val));
+          }}
           onKeyDown={handleKeyDown}
           onInput={handleInput}
           placeholder={

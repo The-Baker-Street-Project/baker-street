@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { chatStream } from '../api/stream';
 import { getConversationMessages } from '../api/client';
+import { matchSlashCommand } from './useSlashCommands.js';
 
 const STORAGE_MESSAGES = 'bakerst_chat_messages';
 const STORAGE_CONVERSATION = 'bakerst_active_conversation';
@@ -61,6 +62,19 @@ export function useChat(initialConversationId?: string) {
 
   const sendMessage = useCallback(
     async (text: string) => {
+      const cmd = matchSlashCommand(text);
+      let apiText = text;
+
+      if (cmd === '/save-this') {
+        // Find the last user message to save
+        const lastUserMsg = messages.filter((m) => m.role === 'user').pop();
+        if (!lastUserMsg) return;
+        const content = typeof lastUserMsg.content === 'string' ? lastUserMsg.content : '';
+        apiText = `Please save this prompt for later: "${content}"`;
+      } else if (cmd === '/saved-prompts') {
+        apiText = 'Show me my saved prompts';
+      }
+
       const userMsg: ChatMessage = { role: 'user', content: text };
       setMessages((prev) => [...prev, userMsg]);
       setIsStreaming(true);
@@ -74,7 +88,7 @@ export function useChat(initialConversationId?: string) {
       let currentToolCallIndex = -1;
 
       try {
-        for await (const event of chatStream(text, conversationId, controller.signal)) {
+        for await (const event of chatStream(apiText, conversationId, controller.signal)) {
           if (event.type === 'delta') {
             setMessages((prev) => {
               const last = { ...prev[prev.length - 1] };
@@ -127,7 +141,7 @@ export function useChat(initialConversationId?: string) {
         abortRef.current = null;
       }
     },
-    [conversationId],
+    [conversationId, messages],
   );
 
   const stopStreaming = useCallback(() => {
