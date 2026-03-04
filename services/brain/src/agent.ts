@@ -370,7 +370,10 @@ const standingOrderTools: ToolDefinition[] = [
   {
     name: 'manage_standing_order',
     description:
-      'Create, update, enable, disable, or delete a standing order (scheduled recurring task). Actions: create (needs name, schedule as cron, type, config), update (needs id), enable/disable (needs id), delete (needs id).',
+      'Create, update, enable, disable, or delete a standing order (scheduled task). ' +
+      'Supports cron expressions. Set case_file to "private" for isolated execution (does not appear in main chat). ' +
+      'Delivery modes: announce (send to chat channel), pigeon (POST to webhook), file (log only). ' +
+      'Auto-disables after max_consecutive_failures (default 5) consecutive errors.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -389,7 +392,7 @@ const standingOrderTools: ToolDefinition[] = [
         },
         schedule: {
           type: 'string',
-          description: 'Cron expression (e.g., "0 9 * * *" for daily at 9am, "*/30 * * * *" for every 30 minutes)',
+          description: 'Cron expression (e.g., "0 9 * * 1-5" for weekdays at midnight)',
         },
         type: {
           type: 'string',
@@ -398,7 +401,16 @@ const standingOrderTools: ToolDefinition[] = [
         },
         config: {
           type: 'object',
-          description: 'Job configuration: { job?: string, command?: string, url?: string, method?: string, headers?: object, vars?: object }',
+          description: 'Job configuration: { job?, command?, url?, method?, headers?, vars?, delivery?: { mode: "announce"|"pigeon"|"file", channel?, url? } }',
+        },
+        case_file: {
+          type: 'string',
+          enum: ['sitting-room', 'private'],
+          description: 'Where results appear (default: sitting-room)',
+        },
+        max_consecutive_failures: {
+          type: 'number',
+          description: 'Auto-disable threshold (default 5)',
         },
       },
       required: ['action'],
