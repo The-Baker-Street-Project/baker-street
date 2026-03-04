@@ -130,6 +130,19 @@ Labels follow these grouping conventions (query Linear for current values):
 - **Type** (default): Bug, Improvement, Feature
 - **Standalone**: cross-cutting concerns (e.g., `security`, `dx`, `tech-debt`)
 
+## Greptile (AI Code Review)
+
+The Greptile plugin is connected to this repo for AI-powered PR code reviews.
+
+- **Repo name** (for MCP tools): `the-baker-street-project/baker-street` (lowercase required)
+- **Env var**: `GREPTILE_API_KEY` must be set in your shell profile
+- **Triggering reviews**:
+  - MCP tool: `trigger_code_review` with `name: "the-baker-street-project/baker-street"`, `remote: "github"`, `prNumber: <N>`
+  - GitHub comment: `@greptileai` on a PR
+  - Draft PRs: `@greptileai review this draft` (Greptile skips drafts by default)
+- **Prerequisites**: The repo must be enabled in the [Greptile dashboard](https://app.greptile.com) (connecting GitHub as a provider is not enough — the repo must be explicitly enabled for indexing)
+- **Review time**: 1–5 minutes depending on PR size
+
 ## Security
 
 - **Network Policies**: `k8s/network-policies.yaml` — default-deny ingress, per-service allow rules
