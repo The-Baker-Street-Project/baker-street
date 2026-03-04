@@ -60,6 +60,13 @@
       "required": false,
       "inputType": "text",
       "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"]
+    },
+    {
+      "key": "BACKUP_PATH",
+      "description": "Host path for nightly backups (e.g. /backups/bakerst)",
+      "required": false,
+      "inputType": "text",
+      "targetSecrets": []
     }
   ],
   "optionalFeatures": [
