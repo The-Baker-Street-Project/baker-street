@@ -291,3 +291,102 @@ pub async fn get_deployments_status(
     }
     Ok(statuses)
 }
+
+/// Scale a deployment to N replicas.
+pub async fn scale_deployment(
+    client: &Client,
+    namespace: &str,
+    name: &str,
+    replicas: i32,
+) -> Result<()> {
+    let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+    let patch = serde_json::json!({
+        "spec": { "replicas": replicas }
+    });
+    api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+        .await
+        .with_context(|| format!("scale deployment {} to {}", name, replicas))?;
+    Ok(())
+}
+
+/// Patch brain Service selector to point to a slot ("blue" or "green").
+pub async fn patch_brain_service_selector(
+    client: &Client,
+    namespace: &str,
+    slot: &str,
+) -> Result<()> {
+    let api: Api<Service> = Api::namespaced(client.clone(), namespace);
+    let patch = serde_json::json!({
+        "spec": {
+            "selector": {
+                "app": "brain",
+                "slot": slot
+            }
+        }
+    });
+    api.patch("brain", &PatchParams::default(), &Patch::Merge(&patch))
+        .await
+        .context("patch brain service selector")?;
+    Ok(())
+}
+
+/// Read current brain Service selector slot (returns "blue" or "green").
+pub async fn get_brain_service_selector(
+    client: &Client,
+    namespace: &str,
+) -> Result<String> {
+    let api: Api<Service> = Api::namespaced(client.clone(), namespace);
+    let svc = api.get("brain").await.context("get brain service")?;
+    let selector = svc
+        .spec
+        .and_then(|s| s.selector)
+        .unwrap_or_default();
+    let slot = selector.get("slot").cloned().unwrap_or_else(|| "blue".into());
+    Ok(slot)
+}
+
+/// List known secrets with their key names (not values) for status display.
+pub async fn get_secrets_info(
+    client: &Client,
+    namespace: &str,
+) -> Result<Vec<(String, Vec<String>)>> {
+    let api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+    let lp = ListParams::default().labels(""); // all secrets
+    let secrets = api.list(&lp).await?;
+
+    let mut result = Vec::new();
+    for secret in secrets.items {
+        let name = secret.metadata.name.unwrap_or_default();
+        // Only show bakerst-* secrets
+        if !name.starts_with("bakerst-") {
+            continue;
+        }
+        let keys: Vec<String> = secret
+            .data
+            .map(|d| d.keys().cloned().collect())
+            .unwrap_or_default();
+        result.push((name, keys));
+    }
+    result.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(result)
+}
+
+/// Read a secret's data (decoded from base64) for preserving config during update.
+pub async fn read_secret(
+    client: &Client,
+    namespace: &str,
+    name: &str,
+) -> Result<Option<BTreeMap<String, String>>> {
+    let api: Api<Secret> = Api::namespaced(client.clone(), namespace);
+    match api.get_opt(name).await? {
+        Some(secret) => {
+            let data = secret.data.unwrap_or_default();
+            let decoded: BTreeMap<String, String> = data
+                .into_iter()
+                .map(|(k, v)| (k, String::from_utf8_lossy(&v.0).to_string()))
+                .collect();
+            Ok(Some(decoded))
+        }
+        None => Ok(None),
+    }
+}

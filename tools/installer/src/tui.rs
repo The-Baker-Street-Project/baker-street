@@ -13,7 +13,7 @@ use ratatui::{
 use std::io::stdout;
 
 use crate::app::{App, ItemStatus, Phase, ProviderStep, ProviderType};
-use crate::models_for_provider;
+use crate::cmd_install::models_for_provider;
 use crate::templates::mask_secret;
 
 // Baker Street color palette
