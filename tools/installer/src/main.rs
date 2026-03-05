@@ -11,6 +11,7 @@ mod k8s;
 mod manifest;
 mod meta;
 mod templates;
+mod theme;
 mod tui;
 
 use anyhow::Result;

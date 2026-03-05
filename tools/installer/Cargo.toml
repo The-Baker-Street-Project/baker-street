@@ -29,6 +29,10 @@ serde_yaml = "0.9"
 # CLI
 clap = { version = "4", features = ["derive"] }
 
+# HTTP client (for brain API)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+futures = "0.3"
+
 # Utilities
 anyhow = "1"
 rand = "0.8"
