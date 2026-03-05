@@ -9,6 +9,7 @@ mod cmd_status;
 mod cmd_uninstall;
 mod cmd_update;
 mod config_file;
+mod graphics;
 mod health;
 mod images;
 mod k8s;

@@ -16,19 +16,22 @@ use crate::app::{App, ClusterType, ItemStatus, Phase, ProviderStep, ProviderType
 use crate::cmd_install::models_for_provider;
 use crate::templates::mask_secret;
 
+use ratatui_image::protocol::StatefulProtocol;
+
 use crate::theme::{BG, FG, ACCENT, SUCCESS, WARNING, INFO, MUTED};
 
 pub struct Tui {
     terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
+    image_protocol: Option<StatefulProtocol>,
 }
 
 impl Tui {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(image_protocol: Option<StatefulProtocol>) -> anyhow::Result<Self> {
         enable_raw_mode()?;
         stdout().execute(EnterAlternateScreen)?;
         let backend = CrosstermBackend::new(stdout());
         let terminal = Terminal::new(backend)?;
-        Ok(Self { terminal })
+        Ok(Self { terminal, image_protocol })
     }
 
     pub fn restore(&mut self) -> anyhow::Result<()> {
@@ -38,7 +41,8 @@ impl Tui {
     }
 
     pub fn draw(&mut self, app: &App) -> anyhow::Result<()> {
-        self.terminal.draw(|frame| render(frame, app))?;
+        let protocol = &mut self.image_protocol;
+        self.terminal.draw(|frame| render(frame, app, protocol))?;
         Ok(())
     }
 }
@@ -49,7 +53,7 @@ impl Drop for Tui {
     }
 }
 
-fn render(frame: &mut Frame, app: &App) {
+fn render(frame: &mut Frame, app: &App, image_protocol: &mut Option<StatefulProtocol>) {
     let size = frame.area();
 
     // Three-zone layout: header, main, status bar
@@ -63,7 +67,7 @@ fn render(frame: &mut Frame, app: &App) {
         .split(size);
 
     render_header(frame, chunks[0], app);
-    render_phase(frame, chunks[1], app);
+    render_phase(frame, chunks[1], app, image_protocol);
     render_status_bar(frame, chunks[2], app);
 }
 
@@ -160,7 +164,7 @@ fn render_status_bar(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(bar, area);
 }
 
-fn render_phase(frame: &mut Frame, area: Rect, app: &App) {
+fn render_phase(frame: &mut Frame, area: Rect, app: &App, image_protocol: &mut Option<StatefulProtocol>) {
     match app.phase {
         Phase::Preflight => render_preflight(frame, area, app),
         Phase::EnvVarChoice => render_env_var_choice(frame, area, app),
@@ -171,7 +175,7 @@ fn render_phase(frame: &mut Frame, area: Rect, app: &App) {
         Phase::Pull => render_pull(frame, area, app),
         Phase::Deploy => render_deploy(frame, area, app),
         Phase::Health => render_health(frame, area, app),
-        Phase::Complete => render_complete(frame, area, app),
+        Phase::Complete => render_complete(frame, area, app, image_protocol),
     }
 }
 
@@ -1007,32 +1011,41 @@ fn render_health(frame: &mut Frame, area: Rect, app: &App) {
 
 // ---------- Phase 8: Complete ----------
 
-fn render_complete(frame: &mut Frame, area: Rect, app: &App) {
-    let mut lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            "  \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}   \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}  ",
-            Style::default().fg(ACCENT),
-        )),
-        Line::from(Span::styled(
-            "  \u{2588}   \u{2588}  \u{2588}       ",
-            Style::default().fg(ACCENT),
-        )),
-        Line::from(Span::styled(
-            "  \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}   \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}  Baker Street",
+fn render_complete(frame: &mut Frame, area: Rect, app: &App, image_protocol: &mut Option<StatefulProtocol>) {
+    // If we have an image protocol, render the logo image alongside text
+    if let Some(protocol) = image_protocol.as_mut() {
+        let logo_area = Rect {
+            x: area.x + 2,
+            y: area.y + 1,
+            width: area.width.min(20),
+            height: 7u16.min(area.height),
+        };
+        crate::graphics::render_logo(frame, logo_area, protocol);
+    }
+
+    let mut lines = vec![Line::from("")];
+
+    if image_protocol.is_some() {
+        // Image was rendered above; add text lines offset to the right
+        lines.push(Line::from(""));
+        lines.push(Line::from(""));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "                        Baker Street",
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            "  \u{2588}   \u{2588}       \u{2588}  Deployed Successfully!",
+        )));
+        lines.push(Line::from(Span::styled(
+            "                        Deployed Successfully!",
             Style::default().fg(ACCENT),
-        )),
-        Line::from(Span::styled(
-            "  \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}  \u{2588}\u{2588}\u{2588}\u{2588}\u{2588}  ",
-            Style::default().fg(ACCENT),
-        )),
-        Line::from(""),
-        Line::from(""),
-    ];
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(""));
+    } else {
+        // Fallback to ASCII art
+        lines.extend(crate::graphics::render_ascii_logo());
+        lines.push(Line::from(""));
+        lines.push(Line::from(""));
+    };
 
     // Access info
     lines.push(Line::from(vec![

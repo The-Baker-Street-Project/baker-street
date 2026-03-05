@@ -46,7 +46,10 @@ async fn run_tui(cli: &Cli, args: &InstallArgs) -> Result<()> {
 
     let (async_tx, mut async_rx) = mpsc::unbounded_channel::<AsyncMsg>();
 
-    let mut tui = Tui::new()?;
+    // Detect image protocol BEFORE entering raw mode (Picker queries stdio)
+    let image_protocol = crate::graphics::create_image_protocol();
+
+    let mut tui = Tui::new(image_protocol)?;
 
     // Run preflight immediately
     run_preflight(&mut app, cli).await;
