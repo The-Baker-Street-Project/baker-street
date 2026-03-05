@@ -32,6 +32,9 @@ pub enum Command {
 
     /// Remove all Baker Street resources
     Uninstall(UninstallArgs),
+
+    /// Interactive chat with Baker Street agent
+    Chat(ChatArgs),
 }
 
 #[derive(Parser, Debug, Default)]
@@ -96,4 +99,19 @@ pub struct UninstallArgs {
     /// Skip confirmation prompt
     #[arg(short = 'y', long = "non-interactive")]
     pub non_interactive: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct ChatArgs {
+    /// Brain API server URL (default: UI proxy at localhost:30080)
+    #[arg(long, default_value = "http://localhost:30080")]
+    pub server: String,
+
+    /// Auth token (for development only — prefer AUTH_TOKEN env var or .env-secrets file)
+    #[arg(long, env = "AUTH_TOKEN")]
+    pub token: Option<String>,
+
+    /// Continue an existing conversation by ID
+    #[arg(long)]
+    pub conversation: Option<String>,
 }

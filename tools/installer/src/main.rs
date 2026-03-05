@@ -1,5 +1,9 @@
 mod app;
+mod brain_client;
+mod chat_app;
+mod chat_tui;
 mod cli;
+mod cmd_chat;
 mod cmd_install;
 mod cmd_status;
 mod cmd_uninstall;
@@ -27,5 +31,6 @@ async fn main() -> Result<()> {
         Command::Update(args) => cmd_update::run(&cli, &args).await,
         Command::Status(args) => cmd_status::run(&cli, &args).await,
         Command::Uninstall(args) => cmd_uninstall::run(&cli, &args).await,
+        Command::Chat(args) => cmd_chat::run(&cli, &args).await,
     }
 }
