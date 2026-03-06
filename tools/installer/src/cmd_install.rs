@@ -176,25 +176,21 @@ async fn run_preflight(app: &mut App, cli: &Cli) {
         }
     }
 
-    // After preflight passes, detect env vars
-    let known_keys = [
-        "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_ENDPOINTS",
-        "VOYAGE_API_KEY", "TELEGRAM_BOT_TOKEN",
-        "GITHUB_TOKEN", "OBSIDIAN_VAULT_PATH",
-        "STT_API_KEY", "TTS_API_KEY", "PICOVOICE_ACCESS_KEY",
-    ];
+    // After preflight passes, detect env vars from manifest
     app.detected_env_vars.clear();
-    for key in &known_keys {
-        if let Ok(val) = std::env::var(key) {
-            if !val.is_empty() {
-                let masked = if val.chars().count() > 12 {
-                    let prefix: String = val.chars().take(3).collect();
-                    let suffix: String = val.chars().rev().take(3).collect::<String>().chars().rev().collect();
-                    format!("{}...{}", prefix, suffix)
-                } else {
-                    "****".to_string()
-                };
-                app.detected_env_vars.push((key.to_string(), masked));
+    if let Some(ref manifest) = app.manifest {
+        for key in manifest.all_secret_keys() {
+            if let Ok(val) = std::env::var(key) {
+                if !val.is_empty() {
+                    let masked = if val.chars().count() > 12 {
+                        let prefix: String = val.chars().take(3).collect();
+                        let suffix: String = val.chars().rev().take(3).collect::<String>().chars().rev().collect();
+                        format!("{}...{}", prefix, suffix)
+                    } else {
+                        "****".to_string()
+                    };
+                    app.detected_env_vars.push((key.to_string(), masked));
+                }
             }
         }
     }
@@ -207,7 +203,8 @@ async fn run_preflight(app: &mut App, cli: &Cli) {
     }
 }
 
-/// Keys handled in the Providers phase, not Secrets
+/// Keys handled in the Providers phase, not Secrets.
+/// These are the "group": "providers" keys that the Providers TUI phase manages.
 const PROVIDER_KEYS: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "DEFAULT_MODEL",
@@ -216,7 +213,9 @@ const PROVIDER_KEYS: &[&str] = &[
     "VOYAGE_API_KEY",
 ];
 
-/// Model presets: (api_id, display_name, description)
+/// Model presets for the Providers TUI: (api_id, display_name, description).
+/// In v2 these also exist in the manifest as `choices` on DEFAULT_MODEL, but
+/// the Providers phase uses per-provider model lists (Anthropic vs OpenAI vs Ollama).
 const ANTHROPIC_MODELS: &[(&str, &str, &str)] = &[
     ("claude-sonnet-4-20250514", "Sonnet 4", "balanced"),
     ("claude-opus-4-20250514", "Opus 4", "most capable"),
@@ -240,17 +239,32 @@ pub fn models_for_provider(provider: ProviderType) -> &'static [(&'static str, &
 fn build_secret_prompts(app: &mut App, manifest: &ReleaseManifest) {
     app.secret_prompts.clear();
 
-    for secret in &manifest.required_secrets {
+    for secret in &manifest.secrets {
+        // Provider keys are handled by the Providers phase
         if PROVIDER_KEYS.contains(&secret.key.as_str()) {
+            continue;
+        }
+        // Silent secrets are never prompted — only picked up from env
+        if secret.silent {
             continue;
         }
         app.secret_prompts.push(SecretPrompt {
             key: secret.key.clone(),
             description: secret.description.clone(),
+            prompt_text: secret.prompt.clone(),
             required: secret.required,
             is_secret: secret.input_type == "secret",
             is_feature: false,
             value: None,
+            instructions: secret.instructions.clone(),
+            depends_on: secret.depends_on.clone(),
+            choices: secret.choices.iter().map(|c| {
+                (c.value.clone(), c.label.clone(), c.description.clone())
+            }).collect(),
+            auto_generate: secret.auto_generate.clone(),
+            default_value: secret.default.clone(),
+            placeholder: secret.placeholder.clone(),
+            silent: secret.silent,
         });
     }
 }
@@ -258,7 +272,7 @@ fn build_secret_prompts(app: &mut App, manifest: &ReleaseManifest) {
 fn build_feature_selections(app: &mut App, manifest: &ReleaseManifest) {
     app.config.features.clear();
 
-    for feature in &manifest.optional_features {
+    for feature in &manifest.features {
         app.config.features.push(FeatureSelection {
             id: feature.id.clone(),
             name: feature.name.clone(),
@@ -266,7 +280,7 @@ fn build_feature_selections(app: &mut App, manifest: &ReleaseManifest) {
             secrets: feature
                 .secrets
                 .iter()
-                .map(|k| (k.clone(), None))
+                .map(|s| (s.key.clone(), None))
                 .collect(),
         });
     }
@@ -350,18 +364,13 @@ fn handle_env_var_choice_key(app: &mut App, key: event::KeyEvent) {
                     }
                 }
             }
-            // Pre-populate provider credentials from env
-            if let Ok(val) = std::env::var("ANTHROPIC_API_KEY") {
-                if !val.is_empty() { app.config.anthropic_api_key = Some(val); }
-            }
-            if let Ok(val) = std::env::var("OPENAI_API_KEY") {
-                if !val.is_empty() { app.config.openai_api_key = Some(val); }
-            }
-            if let Ok(val) = std::env::var("OLLAMA_ENDPOINTS") {
-                if !val.is_empty() { app.config.ollama_endpoints = Some(val); }
-            }
-            if let Ok(val) = std::env::var("VOYAGE_API_KEY") {
-                if !val.is_empty() { app.config.voyage_api_key = Some(val); }
+            // Pre-populate provider credentials from env into collected_secrets
+            for key in PROVIDER_KEYS {
+                if let Ok(val) = std::env::var(key) {
+                    if !val.is_empty() {
+                        app.config.set(*key, val);
+                    }
+                }
             }
             app.phase = Phase::Secrets;
         }
@@ -416,21 +425,17 @@ fn submit_current_secret(app: &mut App) {
     let value = if input.is_empty() { None } else { Some(input) };
     app.secret_prompts[idx].value = value.clone();
 
-    match app.secret_prompts[idx].key.as_str() {
-        "AGENT_NAME" => {
-            if let Some(ref v) = value {
-                if !v.is_empty() {
-                    app.config.agent_name = v.clone();
-                }
-            }
-        }
-        other => {
-            for feature in &mut app.config.features {
-                if let Some(entry) = feature.secrets.iter_mut().find(|(k, _)| k == other) {
-                    entry.1 = value;
-                    break;
-                }
-            }
+    // Store into collected_secrets for direct-routed secrets
+    if let Some(ref v) = value {
+        app.config.set(&app.secret_prompts[idx].key, v);
+    }
+
+    // Also update feature secrets if this key belongs to a feature
+    let key = app.secret_prompts[idx].key.clone();
+    for feature in &mut app.config.features {
+        if let Some(entry) = feature.secrets.iter_mut().find(|(k, _)| k == &key) {
+            entry.1 = value.clone();
+            break;
         }
     }
 
@@ -592,11 +597,13 @@ fn handle_credential_input(app: &mut App, key: event::KeyEvent, is_brain: bool) 
         app.worker_provider.unwrap_or(ProviderType::Anthropic)
     };
 
-    let already_has_credential = match provider {
-        ProviderType::Anthropic => app.config.anthropic_api_key.is_some(),
-        ProviderType::OpenAI => app.config.openai_api_key.is_some(),
-        ProviderType::Ollama => app.config.ollama_endpoints.is_some(),
+    let credential_key = match provider {
+        ProviderType::Anthropic => "ANTHROPIC_API_KEY",
+        ProviderType::OpenAI => "OPENAI_API_KEY",
+        ProviderType::Ollama => "OLLAMA_ENDPOINTS",
     };
+
+    let already_has_credential = app.config.get(credential_key).is_some();
 
     if !is_brain && already_has_credential {
         store_model_config(app, is_brain);
@@ -612,17 +619,7 @@ fn handle_credential_input(app: &mut App, key: event::KeyEvent, is_brain: bool) 
             if app.provider_input.is_empty() {
                 return;
             }
-            match provider {
-                ProviderType::Anthropic => {
-                    app.config.anthropic_api_key = Some(app.provider_input.clone());
-                }
-                ProviderType::OpenAI => {
-                    app.config.openai_api_key = Some(app.provider_input.clone());
-                }
-                ProviderType::Ollama => {
-                    app.config.ollama_endpoints = Some(app.provider_input.clone());
-                }
-            }
+            app.config.set(credential_key, &app.provider_input);
             app.provider_input.clear();
             store_model_config(app, is_brain);
             app.provider_cursor = 0;
@@ -647,7 +644,9 @@ fn handle_credential_input(app: &mut App, key: event::KeyEvent, is_brain: bool) 
 
 fn store_model_config(app: &mut App, is_brain: bool) {
     if is_brain {
-        app.config.default_model = app.brain_model_id.clone();
+        if let Some(ref model_id) = app.brain_model_id {
+            app.config.set("DEFAULT_MODEL", model_id);
+        }
     }
 }
 
@@ -701,22 +700,60 @@ fn handle_features_key(app: &mut App, key: event::KeyEvent) {
             }
         }
         KeyCode::Enter => {
-            app.config.auth_token = generate_auth_token();
+            // Generate auth token if not already set
+            if app.config.auth_token().is_empty() {
+                app.config.set("AUTH_TOKEN", generate_auth_token());
+            }
+            // Set default agent name if not set
+            if app.config.get("AGENT_NAME").is_none() {
+                app.config.set("AGENT_NAME", "Baker");
+            }
 
             app.secret_prompts.retain(|p| !p.is_feature);
             let base_count = app.secret_prompts.len();
 
             let mut feature_prompts = Vec::new();
-            for feature in &app.config.features {
-                if feature.enabled {
+            if let Some(ref manifest) = app.manifest {
+                for feature in &app.config.features {
+                    if !feature.enabled {
+                        continue;
+                    }
+                    // Look up the full secret definitions from the manifest
+                    let manifest_feature = manifest.features.iter().find(|f| f.id == feature.id);
                     for (key, existing_val) in &feature.secrets {
+                        // Find the manifest secret definition for this key
+                        let manifest_secret = manifest_feature.and_then(|mf| {
+                            mf.secrets.iter().find(|s| s.key == *key)
+                        });
+                        // Skip silent secrets
+                        if manifest_secret.map_or(false, |s| s.silent) {
+                            continue;
+                        }
                         feature_prompts.push(SecretPrompt {
                             key: key.clone(),
-                            description: format!("{} — {}", feature.name, key),
-                            required: false,
-                            is_secret: key.contains("TOKEN") || key.contains("KEY"),
+                            description: manifest_secret
+                                .map(|s| s.description.clone())
+                                .unwrap_or_else(|| format!("{} — {}", feature.name, key)),
+                            prompt_text: manifest_secret.and_then(|s| s.prompt.clone()),
+                            required: manifest_secret.map_or(false, |s| s.required),
+                            is_secret: manifest_secret
+                                .map_or(
+                                    key.contains("TOKEN") || key.contains("KEY"),
+                                    |s| s.input_type == "secret",
+                                ),
                             is_feature: true,
                             value: existing_val.clone(),
+                            instructions: manifest_secret.and_then(|s| s.instructions.clone()),
+                            depends_on: manifest_secret.and_then(|s| s.depends_on.clone()),
+                            choices: manifest_secret.map_or(Vec::new(), |s| {
+                                s.choices.iter().map(|c| {
+                                    (c.value.clone(), c.label.clone(), c.description.clone())
+                                }).collect()
+                            }),
+                            auto_generate: manifest_secret.and_then(|s| s.auto_generate.clone()),
+                            default_value: manifest_secret.and_then(|s| s.default.clone()),
+                            placeholder: manifest_secret.and_then(|s| s.placeholder.clone()),
+                            silent: false,
                         });
                     }
                 }
@@ -1057,7 +1094,7 @@ async fn run_deploy_sequence(
     let r = k8s::create_namespace(&client, &namespace).await;
     report_step!("Namespace", r.map_err(|e| anyhow::anyhow!("{}", e)));
 
-    // Step 2: Secrets
+    // Step 2: Secrets — manifest-driven via targetSecrets
     let r = create_all_secrets(&client, &namespace, &config, &manifest).await;
     report_step!("Secrets", r.map_err(|e| anyhow::anyhow!("{}", e)));
 
@@ -1168,111 +1205,63 @@ async fn run_deploy_sequence(
     tx.send(AsyncMsg::DeployDone).ok();
 }
 
+/// Manifest-driven secret creation.
+///
+/// Iterates all collected secrets, routes each to its `targetSecrets` K8s Secret objects
+/// using the manifest definitions. No hardcoded routing.
 pub(crate) async fn create_all_secrets(
     client: &kube::Client,
     namespace: &str,
     config: &InstallConfig,
-    _manifest: &ReleaseManifest,
+    manifest: &ReleaseManifest,
 ) -> Result<()> {
-    // Brain secrets
-    let mut brain_data = BTreeMap::new();
-    if let Some(ref key) = config.anthropic_api_key {
-        brain_data.insert("ANTHROPIC_API_KEY".into(), key.clone());
-    }
-    if let Some(ref model) = config.default_model {
-        brain_data.insert("DEFAULT_MODEL".into(), model.clone());
-    }
-    if let Some(ref key) = config.voyage_api_key {
-        brain_data.insert("VOYAGE_API_KEY".into(), key.clone());
-    }
-    brain_data.insert("AUTH_TOKEN".into(), config.auth_token.clone());
-    brain_data.insert("AGENT_NAME".into(), config.agent_name.clone());
-    if let Some(ref key) = config.openai_api_key {
-        brain_data.insert("OPENAI_API_KEY".into(), key.clone());
-    }
-    if let Some(ref endpoints) = config.ollama_endpoints {
-        brain_data.insert("OLLAMA_ENDPOINTS".into(), endpoints.clone());
-    }
-    k8s::create_secret(client, namespace, "bakerst-brain-secrets", &brain_data).await?;
+    let mut secret_buckets: HashMap<String, BTreeMap<String, String>> = HashMap::new();
 
-    // Worker secrets
-    let mut worker_data = BTreeMap::new();
-    if let Some(ref key) = config.anthropic_api_key {
-        worker_data.insert("ANTHROPIC_API_KEY".into(), key.clone());
+    // Route each collected secret to its target K8s Secret objects
+    for (key, value) in &config.collected_secrets {
+        let targets = manifest.target_secrets_for(key);
+        for target in &targets {
+            secret_buckets
+                .entry(target.clone())
+                .or_default()
+                .insert(key.clone(), value.clone());
+        }
     }
-    if let Some(ref model) = config.default_model {
-        worker_data.insert("DEFAULT_MODEL".into(), model.clone());
-    }
-    worker_data.insert("AGENT_NAME".into(), config.agent_name.clone());
-    if let Some(ref key) = config.openai_api_key {
-        worker_data.insert("OPENAI_API_KEY".into(), key.clone());
-    }
-    if let Some(ref endpoints) = config.ollama_endpoints {
-        worker_data.insert("OLLAMA_ENDPOINTS".into(), endpoints.clone());
-    }
-    k8s::create_secret(client, namespace, "bakerst-worker-secrets", &worker_data).await?;
 
-    // Gateway secrets
-    let mut gateway_data = BTreeMap::new();
-    gateway_data.insert("AUTH_TOKEN".into(), config.auth_token.clone());
+    // Also route feature secrets that were collected
     for feature in &config.features {
         if !feature.enabled {
             continue;
         }
         for (key, value) in &feature.secrets {
             if let Some(ref v) = value {
-                match key.as_str() {
-                    "TELEGRAM_BOT_TOKEN" | "DISCORD_BOT_TOKEN" | "DISCORD_APP_ID" => {
-                        gateway_data.insert(key.clone(), v.clone());
-                    }
-                    "GITHUB_TOKEN" => {
-                        let mut gh_data = BTreeMap::new();
-                        gh_data.insert("GITHUB_TOKEN".into(), v.clone());
-                        k8s::create_secret(client, namespace, "bakerst-github-secrets", &gh_data)
-                            .await?;
-                    }
-                    "PERPLEXITY_API_KEY" => {
-                        let mut px_data = BTreeMap::new();
-                        px_data.insert("PERPLEXITY_API_KEY".into(), v.clone());
-                        k8s::create_secret(client, namespace, "bakerst-perplexity-secrets", &px_data)
-                            .await?;
-                    }
-                    _ => {}
+                let targets = manifest.target_secrets_for(key);
+                for target in &targets {
+                    secret_buckets
+                        .entry(target.clone())
+                        .or_default()
+                        .insert(key.clone(), v.clone());
                 }
             }
         }
     }
-    k8s::create_secret(client, namespace, "bakerst-gateway-secrets", &gateway_data).await?;
 
-    // Voice secrets
-    let mut voice_data = BTreeMap::new();
-    voice_data.insert("AUTH_TOKEN".into(), config.auth_token.clone());
-    // STT_API_KEY, TTS_API_KEY, PICOVOICE_ACCESS_KEY are optional — populated from features
-    for f in &config.features {
-        if !f.enabled {
-            continue;
-        }
-        for (k, v) in &f.secrets {
-            if let Some(val) = v {
-                match k.as_str() {
-                    "STT_API_KEY" | "TTS_API_KEY" | "PICOVOICE_ACCESS_KEY" => {
-                        voice_data.insert(k.clone(), val.clone());
-                    }
-                    _ => {}
-                }
-            }
-        }
+    // Create each K8s Secret
+    for (name, data) in &secret_buckets {
+        k8s::create_secret(client, namespace, name, data).await?;
     }
-    k8s::create_secret(client, namespace, "bakerst-voice-secrets", &voice_data).await?;
 
     Ok(())
 }
 
+/// Manifest-driven template variable construction.
+///
+/// Uses `featureFlags` from enabled features instead of hardcoded match statements.
 pub(crate) fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, config: &InstallConfig) -> HashMap<String, String> {
     let mut vars = HashMap::new();
     vars.insert("NAMESPACE".into(), namespace.into());
     vars.insert("VERSION".into(), manifest.version.clone());
-    vars.insert("AGENT_NAME".into(), config.agent_name.clone());
+    vars.insert("AGENT_NAME".into(), config.agent_name().to_string());
 
     let deploy_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1285,6 +1274,7 @@ pub(crate) fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, c
     vars.insert("TTS_BASE_URL".into(), "".into());
     vars.insert("TTS_MODEL".into(), "".into());
     vars.insert("TTS_VOICE".into(), "bf_emma".into());
+
     for img in &manifest.images {
         let key = match img.component.as_str() {
             "brain" => "IMAGE_BRAIN",
@@ -1300,39 +1290,45 @@ pub(crate) fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, c
         vars.insert(key.into(), img.image.clone());
     }
 
-    // Build FEATURE_VARS block for brain from enabled features
-    let mut feature_lines = Vec::new();
-    let mut has_extension = false;
+    // Build FEATURE_VARS and GATEWAY_FEATURE_VARS from manifest featureFlags
+    let mut brain_lines = Vec::new();
+    let mut gateway_lines = Vec::new();
+
     for feature in &config.features {
-        if feature.enabled {
-            match feature.id.as_str() {
-                "telegram" => feature_lines.push("            - name: FEATURE_TELEGRAM\n              value: \"true\"".to_string()),
-                "discord" => feature_lines.push("            - name: FEATURE_DISCORD\n              value: \"true\"".to_string()),
-                "voyage" => feature_lines.push("            - name: FEATURE_MEMORY\n              value: \"true\"".to_string()),
-                "github" | "perplexity" | "browser" | "obsidian" => has_extension = true,
-                _ => {}
+        if !feature.enabled {
+            continue;
+        }
+        // Look up featureFlags from the manifest definition
+        let manifest_feature = manifest.features.iter().find(|f| f.id == feature.id);
+        if let Some(mf) = manifest_feature {
+            if let Some(ref flags) = mf.feature_flags {
+                for (component, flag_vars) in flags {
+                    for (flag_key, flag_value) in flag_vars {
+                        let line = format!(
+                            "            - name: {}\n              value: \"{}\"",
+                            flag_key, flag_value
+                        );
+                        match component.as_str() {
+                            "brain" => brain_lines.push(line),
+                            "gateway" => gateway_lines.push(line),
+                            _ => {}
+                        }
+                    }
+                }
             }
         }
     }
-    if has_extension {
-        feature_lines.push("            - name: FEATURE_EXTENSIONS\n              value: \"true\"".to_string());
-    }
-    feature_lines.push("            - name: FEATURE_SCHEDULER\n              value: \"true\"".to_string());
-    feature_lines.push("            - name: FEATURE_MCP\n              value: \"true\"".to_string());
 
-    vars.insert("FEATURE_VARS".into(), feature_lines.join("\n"));
+    // Deduplicate brain feature flags (e.g., FEATURE_EXTENSIONS from multiple features)
+    brain_lines.sort();
+    brain_lines.dedup();
 
-    let mut gw_lines = Vec::new();
-    for feature in &config.features {
-        if feature.enabled {
-            match feature.id.as_str() {
-                "telegram" => gw_lines.push("            - name: FEATURE_TELEGRAM\n              value: \"true\"".to_string()),
-                "discord" => gw_lines.push("            - name: FEATURE_DISCORD\n              value: \"true\"".to_string()),
-                _ => {}
-            }
-        }
-    }
-    vars.insert("GATEWAY_FEATURE_VARS".into(), gw_lines.join("\n"));
+    // Always-on features
+    brain_lines.push("            - name: FEATURE_SCHEDULER\n              value: \"true\"".to_string());
+    brain_lines.push("            - name: FEATURE_MCP\n              value: \"true\"".to_string());
+
+    vars.insert("FEATURE_VARS".into(), brain_lines.join("\n"));
+    vars.insert("GATEWAY_FEATURE_VARS".into(), gateway_lines.join("\n"));
 
     vars
 }
@@ -1434,41 +1430,76 @@ async fn run_non_interactive(cli: &Cli, _args: &InstallArgs) -> Result<()> {
         manifest.images.len()
     );
 
-    // [2/8] Secrets from environment
+    // [2/8] Secrets from environment — manifest-driven
     println!("[2/8] Secrets: loading from environment...");
-    let api_key = std::env::var("ANTHROPIC_API_KEY").ok();
-    let default_model = std::env::var("BAKERST_DEFAULT_MODEL")
-        .or_else(|_| std::env::var("DEFAULT_MODEL"))
-        .ok();
-    let voyage_api_key = std::env::var("VOYAGE_API_KEY").ok();
-    let openai_api_key = std::env::var("OPENAI_API_KEY").ok()
-        .or_else(|| std::env::var("BAKERST_OPENAI_API_KEY").ok());
-    let ollama_endpoints = std::env::var("OLLAMA_ENDPOINTS").ok()
-        .or_else(|| std::env::var("BAKERST_OLLAMA_ENDPOINTS").ok());
 
-    if api_key.is_none() && openai_api_key.is_none() && ollama_endpoints.is_none() {
-        eprintln!("  ERROR: At least one provider must be configured.");
-        eprintln!("  Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, OLLAMA_ENDPOINTS");
-        std::process::exit(1);
+    let mut collected_secrets: HashMap<String, String> = HashMap::new();
+
+    // Collect top-level secrets from env
+    for secret in &manifest.secrets {
+        // Try env var directly, then BAKERST_ prefixed
+        let value = std::env::var(&secret.key)
+            .ok()
+            .or_else(|| std::env::var(format!("BAKERST_{}", secret.key)).ok())
+            .filter(|v| !v.is_empty());
+
+        if let Some(v) = value {
+            collected_secrets.insert(secret.key.clone(), v);
+        } else if let Some(ref auto) = secret.auto_generate {
+            // Auto-generate if specified (e.g., AUTH_TOKEN)
+            if auto == "hex:32" {
+                collected_secrets.insert(secret.key.clone(), generate_auth_token());
+            }
+        } else if let Some(ref default) = secret.default {
+            collected_secrets.insert(secret.key.clone(), default.clone());
+        }
     }
 
-    let agent_name = std::env::var("AGENT_NAME").unwrap_or_else(|_| "Baker".into());
-    let auth_token =
-        std::env::var("AUTH_TOKEN").unwrap_or_else(|_| templates::generate_auth_token());
+    // Provider validation
+    if let Some(ref pv) = manifest.provider_validation {
+        let has_provider = pv.require_at_least_one.iter().any(|k| collected_secrets.contains_key(k));
+        if !has_provider {
+            eprintln!("  ERROR: {}", pv.message);
+            eprintln!("  Set one of: {}", pv.require_at_least_one.join(", "));
+            std::process::exit(1);
+        }
+    }
+
     println!("  Loaded secrets from env");
 
-    // [3/8] Features from environment
+    // [3/8] Features from environment — manifest-driven
     println!("[3/8] Features: from environment...");
     let mut feature_selections = Vec::new();
-    for feature in &manifest.optional_features {
-        let has_secrets = feature.secrets.iter().all(|s| std::env::var(s).is_ok());
+    for feature in &manifest.features {
+        let mut secrets: Vec<(String, Option<String>)> = Vec::new();
+        let mut all_present = true;
+
+        for secret_def in &feature.secrets {
+            let value = std::env::var(&secret_def.key).ok().filter(|v| !v.is_empty());
+            if value.is_none() && !secret_def.silent {
+                all_present = false;
+            }
+            if let Some(ref v) = value {
+                // Route feature secrets via collected_secrets too
+                collected_secrets.insert(secret_def.key.clone(), v.clone());
+            }
+            secrets.push((secret_def.key.clone(), value));
+        }
+
+        let enabled = if feature.secrets.is_empty() {
+            feature.default_enabled
+        } else {
+            all_present
+        };
+
         feature_selections.push(FeatureSelection {
             id: feature.id.clone(),
             name: feature.name.clone(),
-            enabled: has_secrets,
-            secrets: feature.secrets.iter().map(|s| (s.clone(), std::env::var(s).ok())).collect(),
+            enabled,
+            secrets,
         });
-        if has_secrets {
+
+        if enabled {
             println!("  Enabled: {}", feature.name);
         }
     }
@@ -1502,94 +1533,20 @@ async fn run_non_interactive(cli: &Cli, _args: &InstallArgs) -> Result<()> {
     k8s::create_namespace(&client, ns).await?;
     println!("  Namespace: {}", ns);
 
-    // Create secrets
-    let mut brain_secrets = BTreeMap::new();
-    if let Some(ref key) = api_key {
-        brain_secrets.insert("ANTHROPIC_API_KEY".into(), key.clone());
-    }
-    if let Some(ref model) = default_model {
-        brain_secrets.insert("DEFAULT_MODEL".into(), model.clone());
-    }
-    if let Some(ref key) = voyage_api_key {
-        brain_secrets.insert("VOYAGE_API_KEY".into(), key.clone());
-    }
-    brain_secrets.insert("AUTH_TOKEN".into(), auth_token.clone());
-    brain_secrets.insert("AGENT_NAME".into(), agent_name.clone());
-    if let Some(ref key) = openai_api_key {
-        brain_secrets.insert("OPENAI_API_KEY".into(), key.clone());
-    }
-    if let Some(ref endpoints) = ollama_endpoints {
-        brain_secrets.insert("OLLAMA_ENDPOINTS".into(), endpoints.clone());
-    }
-    k8s::create_secret(&client, ns, "bakerst-brain-secrets", &brain_secrets).await?;
+    let ni_config = InstallConfig {
+        collected_secrets,
+        features: feature_selections,
+        namespace: ns.to_string(),
+    };
 
-    let mut worker_secrets = BTreeMap::new();
-    if let Some(ref key) = api_key {
-        worker_secrets.insert("ANTHROPIC_API_KEY".into(), key.clone());
-    }
-    if let Some(ref model) = default_model {
-        worker_secrets.insert("DEFAULT_MODEL".into(), model.clone());
-    }
-    worker_secrets.insert("AGENT_NAME".into(), agent_name.clone());
-    if let Some(ref key) = openai_api_key {
-        worker_secrets.insert("OPENAI_API_KEY".into(), key.clone());
-    }
-    if let Some(ref endpoints) = ollama_endpoints {
-        worker_secrets.insert("OLLAMA_ENDPOINTS".into(), endpoints.clone());
-    }
-    k8s::create_secret(&client, ns, "bakerst-worker-secrets", &worker_secrets).await?;
-
-    let mut gateway_secrets = BTreeMap::new();
-    gateway_secrets.insert("AUTH_TOKEN".into(), auth_token.clone());
-    for feature in &manifest.optional_features {
-        for secret_key in &feature.secrets {
-            if let Ok(val) = std::env::var(secret_key) {
-                match secret_key.as_str() {
-                    "TELEGRAM_BOT_TOKEN" | "DISCORD_BOT_TOKEN" | "DISCORD_APP_ID" => {
-                        gateway_secrets.insert(secret_key.clone(), val);
-                    }
-                    "GITHUB_TOKEN" => {
-                        let mut gh_data = BTreeMap::new();
-                        gh_data.insert("GITHUB_TOKEN".into(), val);
-                        k8s::create_secret(&client, ns, "bakerst-github-secrets", &gh_data).await?;
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-    k8s::create_secret(&client, ns, "bakerst-gateway-secrets", &gateway_secrets).await?;
-
-    // Voice secrets
-    let mut voice_secrets = BTreeMap::new();
-    voice_secrets.insert("AUTH_TOKEN".into(), auth_token.clone());
-    // Check env for optional voice keys
-    for key in ["STT_API_KEY", "TTS_API_KEY", "PICOVOICE_ACCESS_KEY"] {
-        if let Ok(val) = std::env::var(key) {
-            if !val.is_empty() {
-                voice_secrets.insert(key.into(), val);
-            }
-        }
-    }
-    k8s::create_secret(&client, ns, "bakerst-voice-secrets", &voice_secrets).await?;
-
+    // Create secrets — manifest-driven
+    create_all_secrets(&client, ns, &ni_config, &manifest).await?;
     println!("  Secrets created");
 
     k8s::create_os_configmap(&client, ns).await?;
     println!("  ConfigMap: bakerst-os");
 
-    // Build template vars using shared function
-    let ni_config = InstallConfig {
-        anthropic_api_key: api_key.clone(),
-        default_model: default_model.clone(),
-        openai_api_key: openai_api_key.clone(),
-        ollama_endpoints: ollama_endpoints.clone(),
-        voyage_api_key: voyage_api_key.clone(),
-        agent_name: agent_name.clone(),
-        auth_token: auth_token.clone(),
-        features: feature_selections,
-        namespace: ns.to_string(),
-    };
+    // Build template vars using manifest-driven function
     let vars = build_template_vars(ns, &manifest, &ni_config);
 
     let deploy_steps = vec![
@@ -1644,6 +1601,8 @@ async fn run_non_interactive(cli: &Cli, _args: &InstallArgs) -> Result<()> {
     }
 
     // [8/8] Complete
+    let auth_token = ni_config.auth_token();
+    let agent_name = ni_config.agent_name();
     println!("[8/8] Complete! UI: http://localhost:30080");
     println!("Auth Token: {}", auth_token);
     println!("  (save this token — you need it to log in)");
