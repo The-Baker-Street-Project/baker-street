@@ -21,7 +21,15 @@ spec:
       initContainers:
         - name: copy-credentials
           image: busybox:1.36
-          command: ["sh", "-c", "cp /secret-creds/*.json /creds/ 2>/dev/null || true"]
+          command:
+            - sh
+            - -c
+            - |
+              cp /secret-creds/*.json /creds/ 2>/dev/null || true
+              # Restore original filenames (K8s secret keys cannot contain @)
+              [ -f /creds/google-token.json ] && mv /creds/google-token.json "/creds/gary.davidson@gmail.com.json"
+              [ -f /creds/client-secret.json ] && mv /creds/client-secret.json "/creds/client_secret_99682898604-tfrikqri3sikdgdqt1tvkeunktiv0k1l.apps.googleusercontent.com.json"
+              ls -la /creds/
           volumeMounts:
             - name: google-cred-secret
               mountPath: /secret-creds
