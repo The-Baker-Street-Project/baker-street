@@ -142,6 +142,14 @@ export function updateModelConfig(updates: { roles?: Record<string, string>; fal
   });
 }
 
+export function setConversationModel(conversationId: string, model: string | null): Promise<{ ok: boolean; model: string | null }> {
+  return json('/conversations/' + conversationId + '/model', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model }),
+  });
+}
+
 // --- System ---
 
 export function getSystemHealth(): Promise<SystemHealth> {
