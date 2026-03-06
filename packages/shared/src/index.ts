@@ -17,6 +17,7 @@ export * from './skill-types.js';
 export * from './model-types.js';
 export { ModelRouter } from './model-router.js';
 export { loadModelConfig, createDefaultConfig } from './model-config.js';
+export { discoverOllamaModels } from './ollama-discovery.js';
 export { getTracer, getTraceHeaders, extractTraceContext, withSpan } from './tracing.js';
 export { CircuitBreaker, type CircuitBreakerOptions, type CircuitState } from './circuit-breaker.js';
 export { features, createFeatures, type Features, type FeatureFlag, type BakerstMode } from './features.js';
