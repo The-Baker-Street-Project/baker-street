@@ -508,6 +508,23 @@ if [[ "$SKIP_SECRETS" == false ]]; then
     fi
   fi
 
+  # --- Google Workspace ---
+  step "Google Workspace extension (optional)"
+
+  if [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" ]]; then
+    info "GOOGLE_OAUTH_CLIENT_ID is set"
+  else
+    if [[ "$AUTO_YES" == false ]] && confirm "Configure Google Workspace? (Gmail, Drive, Calendar, Docs)"; then
+      GOOGLE_OAUTH_CLIENT_ID=$(ask "GOOGLE_OAUTH_CLIENT_ID" "")
+      if [[ -n "$GOOGLE_OAUTH_CLIENT_ID" ]]; then
+        GOOGLE_OAUTH_CLIENT_SECRET=$(ask_secret "GOOGLE_OAUTH_CLIENT_SECRET" "")
+        GOOGLE_CREDENTIAL_FILE=$(ask "Path to Google credential JSON file" "")
+      fi
+    else
+      info "Skipped"
+    fi
+  fi
+
   # --- AUTH_TOKEN ---
   step "Auth token"
 
@@ -541,6 +558,9 @@ if [[ "$SKIP_SECRETS" == false ]]; then
     [[ -n "${AGENT_NAME:-}" ]]          && echo "AGENT_NAME=$AGENT_NAME"
     [[ -n "${GITHUB_TOKEN:-}" ]]        && echo "GITHUB_TOKEN=$GITHUB_TOKEN"
     [[ -n "${OBSIDIAN_VAULT_PATH:-}" ]] && echo "OBSIDIAN_VAULT_PATH=$OBSIDIAN_VAULT_PATH"
+    [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" ]]     && echo "GOOGLE_OAUTH_CLIENT_ID=$GOOGLE_OAUTH_CLIENT_ID"
+    [[ -n "${GOOGLE_OAUTH_CLIENT_SECRET:-}" ]]  && echo "GOOGLE_OAUTH_CLIENT_SECRET=$GOOGLE_OAUTH_CLIENT_SECRET"
+    [[ -n "${GOOGLE_CREDENTIAL_FILE:-}" ]]      && echo "GOOGLE_CREDENTIAL_FILE=$GOOGLE_CREDENTIAL_FILE"
     [[ -n "${PROMETHEUS_EXTERNAL_URL:-}" ]]  && echo "PROMETHEUS_EXTERNAL_URL=$PROMETHEUS_EXTERNAL_URL"
     [[ -n "${PROMETHEUS_EXTERNAL_USER:-}" ]] && echo "PROMETHEUS_EXTERNAL_USER=$PROMETHEUS_EXTERNAL_USER"
     [[ -n "${PROMETHEUS_EXTERNAL_PASS:-}" ]] && echo "PROMETHEUS_EXTERNAL_PASS=$PROMETHEUS_EXTERNAL_PASS"
@@ -702,6 +722,23 @@ if [[ -n "${GITHUB_TOKEN:-}" ]]; then
     --dry-run=client -o yaml | kubectl apply -f -
 fi
 
+# --- Google Workspace secrets ---
+if [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" && -n "${GOOGLE_OAUTH_CLIENT_SECRET:-}" ]]; then
+  info "Creating bakerst-google-secrets"
+  kubectl create secret generic bakerst-google-secrets \
+    --from-literal="GOOGLE_OAUTH_CLIENT_ID=$GOOGLE_OAUTH_CLIENT_ID" \
+    --from-literal="GOOGLE_OAUTH_CLIENT_SECRET=$GOOGLE_OAUTH_CLIENT_SECRET" \
+    -n "$NAMESPACE" \
+    --dry-run=client -o yaml | kubectl apply -f -
+fi
+if [[ -n "${GOOGLE_CREDENTIAL_FILE:-}" && -f "${GOOGLE_CREDENTIAL_FILE}" ]]; then
+  info "Creating bakerst-google-cred-file"
+  kubectl create secret generic bakerst-google-cred-file \
+    --from-file="${GOOGLE_CREDENTIAL_FILE}" \
+    -n "$NAMESPACE" \
+    --dry-run=client -o yaml | kubectl apply -f -
+fi
+
 # --- Telemetry secrets (external Prometheus) ---
 if [[ "$DEPLOY_TELEMETRY" == true && "$PROMETHEUS_MODE" == "external" ]]; then
   step "Creating telemetry namespace..."
@@ -763,6 +800,12 @@ if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
     # Skip ext-obsidian if no vault path
     if [[ "$ext_name" == "extension-obsidian" && -z "${OBSIDIAN_VAULT_PATH:-}" ]]; then
       warn "Skipping ${ext_name} — no OBSIDIAN_VAULT_PATH configured"
+      continue
+    fi
+
+    # Skip Google Workspace if no credentials
+    if [[ "$ext_name" == "extension-google-workspace" && -z "${GOOGLE_OAUTH_CLIENT_ID:-}" ]]; then
+      warn "Skipping ${ext_name} — no GOOGLE_OAUTH_CLIENT_ID configured"
       continue
     fi
 
@@ -978,6 +1021,7 @@ info "Telegram:    $(if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then echo "configure
 info "Discord:     $(if [[ -n "${DISCORD_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
 info "GitHub:      $(if [[ -n "${GITHUB_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
 info "Obsidian:    $(if [[ -n "${OBSIDIAN_VAULT_PATH:-}" ]]; then echo "${OBSIDIAN_VAULT_PATH}"; else echo "not configured"; fi)"
+info "Google:      $(if [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
 info "Agent name:  ${AGENT_NAME:-Baker}"
 info "Auth token:  ****${AUTH_TOKEN: -4}"
 if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
