@@ -22,3 +22,13 @@ export { getTracer, getTraceHeaders, extractTraceContext, withSpan } from './tra
 export { CircuitBreaker, type CircuitBreakerOptions, type CircuitState } from './circuit-breaker.js';
 export { features, createFeatures, type Features, type FeatureFlag, type BakerstMode } from './features.js';
 export * from './release-manifest.js';
+export {
+  createIrregularDispatch,
+  isIrregularDispatch,
+  TELEGRAM_TRADECRAFT,
+  DISCORD_TRADECRAFT,
+  type IrregularDispatch,
+  type Tradecraft,
+  type ChatType,
+  type IrregularAdapter,
+} from './irregulars.js';
