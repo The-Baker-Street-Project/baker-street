@@ -10,10 +10,6 @@ interface OllamaTagsResponse {
   models: Array<{ name: string; size: number }>;
 }
 
-interface OllamaShowResponse {
-  model_info?: Record<string, unknown>;
-}
-
 /**
  * Query an Ollama endpoint's /api/tags to discover locally-available models,
  * then return them as ModelDefinition[] ready to merge into the ModelRouter config.
@@ -54,25 +50,8 @@ export async function discoverOllamaModels(
     const shortName = model.name.split(':')[0];
     const id = `${providerKey}:${shortName}`;
 
-    // Attempt to fetch context length via /api/show (non-fatal)
-    try {
-      const showRes = await fetch(`${ollamaBase}/api/show`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: model.name }),
-        signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
-      });
-      if (showRes.ok) {
-        const showData = (await showRes.json()) as OllamaShowResponse;
-        const ctx = showData.model_info?.['context_length'];
-        if (typeof ctx === 'number') {
-          // We have context_length but still use DEFAULT_MAX_TOKENS for response maxTokens
-          // (context_length is the window size, not the output limit)
-        }
-      }
-    } catch {
-      // Non-fatal — use defaults
-    }
+    // Note: Ollama's /api/show provides context_length (window size) but not output limit.
+    // We use DEFAULT_MAX_TOKENS for maxTokens. Context-aware routing can be added later.
 
     models.push({
       id,

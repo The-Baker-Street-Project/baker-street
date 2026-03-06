@@ -55,9 +55,10 @@ export function useChat(initialConversationId?: string) {
   }, [conversationId]);
 
   const loadConversation = useCallback(async (id: string) => {
-    const { messages: msgs } = await getConversationMessages(id);
+    const { conversation, messages: msgs } = await getConversationMessages(id);
     setConversationId(id);
     setMessages(msgs.map((m) => ({ role: m.role, content: m.content })));
+    return conversation;
   }, []);
 
   const sendMessage = useCallback(

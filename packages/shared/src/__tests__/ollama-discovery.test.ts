@@ -23,28 +23,15 @@ describe('discoverOllamaModels', () => {
   });
 
   it('returns model definitions from Ollama /api/tags', async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          models: [
-            { name: 'llama3:latest', size: 4_000_000_000 },
-            { name: 'mistral:7b', size: 4_000_000_000 },
-          ],
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          model_info: { 'context_length': 8192 },
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          model_info: { 'context_length': 32768 },
-        }),
-      });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'llama3:latest', size: 4_000_000_000 },
+          { name: 'mistral:7b', size: 4_000_000_000 },
+        ],
+      }),
+    });
 
     const models = await discoverOllamaModels('http://localhost:11434', 'ollama');
     expect(models).toHaveLength(2);
@@ -60,6 +47,8 @@ describe('discoverOllamaModels', () => {
       provider: 'ollama',
       maxTokens: 4096,
     });
+    // Only one fetch call — /api/tags only, no /api/show
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('returns empty array when endpoint is unreachable', async () => {
@@ -74,39 +63,30 @@ describe('discoverOllamaModels', () => {
     expect(models).toEqual([]);
   });
 
-  it('skips models where /api/show fails', async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          models: [
-            { name: 'llama3:latest', size: 4_000_000_000 },
-          ],
-        }),
-      })
-      .mockRejectedValueOnce(new Error('show failed'));
-
-    const models = await discoverOllamaModels('http://localhost:11434', 'ollama');
-    expect(models).toHaveLength(1);
-    expect(models[0].id).toBe('ollama:llama3');
-  });
-
   it('namespaces model IDs with provider key', async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          models: [{ name: 'qwen2:7b', size: 4_000_000_000 }],
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          model_info: { 'context_length': 4096 },
-        }),
-      });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [{ name: 'qwen2:7b', size: 4_000_000_000 }],
+      }),
+    });
 
     const models = await discoverOllamaModels('http://remote:11434', 'ollama@remote');
     expect(models[0].id).toBe('ollama@remote:qwen2');
+  });
+
+  it('strips /v1 suffix from base URL', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [{ name: 'phi3:latest', size: 2_000_000_000 }],
+      }),
+    });
+
+    await discoverOllamaModels('http://localhost:11434/v1', 'ollama');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:11434/api/tags',
+      expect.any(Object),
+    );
   });
 });
