@@ -287,27 +287,42 @@ fn render_secrets(frame: &mut Frame, area: Rect, app: &App) {
     if app.current_secret_index < app.secret_prompts.len() {
         let prompt = &app.secret_prompts[app.current_secret_index];
         lines.push(Line::from(""));
+
+        // Show instructions if present (e.g., Google OAuth setup guide)
+        if let Some(ref instructions) = prompt.instructions {
+            for line in instructions.lines() {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(line.to_string(), Style::default().fg(MUTED)),
+                ]));
+            }
+            lines.push(Line::from(""));
+        }
+
+        // Show prompt text (prefer prompt_text over description)
+        let display_text = prompt.prompt_text.as_deref().unwrap_or(&prompt.description);
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled("\u{25b8} ", Style::default().fg(ACCENT)),
             Span::styled(
-                &prompt.description,
+                display_text.to_string(),
                 Style::default().fg(FG).add_modifier(Modifier::BOLD),
             ),
         ]));
-        if prompt.key == "DEFAULT_MODEL" {
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled(" [1] Sonnet 4  (claude-sonnet-4-20250514)  — balanced  [default]", Style::default().fg(MUTED)),
-            ]));
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled(" [2] Opus 4    (claude-opus-4-20250514)    — most capable", Style::default().fg(MUTED)),
-            ]));
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled(" [3] Haiku 4.5 (claude-haiku-4-5-20251001) — fastest", Style::default().fg(MUTED)),
-            ]));
+
+        // Show choices if present, otherwise show required/optional hint
+        if !prompt.choices.is_empty() {
+            for (i, (value, label, desc)) in prompt.choices.iter().enumerate() {
+                let desc_str = desc.as_deref().unwrap_or("");
+                let default_marker = if i == 0 { "  [default]" } else { "" };
+                lines.push(Line::from(vec![
+                    Span::raw("    "),
+                    Span::styled(
+                        format!(" [{}] {} ({}) — {}{}", i + 1, label, value, desc_str, default_marker),
+                        Style::default().fg(MUTED),
+                    ),
+                ]));
+            }
         } else {
             let req_text = if prompt.required { " (required)" } else { " (optional, Enter to skip)" };
             lines.push(Line::from(vec![
@@ -697,7 +712,7 @@ fn render_confirm(frame: &mut Frame, area: Rect, app: &App) {
     ));
     lines.push(box_line(
         box_width,
-        &format!("   Agent Name: {}", app.config.agent_name),
+        &format!("   Agent Name: {}", app.config.agent_name()),
         FG,
         false,
     ));
@@ -1011,16 +1026,17 @@ fn render_complete(frame: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::from(vec![
         Span::styled("  Agent Name: ", Style::default().fg(MUTED)),
         Span::styled(
-            app.config.agent_name.clone(),
+            app.config.agent_name().to_string(),
             Style::default().fg(FG),
         ),
     ]));
 
-    if !app.config.auth_token.is_empty() {
+    let auth_token = app.config.auth_token().to_string();
+    if !auth_token.is_empty() {
         lines.push(Line::from(vec![
             Span::styled("  Auth Token: ", Style::default().fg(MUTED)),
             Span::styled(
-                app.config.auth_token.clone(),
+                auth_token,
                 Style::default().fg(WARNING),
             ),
         ]));

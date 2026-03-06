@@ -91,6 +91,10 @@ OBSIDIAN_VAULT_PATH       # Obsidian extension (host path to vault directory)
 
 Optional OTel stack (Collector, Tempo, Loki, Grafana, Prometheus) in `bakerst-telemetry` namespace. Manifests in `k8s/telemetry/`. Use `--skip-telemetry` or `DEPLOY_TELEMETRY=true scripts/deploy.sh`.
 
+## Terminology
+
+- **Wave**: A group of related tasks executed together (e.g., "Wave 4"). Avoid "Sprint" — we don't use time-boxed iterations. Plans live in `docs/plans/`.
+
 ## Key Patterns
 
 - Auth: `ANTHROPIC_API_KEY` environment variable

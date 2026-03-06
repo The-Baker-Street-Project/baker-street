@@ -69,7 +69,7 @@ pub async fn run(cli: &Cli, args: &UpdateArgs) -> Result<()> {
     } else {
         build_config_from_secrets(&client, ns, &manifest, &current_meta).await?
     };
-    println!("  Config preserved (agent: {})", config.agent_name);
+    println!("  Config preserved (agent: {})", config.agent_name());
 
     // ── Step 3: Re-apply Templates ──
     println!("[3/8] Applying templates...");
@@ -259,14 +259,13 @@ async fn build_config_from_secrets(
     };
 
     let mut feature_selections = Vec::new();
-    for feature in &manifest.optional_features {
+    for feature in &manifest.features {
         let enabled = enabled_features.contains(&feature.id.as_str());
         let mut secrets = Vec::new();
-        for key in &feature.secrets {
-            // Try to read from gateway or dedicated secrets
-            let val = gateway_secrets.get(key).cloned()
-                .or_else(|| read_feature_secret_sync(client, namespace, key));
-            secrets.push((key.clone(), val));
+        for secret_def in &feature.secrets {
+            let val = gateway_secrets.get(&secret_def.key).cloned()
+                .or_else(|| read_feature_secret_sync(client, namespace, &secret_def.key));
+            secrets.push((secret_def.key.clone(), val));
         }
         feature_selections.push(FeatureSelection {
             id: feature.id.clone(),
@@ -276,16 +275,20 @@ async fn build_config_from_secrets(
         });
     }
 
+    // Build collected_secrets from brain + gateway secrets
+    let mut collected_secrets = std::collections::HashMap::new();
+    for (k, v) in &brain_secrets {
+        collected_secrets.insert(k.clone(), v.clone());
+    }
+    // Gateway AUTH_TOKEN as fallback
+    if !collected_secrets.contains_key("AUTH_TOKEN") {
+        if let Some(v) = gateway_secrets.get("AUTH_TOKEN") {
+            collected_secrets.insert("AUTH_TOKEN".into(), v.clone());
+        }
+    }
+
     Ok(InstallConfig {
-        anthropic_api_key: brain_secrets.get("ANTHROPIC_API_KEY").cloned(),
-        default_model: brain_secrets.get("DEFAULT_MODEL").cloned(),
-        openai_api_key: brain_secrets.get("OPENAI_API_KEY").cloned(),
-        ollama_endpoints: brain_secrets.get("OLLAMA_ENDPOINTS").cloned(),
-        voyage_api_key: brain_secrets.get("VOYAGE_API_KEY").cloned(),
-        agent_name: brain_secrets.get("AGENT_NAME").cloned().unwrap_or_else(|| "Baker".into()),
-        auth_token: brain_secrets.get("AUTH_TOKEN").cloned()
-            .or_else(|| gateway_secrets.get("AUTH_TOKEN").cloned())
-            .unwrap_or_default(),
+        collected_secrets,
         features: feature_selections,
         namespace: namespace.into(),
     })
@@ -305,33 +308,56 @@ fn read_feature_secret_sync(
 
 /// Build config from environment variables (for --reconfigure).
 fn build_config_from_env(namespace: &str, manifest: &ReleaseManifest) -> Result<InstallConfig> {
-    let api_key = std::env::var("ANTHROPIC_API_KEY").ok();
-    let openai_api_key = std::env::var("OPENAI_API_KEY").ok();
-    let ollama_endpoints = std::env::var("OLLAMA_ENDPOINTS").ok();
+    // Collect top-level secrets from env
+    let mut collected_secrets = std::collections::HashMap::new();
+    for secret in &manifest.secrets {
+        if let Ok(val) = std::env::var(&secret.key) {
+            if !val.is_empty() {
+                collected_secrets.insert(secret.key.clone(), val);
+            }
+        }
+    }
 
-    if api_key.is_none() && openai_api_key.is_none() && ollama_endpoints.is_none() {
-        anyhow::bail!("At least one provider must be configured via env vars for --reconfigure");
+    // Auto-generate defaults
+    if !collected_secrets.contains_key("AUTH_TOKEN") {
+        collected_secrets.insert("AUTH_TOKEN".into(), templates::generate_auth_token());
+    }
+    if !collected_secrets.contains_key("AGENT_NAME") {
+        collected_secrets.insert("AGENT_NAME".into(), "Baker".into());
+    }
+
+    // Provider validation
+    if let Some(ref pv) = manifest.provider_validation {
+        let has_provider = pv.require_at_least_one.iter().any(|k| collected_secrets.contains_key(k));
+        if !has_provider {
+            anyhow::bail!("{}", pv.message);
+        }
     }
 
     let mut feature_selections = Vec::new();
-    for feature in &manifest.optional_features {
-        let has_secrets = feature.secrets.iter().all(|s| std::env::var(s).is_ok());
+    for feature in &manifest.features {
+        let has_secrets = feature.secrets.iter()
+            .filter(|s| !s.silent)
+            .all(|s| std::env::var(&s.key).is_ok());
+        let secrets: Vec<_> = feature.secrets.iter()
+            .map(|s| (s.key.clone(), std::env::var(&s.key).ok()))
+            .collect();
+        // Also collect feature secrets
+        for (key, val) in &secrets {
+            if let Some(ref v) = val {
+                collected_secrets.insert(key.clone(), v.clone());
+            }
+        }
         feature_selections.push(FeatureSelection {
             id: feature.id.clone(),
             name: feature.name.clone(),
             enabled: has_secrets,
-            secrets: feature.secrets.iter().map(|s| (s.clone(), std::env::var(s).ok())).collect(),
+            secrets,
         });
     }
 
     Ok(InstallConfig {
-        anthropic_api_key: api_key,
-        default_model: std::env::var("DEFAULT_MODEL").ok(),
-        openai_api_key,
-        ollama_endpoints,
-        voyage_api_key: std::env::var("VOYAGE_API_KEY").ok(),
-        agent_name: std::env::var("AGENT_NAME").unwrap_or_else(|_| "Baker".into()),
-        auth_token: std::env::var("AUTH_TOKEN").unwrap_or_else(|_| templates::generate_auth_token()),
+        collected_secrets,
         features: feature_selections,
         namespace: namespace.into(),
     })
