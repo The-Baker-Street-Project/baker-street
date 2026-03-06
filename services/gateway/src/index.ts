@@ -1,10 +1,9 @@
-import { logger } from '@bakerst/shared';
+import { logger, type IrregularAdapter, type IrregularDispatch } from '@bakerst/shared';
 import { loadConfig } from './config.js';
 import { createBrainClient } from './brain-client.js';
 import { initMappingDb, getDb, getConversationId, setConversationId, closeMappingDb } from './mapping-db.js';
 import { DoorPolicyManager } from './door-policy.js';
 import { startAdminApi } from './admin-api.js';
-import type { ChannelAdapter, InboundMessage } from './types.js';
 
 const log = logger.child({ module: 'gateway' });
 
@@ -36,7 +35,7 @@ async function main() {
   const brain = createBrainClient(config.brainUrl);
 
   // Collect enabled adapters
-  const adapters: ChannelAdapter[] = [];
+  const adapters: IrregularAdapter[] = [];
 
   if (config.telegram.enabled) {
     const { createTelegramAdapter } = await import('./adapters/telegram.js');
@@ -64,35 +63,34 @@ async function main() {
     return undefined;
   }
 
-  // Shared message handler
-  async function handleMessage(msg: InboundMessage): Promise<void> {
-    const { channel, text } = msg;
-    const adapter = adapters.find((a) => a.platform === channel.platform);
+  // Shared dispatch handler
+  async function handleDispatch(dispatch: IrregularDispatch): Promise<void> {
+    const { platform, channelId, senderId, text } = dispatch;
+    const adapter = adapters.find((a) => a.platform === platform);
     if (!adapter) {
-      log.error({ platform: channel.platform }, 'no adapter for platform');
+      log.error({ platform }, 'no adapter for platform');
       return;
     }
 
     // --- Door policy check ---
-    const senderId = channel.userId ?? channel.platformThreadId;
-    const staticAllowed = getStaticAllowlist(channel.platform);
-    const policyResult = doorPolicy.checkMessage(channel.platform, senderId, text, staticAllowed);
+    const staticAllowed = getStaticAllowlist(platform);
+    const policyResult = doorPolicy.checkMessage(platform, senderId, text, staticAllowed);
 
     if (policyResult.action === 'deny') {
-      log.info({ platform: channel.platform, senderId }, 'message denied by door policy');
+      log.info({ platform, senderId }, 'message denied by door policy');
       return;
     }
 
     if (policyResult.action === 'challenge') {
-      log.info({ platform: channel.platform, senderId }, 'challenging unknown sender');
-      await adapter.sendResponse({ channel, text: policyResult.message });
+      log.info({ platform, senderId }, 'challenging unknown sender');
+      await adapter.sendResponse(channelId, policyResult.message);
       return;
     }
 
     if (policyResult.action === 'validate_code') {
-      const result = doorPolicy.attemptPairing(channel.platform, senderId, policyResult.code);
-      log.info({ platform: channel.platform, senderId, success: result.success }, 'pairing attempt');
-      await adapter.sendResponse({ channel, text: result.message });
+      const result = doorPolicy.attemptPairing(platform, senderId, policyResult.code);
+      log.info({ platform, senderId, success: result.success }, 'pairing attempt');
+      await adapter.sendResponse(channelId, result.message);
       if (!result.success) return;
       // If pairing succeeded, fall through to handle the next real message
       // (the code itself was consumed, so we return and wait for their next message)
@@ -102,13 +100,13 @@ async function main() {
     // action === 'allow' — proceed with normal message handling
 
     // Resolve conversation mapping
-    const existingConversationId = getConversationId(channel.platform, channel.platformThreadId);
+    const existingConversationId = getConversationId(platform, channelId);
 
     // Start typing indicator loop
     let typingActive = true;
     const typingLoop = (async () => {
       while (typingActive) {
-        await adapter.sendTyping(channel);
+        await adapter.sendTyping(channelId);
         await new Promise((r) => setTimeout(r, 4000));
       }
     })();
@@ -119,7 +117,7 @@ async function main() {
       let streamConversationId: string | undefined;
       let toolCallCount = 0;
 
-      for await (const event of brain.chatStream(text, existingConversationId, channel.platform)) {
+      for await (const event of brain.chatStream(text, existingConversationId, platform)) {
         if (event.type === 'delta' && event.text) {
           fullResponse += event.text;
         } else if (event.type === 'tool_result') {
@@ -135,27 +133,27 @@ async function main() {
 
       // Store mapping if new
       if (!existingConversationId && conversationId) {
-        setConversationId(channel.platform, channel.platformThreadId, conversationId);
+        setConversationId(platform, channelId, conversationId);
         log.info(
-          { platform: channel.platform, threadId: channel.platformThreadId, conversationId },
+          { platform, threadId: channelId, conversationId },
           'new conversation mapping created',
         );
       }
 
       // Send response
-      await adapter.sendResponse({ channel, text: fullResponse || '(no response)' });
+      await adapter.sendResponse(channelId, fullResponse || '(no response)', dispatch.platformMessageId);
 
       log.info(
-        { platform: channel.platform, userName: channel.userName, conversationId, toolCallCount },
+        { platform, senderName: dispatch.senderName, conversationId, toolCallCount },
         'message handled',
       );
     } catch (err) {
-      log.error({ err, platform: channel.platform, threadId: channel.platformThreadId }, 'failed to handle message');
+      log.error({ err, platform, threadId: channelId }, 'failed to handle message');
       try {
-        await adapter.sendResponse({
-          channel,
-          text: 'Sorry, I ran into an error processing your message. Please try again.',
-        });
+        await adapter.sendResponse(
+          channelId,
+          'Sorry, I ran into an error processing your message. Please try again.',
+        );
       } catch {
         log.error('failed to send error response');
       }
@@ -166,10 +164,10 @@ async function main() {
   }
 
   // Start all adapters (failures are non-fatal so one bad token doesn't kill the others)
-  const started: ChannelAdapter[] = [];
+  const started: IrregularAdapter[] = [];
   for (const adapter of adapters) {
     try {
-      await adapter.start(handleMessage);
+      await adapter.start(handleDispatch);
       started.push(adapter);
       log.info({ platform: adapter.platform }, 'adapter started');
     } catch (err) {

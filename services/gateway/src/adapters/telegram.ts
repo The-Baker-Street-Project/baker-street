@@ -1,6 +1,11 @@
 import { Bot, type Context } from 'grammy';
-import { logger } from '@bakerst/shared';
-import type { ChannelAdapter, ChannelInfo, InboundMessage, OutboundMessage } from '../types.js';
+import {
+  logger,
+  type IrregularAdapter,
+  type IrregularDispatch,
+  createIrregularDispatch,
+  TELEGRAM_TRADECRAFT,
+} from '@bakerst/shared';
 import { splitMessage } from '../util.js';
 
 const log = logger.child({ module: 'telegram' });
@@ -10,17 +15,19 @@ const TELEGRAM_MAX_LENGTH = 4096;
 export function createTelegramAdapter(
   botToken: string,
   allowedChatIds: string[],
-): ChannelAdapter {
+): IrregularAdapter {
   const bot = new Bot(botToken);
   const allowedSet = new Set(allowedChatIds);
   const filterEnabled = allowedSet.size > 0;
+  const platform = 'telegram';
+  const tradecraft = TELEGRAM_TRADECRAFT;
 
   function isAllowed(chatId: number): boolean {
     if (!filterEnabled) return true;
     return allowedSet.has(String(chatId));
   }
 
-  async function start(onMessage: (msg: InboundMessage) => Promise<void>): Promise<void> {
+  async function start(onDispatch: (dispatch: IrregularDispatch) => Promise<void>): Promise<void> {
     bot.on('message:text', async (ctx: Context) => {
       const msg = ctx.message!;
       const chatId = msg.chat.id;
@@ -30,23 +37,23 @@ export function createTelegramAdapter(
         return;
       }
 
-      const channel: ChannelInfo = {
-        platform: 'telegram',
-        platformThreadId: String(chatId),
-        userName: msg.from?.first_name ?? msg.from?.username,
-        userId: msg.from ? String(msg.from.id) : undefined,
-      };
+      const senderName = msg.from?.first_name ?? msg.from?.username ?? 'unknown';
 
       log.info(
-        { chatId, userName: channel.userName, textLength: msg.text!.length },
+        { chatId, userName: senderName, textLength: msg.text!.length },
         'received telegram message',
       );
 
-      await onMessage({
-        channel,
+      const dispatch = createIrregularDispatch({
+        platform,
+        channelId: String(chatId),
+        senderId: msg.from ? String(msg.from.id) : String(chatId),
+        senderName,
         text: msg.text!,
         platformMessageId: String(msg.message_id),
       });
+
+      await onDispatch(dispatch);
     });
 
     bot.catch((err) => {
@@ -61,24 +68,28 @@ export function createTelegramAdapter(
     });
   }
 
-  async function sendResponse(msg: OutboundMessage): Promise<void> {
-    const chatId = msg.channel.platformThreadId;
-    const chunks = splitMessage(msg.text, TELEGRAM_MAX_LENGTH);
+  async function sendResponse(channelId: string, text: string, replyTo?: string): Promise<void> {
+    const chunks = splitMessage(text, TELEGRAM_MAX_LENGTH);
 
     for (const chunk of chunks) {
       try {
-        await bot.api.sendMessage(chatId, chunk, { parse_mode: 'Markdown' });
+        await bot.api.sendMessage(Number(channelId), chunk, {
+          parse_mode: 'Markdown',
+          reply_to_message_id: replyTo ? Number(replyTo) : undefined,
+        });
       } catch {
         // Markdown parse failed — retry without formatting
-        log.warn({ chatId }, 'markdown send failed, retrying as plain text');
-        await bot.api.sendMessage(chatId, chunk);
+        log.warn({ channelId }, 'markdown send failed, retrying as plain text');
+        await bot.api.sendMessage(Number(channelId), chunk, {
+          reply_to_message_id: replyTo ? Number(replyTo) : undefined,
+        });
       }
     }
   }
 
-  async function sendTyping(channel: ChannelInfo): Promise<void> {
+  async function sendTyping(channelId: string): Promise<void> {
     try {
-      await bot.api.sendChatAction(channel.platformThreadId, 'typing');
+      await bot.api.sendChatAction(Number(channelId), 'typing');
     } catch (err) {
       log.debug({ err }, 'failed to send typing indicator');
     }
@@ -89,5 +100,5 @@ export function createTelegramAdapter(
     log.info('telegram bot stopped');
   }
 
-  return { platform: 'telegram', start, sendResponse, sendTyping, stop };
+  return { platform, tradecraft, start, sendResponse, sendTyping, stop };
 }
