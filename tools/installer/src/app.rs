@@ -102,18 +102,43 @@ pub enum ProviderStep {
     Done,
 }
 
-/// Collected secrets and configuration
+/// Collected secrets and configuration — now manifest-driven.
+///
+/// `collected_secrets` is the single source of truth for all key→value pairs.
+/// The manifest's `targetSecrets` field routes them to K8s Secret objects at deploy time.
 #[derive(Debug, Clone, Default)]
 pub struct InstallConfig {
-    pub anthropic_api_key: Option<String>,
-    pub default_model: Option<String>,
-    pub openai_api_key: Option<String>,
-    pub ollama_endpoints: Option<String>,
-    pub voyage_api_key: Option<String>,
-    pub agent_name: String,
-    pub auth_token: String,
+    pub collected_secrets: std::collections::HashMap<String, String>,
     pub features: Vec<FeatureSelection>,
     pub namespace: String,
+}
+
+impl InstallConfig {
+    pub fn agent_name(&self) -> &str {
+        self.collected_secrets
+            .get("AGENT_NAME")
+            .map(|s| s.as_str())
+            .unwrap_or("Baker")
+    }
+
+    pub fn auth_token(&self) -> &str {
+        self.collected_secrets
+            .get("AUTH_TOKEN")
+            .map(|s| s.as_str())
+            .unwrap_or("")
+    }
+
+    pub fn default_model(&self) -> Option<&str> {
+        self.collected_secrets.get("DEFAULT_MODEL").map(|s| s.as_str())
+    }
+
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.collected_secrets.get(key).map(|s| s.as_str())
+    }
+
+    pub fn set(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        self.collected_secrets.insert(key.into(), value.into());
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -124,15 +149,23 @@ pub struct FeatureSelection {
     pub secrets: Vec<(String, Option<String>)>, // (key, value)
 }
 
-/// A single secret prompt in the Secrets phase
+/// A single secret prompt in the Secrets phase — enriched with v2 manifest fields
 #[derive(Debug, Clone)]
 pub struct SecretPrompt {
     pub key: String,
     pub description: String,
+    pub prompt_text: Option<String>,
     pub required: bool,
-    pub is_secret: bool, // mask input with bullets
-    pub is_feature: bool, // true for feature-derived prompts
+    pub is_secret: bool,
+    pub is_feature: bool,
     pub value: Option<String>,
+    pub instructions: Option<String>,
+    pub depends_on: Option<String>,
+    pub choices: Vec<(String, String, Option<String>)>, // (value, label, description)
+    pub auto_generate: Option<String>,
+    pub default_value: Option<String>,
+    pub placeholder: Option<String>,
+    pub silent: bool,
 }
 
 /// Top-level app state
@@ -201,8 +234,6 @@ impl App {
             phase: Phase::Preflight,
             config: InstallConfig {
                 namespace,
-                agent_name: "Baker".into(),
-                auth_token: String::new(),
                 ..Default::default()
             },
             should_quit: false,
@@ -339,5 +370,26 @@ mod tests {
         assert_eq!(ProviderType::Anthropic.label(), "Anthropic");
         assert_eq!(ProviderType::OpenAI.label(), "OpenAI");
         assert_eq!(ProviderType::Ollama.label(), "Ollama");
+    }
+
+    #[test]
+    fn install_config_accessors() {
+        let mut config = InstallConfig::default();
+        config.set("AGENT_NAME", "Sherlock");
+        config.set("AUTH_TOKEN", "abc123");
+        config.set("DEFAULT_MODEL", "claude-sonnet-4-20250514");
+        assert_eq!(config.agent_name(), "Sherlock");
+        assert_eq!(config.auth_token(), "abc123");
+        assert_eq!(config.default_model(), Some("claude-sonnet-4-20250514"));
+        assert_eq!(config.get("AGENT_NAME"), Some("Sherlock"));
+        assert_eq!(config.get("NONEXISTENT"), None);
+    }
+
+    #[test]
+    fn install_config_defaults() {
+        let config = InstallConfig::default();
+        assert_eq!(config.agent_name(), "Baker");
+        assert_eq!(config.auth_token(), "");
+        assert_eq!(config.default_model(), None);
     }
 }
