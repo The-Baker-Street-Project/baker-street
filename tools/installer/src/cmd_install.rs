@@ -1063,15 +1063,15 @@ async fn handle_auto_advance(
         Phase::Providers => {
             // When using env vars, auto-configure providers from pre-populated credentials
             if app.use_env_vars == Some(true) && app.provider_step == ProviderStep::BrainProvider {
-                if app.config.anthropic_api_key.is_some() {
+                if app.config.get("ANTHROPIC_API_KEY").is_some() {
                     app.brain_provider = Some(ProviderType::Anthropic);
                     app.brain_model_id = Some("claude-sonnet-4-20250514".to_string());
                     app.brain_model_display = Some("Sonnet 4".to_string());
-                } else if app.config.openai_api_key.is_some() {
+                } else if app.config.get("OPENAI_API_KEY").is_some() {
                     app.brain_provider = Some(ProviderType::OpenAI);
                     app.brain_model_id = Some("gpt-4o".to_string());
                     app.brain_model_display = Some("GPT-4o".to_string());
-                } else if app.config.ollama_endpoints.is_some() {
+                } else if app.config.get("OLLAMA_ENDPOINTS").is_some() {
                     app.brain_provider = Some(ProviderType::Ollama);
                     app.brain_model_id = Some("llama3".to_string());
                     app.brain_model_display = Some("llama3".to_string());
@@ -1082,7 +1082,9 @@ async fn handle_auto_advance(
                     app.worker_provider = app.brain_provider;
                     app.worker_model_id = app.brain_model_id.clone();
                     app.worker_model_display = app.brain_model_display.clone();
-                    app.config.default_model = app.brain_model_id.clone();
+                    if let Some(ref model_id) = app.brain_model_id {
+                        app.config.set("DEFAULT_MODEL", model_id.clone());
+                    }
                     app.provider_step = ProviderStep::Done;
                     // Auto-enable features that have ANY secret pre-populated
                     for feature in &mut app.config.features {
