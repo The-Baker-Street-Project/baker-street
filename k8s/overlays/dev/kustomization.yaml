@@ -30,6 +30,8 @@ patches:
                 env:
                   - name: BAKERST_MODE
                     value: "dev"
+                  - name: FEATURE_MCP
+                    value: "true"
 
   # Inject BAKERST_MODE=dev into brain-green (brain container)
   - target:
@@ -48,6 +50,8 @@ patches:
                 env:
                   - name: BAKERST_MODE
                     value: "dev"
+                  - name: FEATURE_MCP
+                    value: "true"
 
   # Inject BAKERST_MODE=dev into worker
   - target:
@@ -84,6 +88,8 @@ patches:
                 env:
                   - name: BAKERST_MODE
                     value: "dev"
+                  - name: FEATURE_TELEGRAM
+                    value: "true"
 
   # Inject BAKERST_MODE=dev into ui
   - target:
