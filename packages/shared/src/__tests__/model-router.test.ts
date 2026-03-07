@@ -585,6 +585,178 @@ describe('ModelRouter', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // OpenAI-compatible (Ollama) adapter — tool calling
+  // -------------------------------------------------------------------------
+
+  describe('OpenAI-compatible adapter (Ollama) tool calling', () => {
+    function makeOllamaConfig(): ModelRouterConfig {
+      return {
+        providers: {
+          ollama: {
+            provider: 'ollama' as const,
+            baseURL: 'http://localhost:11434/v1',
+          },
+        },
+        models: [
+          {
+            id: 'qwen3',
+            modelName: 'qwen3:8b',
+            provider: 'ollama' as const,
+            maxTokens: 4096,
+          },
+        ],
+        roles: {
+          agent: 'qwen3',
+          observer: 'qwen3',
+        },
+      };
+    }
+
+    it('passes tools to OpenAI-compatible endpoint', async () => {
+      mockOpenAICreate.mockResolvedValue({
+        choices: [{ message: { role: 'assistant', content: 'Sure' }, finish_reason: 'stop' }],
+        model: 'qwen3:8b',
+        usage: { prompt_tokens: 5, completion_tokens: 3 },
+      });
+
+      const router = await ModelRouter.create(makeOllamaConfig());
+      await router.chat(makeParams({
+        tools: [{
+          name: 'get_weather',
+          description: 'Get weather',
+          input_schema: { type: 'object', properties: { city: { type: 'string' } } },
+        }],
+      }));
+
+      const callArgs = mockOpenAICreate.mock.calls[0][0];
+      expect(callArgs.tools).toEqual([{
+        type: 'function',
+        function: {
+          name: 'get_weather',
+          description: 'Get weather',
+          parameters: { type: 'object', properties: { city: { type: 'string' } } },
+        },
+      }]);
+    });
+
+    it('converts tool_calls response to tool_use content blocks', async () => {
+      mockOpenAICreate.mockResolvedValue({
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{
+              id: 'call_xyz',
+              type: 'function',
+              function: { name: 'get_weather', arguments: '{"city":"London"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        model: 'qwen3:8b',
+        usage: { prompt_tokens: 10, completion_tokens: 15 },
+      });
+
+      const router = await ModelRouter.create(makeOllamaConfig());
+      const response = await router.chat(makeParams({
+        tools: [{
+          name: 'get_weather',
+          description: 'Get weather',
+          input_schema: { type: 'object', properties: { city: { type: 'string' } } },
+        }],
+      }));
+
+      expect(response.stopReason).toBe('tool_use');
+      expect(response.content).toEqual([{
+        type: 'tool_use',
+        id: 'call_xyz',
+        name: 'get_weather',
+        input: { city: 'London' },
+      }]);
+    });
+
+    it('preserves tool_result messages in conversation history', async () => {
+      mockOpenAICreate.mockResolvedValue({
+        choices: [{ message: { role: 'assistant', content: 'It is sunny.' }, finish_reason: 'stop' }],
+        model: 'qwen3:8b',
+        usage: { prompt_tokens: 20, completion_tokens: 5 },
+      });
+
+      const router = await ModelRouter.create(makeOllamaConfig());
+      await router.chat(makeParams({
+        messages: [
+          { role: 'user', content: 'What is the weather?' },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'tool_use', id: 'call_xyz', name: 'get_weather', input: { city: 'London' } },
+            ],
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'tool_result', tool_use_id: 'call_xyz', content: 'Sunny, 22C' },
+            ],
+          },
+        ],
+      }));
+
+      const callArgs = mockOpenAICreate.mock.calls[0][0];
+      expect(callArgs.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ role: 'tool', tool_call_id: 'call_xyz', content: 'Sunny, 22C' }),
+      ]));
+    });
+
+    it('accumulates fragmented tool calls during streaming', async () => {
+      const streamChunks = [
+        { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_abc', function: { name: 'get_weather', arguments: '{"city":' } }] }, finish_reason: null }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"Paris"}' } }] }, finish_reason: null }] },
+        { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+      ];
+      mockOpenAICreate.mockResolvedValue({
+        [Symbol.asyncIterator]: async function* () {
+          for (const chunk of streamChunks) yield chunk;
+        },
+      });
+
+      const router = await ModelRouter.create(makeOllamaConfig());
+      const events: any[] = [];
+      for await (const event of router.chatStream(makeParams({
+        tools: [{
+          name: 'get_weather',
+          description: 'Get weather',
+          input_schema: { type: 'object', properties: { city: { type: 'string' } } },
+        }],
+      }))) {
+        events.push(event);
+      }
+
+      const done = events.find(e => e.type === 'message_done');
+      expect(done.response.stopReason).toBe('tool_use');
+      expect(done.response.content).toEqual([{
+        type: 'tool_use',
+        id: 'call_abc',
+        name: 'get_weather',
+        input: { city: 'Paris' },
+      }]);
+    });
+
+    it('does not pass tools when none provided', async () => {
+      mockOpenAICreate.mockResolvedValue({
+        choices: [{ message: { role: 'assistant', content: 'Hello' }, finish_reason: 'stop' }],
+        model: 'qwen3:8b',
+        usage: { prompt_tokens: 5, completion_tokens: 3 },
+      });
+
+      const router = await ModelRouter.create(makeOllamaConfig());
+      await router.chat(makeParams());
+
+      const callArgs = mockOpenAICreate.mock.calls[0][0];
+      expect(callArgs.tools).toBeUndefined();
+    });
+  });
+
   describe('failure classification and cooldowns', () => {
     it('locks provider permanently on auth failure (401)', async () => {
       const err = new Error('Unauthorized') as any;

@@ -573,13 +573,14 @@ async function createOpenAICompatibleAdapter(
 
   return {
     async chat(model: ModelDefinition, params: ChatParams): Promise<ChatResponse> {
-      // Convert Anthropic-style messages to OpenAI format
-      const messages = convertToOpenAIMessages(params);
+      const messages = convertToOpenAIMessagesWithTools(params);
+      const tools = params.tools ? convertToolsToOpenAI(params.tools) : undefined;
 
       const response = await client.chat.completions.create({
         model: model.modelName,
         max_tokens: params.maxTokens ?? model.maxTokens,
-        messages,
+        messages: messages as unknown as Parameters<typeof client.chat.completions.create>[0]['messages'],
+        ...(tools && tools.length > 0 ? { tools: tools as Parameters<typeof client.chat.completions.create>[0]['tools'] } : {}),
       });
 
       const choice = response.choices[0];
@@ -587,36 +588,24 @@ async function createOpenAICompatibleAdapter(
         throw new Error('openai-compatible adapter: no choices in response');
       }
 
-      const content: ChatContentBlock[] = [];
-      if (choice.message.content) {
-        content.push({ type: 'text', text: choice.message.content });
-      }
-
-      return {
-        content,
-        stopReason: choice.finish_reason === 'stop' ? 'end_turn' : (choice.finish_reason ?? 'end_turn'),
-        model: response.model,
-        usage: response.usage
-          ? {
-              inputTokens: response.usage.prompt_tokens,
-              outputTokens: response.usage.completion_tokens ?? 0,
-            }
-          : undefined,
-      };
+      return normalizeOpenAIResponse(choice as any, response.model, response.usage);
     },
 
     async *chatStream(model: ModelDefinition, params: ChatParams): AsyncGenerator<ModelStreamEvent> {
-      const messages = convertToOpenAIMessages(params);
+      const messages = convertToOpenAIMessagesWithTools(params);
+      const tools = params.tools ? convertToolsToOpenAI(params.tools) : undefined;
 
       const stream = await client.chat.completions.create({
         model: model.modelName,
         max_tokens: params.maxTokens ?? model.maxTokens,
-        messages,
+        messages: messages as unknown as Parameters<typeof client.chat.completions.create>[0]['messages'],
+        ...(tools && tools.length > 0 ? { tools: tools as Parameters<typeof client.chat.completions.create>[0]['tools'] } : {}),
         stream: true,
       });
 
       let fullText = '';
       let finishReason = 'end_turn';
+      const toolCallAccumulator = new Map<number, { id: string; name: string; args: string }>();
 
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta;
@@ -624,53 +613,52 @@ async function createOpenAICompatibleAdapter(
           fullText += delta.content;
           yield { type: 'text_delta', text: delta.content };
         }
-        if (chunk.choices[0]?.finish_reason) {
-          finishReason =
-            chunk.choices[0].finish_reason === 'stop'
-              ? 'end_turn'
-              : chunk.choices[0].finish_reason;
+
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const existing = toolCallAccumulator.get(tc.index);
+            if (!existing) {
+              toolCallAccumulator.set(tc.index, {
+                id: tc.id ?? '',
+                name: tc.function?.name ?? '',
+                args: tc.function?.arguments ?? '',
+              });
+            } else {
+              if (tc.id) existing.id = tc.id;
+              if (tc.function?.name) existing.name += tc.function.name;
+              if (tc.function?.arguments) existing.args += tc.function.arguments;
+            }
+          }
         }
+
+        if (chunk.choices[0]?.finish_reason) {
+          finishReason = mapOpenAIFinishReason(chunk.choices[0].finish_reason);
+        }
+      }
+
+      const content: ChatContentBlock[] = [];
+      if (fullText) {
+        content.push({ type: 'text', text: fullText });
+      }
+      for (const [, tc] of toolCallAccumulator) {
+        content.push({
+          type: 'tool_use',
+          id: tc.id,
+          name: tc.name,
+          input: safeJsonParse(tc.args || '{}'),
+        });
       }
 
       yield {
         type: 'message_done',
         response: {
-          content: fullText ? [{ type: 'text', text: fullText }] : [],
+          content,
           stopReason: finishReason,
           model: model.modelName,
         },
       };
     },
   };
-}
-
-/** Convert Anthropic-style system/messages to OpenAI chat messages */
-function convertToOpenAIMessages(
-  params: ChatParams,
-): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
-  const out: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
-
-  // System blocks -> single system message
-  if (params.system && params.system.length > 0) {
-    out.push({
-      role: 'system',
-      content: params.system.map((b) => b.text).join('\n\n'),
-    });
-  }
-
-  // Conversation messages — flatten content blocks to text
-  for (const msg of params.messages) {
-    const text =
-      typeof msg.content === 'string'
-        ? msg.content
-        : msg.content
-            .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-            .map((b) => b.text)
-            .join('\n');
-    out.push({ role: msg.role, content: text });
-  }
-
-  return out;
 }
 
 // ---------------------------------------------------------------------------

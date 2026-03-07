@@ -253,6 +253,27 @@ function applyEnvOverrides(config: ModelRouterConfig): ModelRouterConfig {
     log.info({ reflectorModel, reflectorRole: config.roles.reflector }, 'REFLECTOR_MODEL override applied');
   }
 
+  // WORKER_MODEL overrides the worker role
+  const workerModel = process.env.WORKER_MODEL;
+  if (workerModel) {
+    const existing = config.models.find(
+      (m) => m.id === workerModel || m.modelName === workerModel,
+    );
+    if (existing) {
+      config.roles.worker = existing.id;
+    } else {
+      const adHocId = `custom-worker`;
+      config.models.push({
+        id: adHocId,
+        modelName: workerModel,
+        provider: guessProvider(workerModel, config),
+        maxTokens: 4096,
+      });
+      config.roles.worker = adHocId;
+    }
+    log.info({ workerModel, workerRole: config.roles.worker }, 'WORKER_MODEL override applied');
+  }
+
   // OPENROUTER_API_KEY — ensure provider entry exists
   const openRouterKey = process.env.OPENROUTER_API_KEY;
   if (openRouterKey && !config.providers['openrouter']) {
