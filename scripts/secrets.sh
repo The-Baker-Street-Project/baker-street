@@ -149,4 +149,22 @@ kubectl create secret generic bakerst-voice-secrets \
   -n bakerst \
   --dry-run=client -o yaml | kubectl apply -f -
 
+# --- Google Workspace extension secrets ---
+if [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" && -n "${GOOGLE_OAUTH_CLIENT_SECRET:-}" ]]; then
+  echo "==> Creating bakerst-google-secrets"
+  kubectl create secret generic bakerst-google-secrets \
+    --from-literal="GOOGLE_OAUTH_CLIENT_ID=$GOOGLE_OAUTH_CLIENT_ID" \
+    --from-literal="GOOGLE_OAUTH_CLIENT_SECRET=$GOOGLE_OAUTH_CLIENT_SECRET" \
+    -n bakerst \
+    --dry-run=client -o yaml | kubectl apply -f -
+fi
+
+if [[ -n "${GOOGLE_CREDENTIAL_FILE:-}" && -f "$GOOGLE_CREDENTIAL_FILE" ]]; then
+  echo "==> Creating bakerst-google-cred-file"
+  kubectl create secret generic bakerst-google-cred-file \
+    --from-file="$GOOGLE_CREDENTIAL_FILE" \
+    -n bakerst \
+    --dry-run=client -o yaml | kubectl apply -f -
+fi
+
 echo "==> All scoped secrets created/updated in namespace bakerst"
