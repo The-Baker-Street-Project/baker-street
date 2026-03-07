@@ -119,7 +119,8 @@ app.post('/voice/reload', async (_req, res) => {
 });
 
 // Main voice chat endpoint
-app.post('/voice/chat', upload.single('audio'), (req, res) => {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- multer v4 types clash with hoisted @types/express v5
+app.post('/voice/chat', upload.single('audio') as any, (req: express.Request, res: express.Response) => {
   const file = req.file;
   if (!file) {
     res.status(400).json({ error: 'Missing audio file — expected multipart field "audio"' });

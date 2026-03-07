@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bakerst-backup-scripts
+  namespace: bakerst
+data:
+  backup.sh: |
+    # This configmap is created by deploy.sh using --from-file=scripts/backup.sh
+    # This file serves as a placeholder for documentation purposes.
+    # The actual contents are populated at deploy time.

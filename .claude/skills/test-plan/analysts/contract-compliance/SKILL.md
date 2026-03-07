@@ -43,7 +43,7 @@ Each requirement becomes at least one P1 test specification.
 
 ### 2. Map Zod Schema to Assertions
 
-Read the entity's Zod schemas from `@buildflow/shared`. For each field:
+Read the entity's Zod schemas from `@bakerst/shared`. For each field:
 
 | Schema Field | Test Category | Priority |
 |-------------|---------------|----------|

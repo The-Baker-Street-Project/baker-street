@@ -32,21 +32,7 @@ import { JobDispatch } from '@myapp/shared';
 
 Identify the shared package from project discovery. Check for types/interfaces that duplicate or shadow shared exports.
 
-### 2. Use Project's Logger, Not console.log (Medium, 0.90)
-Check CLAUDE.md for the logging convention. If a structured logger is specified, `console.log/error/warn` in service code is a violation.
-
-```typescript
-// VIOLATION (when structured logger is configured)
-console.log('Processing job:', jobId);
-console.error('Job failed:', err);
-
-// CORRECT — use project's configured logger
-log.info({ jobId }, 'Processing job');
-log.error({ err, jobId }, 'Job failed');
-```
-Exception: Test files, scripts, and CLI tools.
-
-### 3. Error Handling on Async Route Handlers (High, 0.85)
+### 2. Error Handling on Async Route Handlers (High, 0.85)
 All async HTTP route handlers must have error handling. Unhandled rejections in route handlers crash the process.
 
 ```typescript
@@ -74,7 +60,7 @@ Adapt to the project's framework:
 - **tRPC**: Check that procedures use proper error types
 - **Other**: Verify the framework's error handling pattern is used
 
-### 4. Request Input Validation (High, 0.90)
+### 3. Request Input Validation (High, 0.90)
 User-facing endpoints must validate input before processing. The validation method depends on the project's framework.
 
 ```typescript
@@ -91,7 +77,7 @@ app.post('/webhook', async (req, res) => {
 
 Check CLAUDE.md for the project's validation pattern.
 
-### 5. Messaging Contract Compliance (Medium, 0.85)
+### 4. Messaging Contract Compliance (Medium, 0.85)
 If the project uses a messaging system (NATS, Redis pub/sub, RabbitMQ, etc.):
 
 - Subject/topic/channel names must come from the shared package, not hardcoded strings
@@ -109,7 +95,7 @@ nc.publish(SUBJECTS.JOB_DISPATCH, data);
 
 Skip this rule if the project doesn't use messaging.
 
-### 6. Graceful Shutdown (Medium, 0.75)
+### 5. Graceful Shutdown (Medium, 0.75)
 Services deployed in containers (Docker, K8s) must handle SIGTERM/SIGINT for clean shutdown:
 
 ```typescript
@@ -129,7 +115,7 @@ process.on('SIGINT', shutdown);
 
 Check if the project deploys to containers (look for Dockerfiles, k8s manifests, docker-compose).
 
-### 7. Connection/Subscription Cleanup (Medium, 0.80)
+### 6. Connection/Subscription Cleanup (Medium, 0.80)
 Database connections, message queue subscriptions, and other resources must be cleaned up on shutdown:
 
 ```typescript
@@ -146,7 +132,7 @@ process.on('SIGTERM', async () => {
 });
 ```
 
-### 8. Follow Project's Error Handling Convention (Medium, 0.80)
+### 7. Follow Project's Error Handling Convention (Medium, 0.80)
 Check CLAUDE.md for the project's error handling pattern. If a custom error class exists (AppError, HttpError, etc.), service code should use it instead of raw `throw new Error()`.
 
 If no custom pattern is documented, raw errors are acceptable but should include context:

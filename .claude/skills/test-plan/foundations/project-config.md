@@ -113,7 +113,7 @@ Analysts do NOT hardcode project-specific conventions. Instead they:
 
 1. **Read `CLAUDE.md`** to learn:
    - Error handling pattern (AppError, ErrorCode)
-   - Shared package conventions (@buildflow/shared)
+   - Shared package conventions (@bakerst/shared)
    - Testing conventions (Vitest, behavior-focused)
    - Logging conventions (logger, not console.log)
 

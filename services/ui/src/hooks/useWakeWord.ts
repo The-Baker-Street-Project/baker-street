@@ -39,7 +39,7 @@ export function useWakeWord(
 
       const porcupine = await PorcupineWorker.create(
         accessKey,
-        [{ builtin: keyword as unknown as import('@picovoice/porcupine-web').BuiltInKeyword, sensitivity: 0.65 }],
+        [{ builtin: keyword as import('@picovoice/porcupine-web').BuiltInKeyword, sensitivity: 0.65 }],
         (detection: { index: number }) => {
           if (detection.index >= 0) {
             onDetectedRef.current();
