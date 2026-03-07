@@ -61,6 +61,7 @@ All secrets live in `.env-secrets` (gitignored). `scripts/secrets.sh` auto-sourc
 # .env-secrets contains:
 ANTHROPIC_API_KEY         # Claude API key (required)
 DEFAULT_MODEL             # Default model (optional, e.g. claude-sonnet-4-20250514)
+WORKER_MODEL              # Worker-specific model override (optional, e.g. qwen3:8b)
 OPENAI_API_KEY            # OpenAI API key (optional, for GPT models)
 OLLAMA_ENDPOINTS          # Comma-separated Ollama endpoints (optional)
 VOYAGE_API_KEY            # Voyage AI embeddings
@@ -77,8 +78,8 @@ GOOGLE_CREDENTIAL_FILE     # Path to pre-authorized Google credential JSON file
 ### Secret Scoping
 
 `scripts/secrets.sh` creates 3+ scoped K8s secrets (instead of one monolithic secret):
-- `bakerst-brain-secrets` — ANTHROPIC_API_KEY, DEFAULT_MODEL, OPENAI_API_KEY, OLLAMA_ENDPOINTS, VOYAGE_API_KEY, AUTH_TOKEN, AGENT_NAME
-- `bakerst-worker-secrets` — ANTHROPIC_API_KEY, DEFAULT_MODEL, OPENAI_API_KEY, OLLAMA_ENDPOINTS, AGENT_NAME
+- `bakerst-brain-secrets` — ANTHROPIC_API_KEY, DEFAULT_MODEL, WORKER_MODEL, OPENAI_API_KEY, OLLAMA_ENDPOINTS, VOYAGE_API_KEY, AUTH_TOKEN, AGENT_NAME
+- `bakerst-worker-secrets` — ANTHROPIC_API_KEY, DEFAULT_MODEL, WORKER_MODEL, OPENAI_API_KEY, OLLAMA_ENDPOINTS, AGENT_NAME
 - `bakerst-gateway-secrets` — TELEGRAM_*, DISCORD_*, AUTH_TOKEN
 - `bakerst-github-secrets` — GITHUB_TOKEN (created only if token is set)
 - `bakerst-google-secrets` — GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET (created only if configured)

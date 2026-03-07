@@ -41,6 +41,9 @@ fi
 if [ -n "${DEFAULT_MODEL:-}" ]; then
   BRAIN_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
 fi
+if [ -n "${WORKER_MODEL:-}" ]; then
+  BRAIN_ARGS+=(--from-literal="WORKER_MODEL=$WORKER_MODEL")
+fi
 if [ -n "${VOYAGE_API_KEY:-}" ]; then
   BRAIN_ARGS+=(--from-literal="VOYAGE_API_KEY=$VOYAGE_API_KEY")
 fi
@@ -76,6 +79,9 @@ if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
 fi
 if [ -n "${DEFAULT_MODEL:-}" ]; then
   WORKER_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
+fi
+if [ -n "${WORKER_MODEL:-}" ]; then
+  WORKER_ARGS+=(--from-literal="WORKER_MODEL=$WORKER_MODEL")
 fi
 if [ -n "${OPENAI_API_KEY:-}" ]; then
   WORKER_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")

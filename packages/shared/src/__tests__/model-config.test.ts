@@ -63,6 +63,7 @@ describe('model-config', () => {
     setEnv('MODEL_ROUTER_CONFIG_PATH', undefined);
     setEnv('DEFAULT_MODEL', undefined);
     setEnv('OBSERVER_MODEL', undefined);
+    setEnv('WORKER_MODEL', undefined);
     setEnv('OLLAMA_ENDPOINTS', undefined);
   });
 
@@ -169,6 +170,23 @@ describe('model-config', () => {
       setEnv('OBSERVER_MODEL', 'sonnet-4');
       const config = await loadModelConfig();
       expect(config.roles.observer).toBe('sonnet-4');
+    });
+
+    it('applies WORKER_MODEL override for a known model ID', async () => {
+      setEnv('WORKER_MODEL', 'haiku-4.5');
+      const config = await loadModelConfig();
+      expect(config.roles.worker).toBe('haiku-4.5');
+    });
+
+    it('applies WORKER_MODEL override with unknown model as ad-hoc', async () => {
+      setEnv('OLLAMA_ENDPOINTS', 'localhost:11434');
+      setEnv('WORKER_MODEL', 'qwen3:8b');
+      const config = await loadModelConfig();
+      expect(config.roles.worker).toBe('custom-worker');
+      const adHoc = config.models.find((m) => m.id === 'custom-worker');
+      expect(adHoc).toBeDefined();
+      expect(adHoc!.modelName).toBe('qwen3:8b');
+      expect(adHoc!.provider).toBe('ollama');
     });
 
     it('applies OPENROUTER_API_KEY override to add provider', async () => {
