@@ -38,6 +38,36 @@ export async function executeScheduleTool(
 // manage_standing_order
 // ---------------------------------------------------------------------------
 
+/** Validate a webhook URL for SSRF protection. Returns an error string or null if valid. */
+export function validateWebhookUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') {
+      return 'Webhook URL must use HTTPS';
+    }
+    const hostname = parsed.hostname;
+    // Block private IP ranges
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+      hostname.endsWith('.local') ||
+      hostname.endsWith('.internal') ||
+      // Block internal K8s DNS
+      hostname.endsWith('.svc.cluster.local') ||
+      hostname.endsWith('.cluster.local')
+    ) {
+      return 'Webhook URL must not target private/internal addresses';
+    }
+    return null;
+  } catch {
+    return 'Invalid webhook URL';
+  }
+}
+
 interface ManageInput {
   action: 'create' | 'update' | 'enable' | 'disable' | 'delete';
   id?: string;
@@ -45,18 +75,34 @@ interface ManageInput {
   schedule?: string;
   type?: string;
   config?: Record<string, unknown>;
+  case_file?: string;
+  max_consecutive_failures?: number;
 }
 
 function handleManageStandingOrder(
   input: ToolInput,
   scheduleManager: ScheduleManager,
 ): { result: string } {
-  const { action, id, name, schedule, type, config } = input as unknown as ManageInput;
+  const { action, id, name, schedule, type, config, case_file, max_consecutive_failures } = input as unknown as ManageInput;
 
   switch (action) {
     case 'create': {
       if (!name || !schedule || !type) {
         return { result: 'Error: name, schedule (cron expression), and type are required for create' };
+      }
+
+      // Validate case_file
+      if (case_file && !['sitting-room', 'private'].includes(case_file)) {
+        return { result: 'Error: case_file must be "sitting-room" or "private"' };
+      }
+
+      // SSRF protection for pigeon (webhook) delivery
+      const delivery = config?.delivery as { mode?: string; url?: string } | undefined;
+      if (delivery?.mode === 'pigeon' && delivery?.url) {
+        const urlError = validateWebhookUrl(delivery.url);
+        if (urlError) {
+          return { result: `Error: ${urlError}` };
+        }
       }
 
       try {
@@ -65,6 +111,8 @@ function handleManageStandingOrder(
           schedule,
           type,
           config: config ?? {},
+          case_file,
+          max_consecutive_failures,
         });
         log.info({ id: row.id, name }, 'agent created standing order');
         return {
@@ -72,6 +120,7 @@ function handleManageStandingOrder(
             `  ID: ${row.id}\n` +
             `  Schedule: ${row.schedule}\n` +
             `  Type: ${row.type}\n` +
+            `  Case file: ${row.case_file}\n` +
             `  Enabled: ${row.enabled ? 'yes' : 'no'}`,
         };
       } catch (err) {
@@ -89,11 +138,27 @@ function handleManageStandingOrder(
         return { result: `Error: standing order '${id}' not found` };
       }
 
-      const updates: Partial<{ name: string; schedule: string; type: string; config: Record<string, unknown> }> = {};
+      // Validate case_file
+      if (case_file && !['sitting-room', 'private'].includes(case_file)) {
+        return { result: 'Error: case_file must be "sitting-room" or "private"' };
+      }
+
+      // SSRF protection for pigeon (webhook) delivery
+      const delivery = config?.delivery as { mode?: string; url?: string } | undefined;
+      if (delivery?.mode === 'pigeon' && delivery?.url) {
+        const urlError = validateWebhookUrl(delivery.url);
+        if (urlError) {
+          return { result: `Error: ${urlError}` };
+        }
+      }
+
+      const updates: Partial<{ name: string; schedule: string; type: string; config: Record<string, unknown>; case_file: string; max_consecutive_failures: number }> = {};
       if (name !== undefined) updates.name = name;
       if (schedule !== undefined) updates.schedule = schedule;
       if (type !== undefined) updates.type = type;
       if (config !== undefined) updates.config = config;
+      if (case_file !== undefined) updates.case_file = case_file;
+      if (max_consecutive_failures !== undefined) updates.max_consecutive_failures = max_consecutive_failures;
 
       try {
         const updated = scheduleManager.update(id, updates);

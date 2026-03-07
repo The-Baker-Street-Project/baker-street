@@ -135,6 +135,8 @@ export interface ToolDefinition {
     properties?: Record<string, unknown>;
     required?: string[];
   };
+  /** Anthropic-only: defer this tool's schema from context until discovered via tool_search */
+  defer_loading?: boolean;
 }
 
 /** Parameters for a chat request routed through the ModelRouter */

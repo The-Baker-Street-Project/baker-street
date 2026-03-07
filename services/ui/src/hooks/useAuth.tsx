@@ -13,12 +13,15 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
-  const [isValidating, setIsValidating] = useState(() => !!localStorage.getItem(TOKEN_KEY));
+  const [isValidating, setIsValidating] = useState(true);
 
   // Validate stored token on mount
   useEffect(() => {
     const stored = localStorage.getItem(TOKEN_KEY);
-    if (!stored) return;
+    if (!stored) {
+      setIsValidating(false);
+      return;
+    }
     fetch('/api/conversations', {
       headers: { 'Authorization': `Bearer ${stored}` },
     })

@@ -21,7 +21,7 @@ import { initMemory, createNoOpMemoryService } from './memory.js';
 import { ScheduleManager } from './schedule-manager.js';
 import { loadPlugins } from './plugin-registry.js';
 import { getDb, closeDb, insertApiAudit, getModelConfigValue } from './db.js';
-import { loadModelConfig, ModelRouter } from '@bakerst/shared';
+import { loadModelConfig, ModelRouter, discoverOllamaModels } from '@bakerst/shared';
 import { McpClientManager } from './mcp-client.js';
 import { SkillRegistry } from './skill-registry.js';
 import { createUnifiedToolRegistry } from './plugin-bridge.js';
@@ -48,6 +48,24 @@ async function main() {
 
   // Initialize model router
   const modelConfig = await loadModelConfig();
+
+  // Auto-discover models from configured Ollama endpoints
+  const ollamaProviders = Object.entries(modelConfig.providers).filter(
+    ([, p]) => p.provider === 'ollama' && 'baseURL' in p,
+  );
+  if (ollamaProviders.length > 0) {
+    const discoveryResults = await Promise.all(
+      ollamaProviders.map(([key, p]) =>
+        discoverOllamaModels((p as { baseURL: string }).baseURL, key),
+      ),
+    );
+    for (const discovered of discoveryResults.flat()) {
+      if (!modelConfig.models.find((m) => m.id === discovered.id)) {
+        modelConfig.models.push(discovered);
+      }
+    }
+  }
+
   const modelRouter = await ModelRouter.create(modelConfig);
 
   // Load persisted model config from DB

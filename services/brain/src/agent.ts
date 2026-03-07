@@ -25,7 +25,9 @@ import { runReflector } from './reflector.js';
 import { loadInstructionSkills } from './skill-loader.js';
 import { executeSelfManagementTool, type SystemInfo } from './self-management.js';
 import { SCHEDULE_TOOLS, executeScheduleTool } from './schedule-tools.js';
+import { savePrompt, listSavedPrompts, deleteSavedPrompt } from './saved-prompts.js';
 import type { ScheduleManager } from './schedule-manager.js';
+import { ToolSearchIndex } from './tool-search.js';
 import type { TaskPodManager, TaskPodRequest } from './task-pod-manager.js';
 import type { CompanionManager } from './companion-manager.js';
 import { noopGuardrailHook, noopAuditSink, type GuardrailHook, type AuditSink } from '@bakerst/core';
@@ -369,7 +371,10 @@ const standingOrderTools: ToolDefinition[] = [
   {
     name: 'manage_standing_order',
     description:
-      'Create, update, enable, disable, or delete a standing order (scheduled recurring task). Actions: create (needs name, schedule as cron, type, config), update (needs id), enable/disable (needs id), delete (needs id).',
+      'Create, update, enable, disable, or delete a standing order (scheduled task). ' +
+      'Supports cron expressions. Set case_file to "private" for isolated execution (does not appear in main chat). ' +
+      'Delivery modes: announce (send to chat channel), pigeon (POST to webhook), file (log only). ' +
+      'Auto-disables after max_consecutive_failures (default 5) consecutive errors.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -388,7 +393,7 @@ const standingOrderTools: ToolDefinition[] = [
         },
         schedule: {
           type: 'string',
-          description: 'Cron expression (e.g., "0 9 * * *" for daily at 9am, "*/30 * * * *" for every 30 minutes)',
+          description: 'Cron expression (e.g., "0 9 * * 1-5" for weekdays at midnight)',
         },
         type: {
           type: 'string',
@@ -397,7 +402,16 @@ const standingOrderTools: ToolDefinition[] = [
         },
         config: {
           type: 'object',
-          description: 'Job configuration: { job?: string, command?: string, url?: string, method?: string, headers?: object, vars?: object }',
+          description: 'Job configuration: { job?, command?, url?, method?, headers?, vars?, delivery?: { mode: "announce"|"pigeon"|"file", channel?, url? } }',
+        },
+        case_file: {
+          type: 'string',
+          enum: ['sitting-room', 'private'],
+          description: 'Where results appear (default: sitting-room)',
+        },
+        max_consecutive_failures: {
+          type: 'number',
+          description: 'Auto-disable threshold (default 5)',
         },
       },
       required: ['action'],
@@ -433,10 +447,46 @@ const standingOrderTools: ToolDefinition[] = [
       required: ['id'],
     },
   },
+  {
+    name: 'save_prompt',
+    description: 'Save a prompt for later recall. Use when the user says "save this", "remember this prompt", or similar.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        text: { type: 'string', description: 'The prompt text to save' },
+        label: { type: 'string', description: 'Optional short label for the prompt' },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'list_saved_prompts',
+    description: 'List all saved prompts. Use when the user says "show saved prompts", "my saved prompts", or "/saved-prompts".',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        limit: { type: 'number', description: 'Max prompts to return (default 20)' },
+      },
+    },
+  },
+  {
+    name: 'delete_saved_prompt',
+    description: 'Delete a saved prompt by ID.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'The prompt ID to delete' },
+      },
+      required: ['id'],
+    },
+  },
 ];
 
 /** Self-management tool names */
 const SELF_MGMT_TOOLS = new Set(['manage_skill', 'list_skills', 'search_registry', 'get_system_info']);
+
+/** Saved-prompt tool names */
+const SAVED_PROMPT_TOOLS = new Set(['save_prompt', 'list_saved_prompts', 'delete_saved_prompt']);
 
 async function executeTool(
   toolName: string,
@@ -462,6 +512,39 @@ async function executeTool(
       return { result: 'Error: Scheduler not enabled' };
     }
     return executeScheduleTool(toolName, toolInput, scheduleManager);
+  }
+
+  // Handle saved prompt tools
+  if (SAVED_PROMPT_TOOLS.has(toolName)) {
+    switch (toolName) {
+      case 'save_prompt': {
+        const { text, label } = toolInput as { text: string; label?: string };
+        const saved = savePrompt(text, label);
+        return {
+          result: `Prompt saved (${saved.id}). Label: ${saved.label ?? 'none'}. Preview: "${text.slice(0, 80)}${text.length > 80 ? '...' : ''}"`,
+        };
+      }
+      case 'list_saved_prompts': {
+        const { limit } = toolInput as { limit?: number };
+        const prompts = listSavedPrompts(limit ?? 20);
+        if (prompts.length === 0) {
+          return { result: 'No saved prompts found.' };
+        }
+        const lines = prompts.map((p) => {
+          const preview = p.text.length > 60 ? p.text.slice(0, 60) + '...' : p.text;
+          const lbl = p.label ? ` [${p.label}]` : '';
+          return `- ${p.id}${lbl} (${p.created_at.split('T')[0]}): "${preview}"`;
+        });
+        return { result: `${prompts.length} saved prompt(s):\n\n${lines.join('\n')}` };
+      }
+      case 'delete_saved_prompt': {
+        const { id } = toolInput as { id: string };
+        const deleted = deleteSavedPrompt(id);
+        return { result: deleted ? `Prompt ${id} deleted.` : `Prompt ${id} not found.` };
+      }
+      default:
+        return { result: `Unknown saved prompt tool: ${toolName}` };
+    }
   }
 
   // Delegate to unified registry (skills + plugins) if it owns this tool
@@ -678,6 +761,58 @@ export function createAgent(
     return resolvedAllTools;
   }
 
+  // New: create tool search index instance for brain-side search strategy
+  const toolSearchIndex = new ToolSearchIndex();
+
+  /**
+   * Given the resolved model's provider, build the tools array for the LLM call.
+   * - Anthropic/OpenRouter: send all tools with defer_loading=true on extension tools
+   * - Others: send core tools + search_tools only; extension tools held in search index
+   *
+   * Defined inside createAgent() to access closure variables (tools, scheduleManager).
+   */
+  function buildToolsForRequest(
+    allTools: ToolDefinition[],
+    providerType: string,
+    activatedTools: ToolDefinition[],
+  ): { tools: ToolDefinition[]; usesSearchIndex: boolean } {
+    // Core tools = built-in brain tools + schedule tools (always small, ~10-15)
+    // Extension tools = everything from unified registry
+    const coreToolNames = new Set([
+      ...tools.map((t) => t.name),
+      ...(scheduleManager ? standingOrderTools.map((t) => t.name) : []),
+    ]);
+
+    const coreTools = allTools.filter((t) => coreToolNames.has(t.name));
+    const extensionTools = allTools.filter((t) => !coreToolNames.has(t.name));
+
+    if (providerType === 'anthropic' || providerType === 'openrouter') {
+      // Strategy 1: Anthropic native defer_loading
+      return {
+        tools: [
+          ...coreTools,
+          ...extensionTools.map((t) => ({ ...t, defer_loading: true })),
+        ],
+        usesSearchIndex: false,
+      };
+    }
+
+    // Strategy 2: Brain-side search for OpenAI, Ollama, etc.
+    toolSearchIndex.remove('extensions');
+    if (extensionTools.length > 0) {
+      toolSearchIndex.add('extensions', extensionTools);
+    }
+
+    return {
+      tools: [
+        ...coreTools,
+        ...(extensionTools.length > 0 ? [toolSearchIndex.getSearchToolDefinition()] : []),
+        ...activatedTools,
+      ],
+      usesSearchIndex: true,
+    };
+  }
+
   // Eagerly resolve for backward compat with plugin-only path
   const legacyAllTools: ToolDefinition[] = [
     ...tools,
@@ -737,10 +872,17 @@ export function createAgent(
     const jobIds: string[] = [];
     let toolCallCount = 0;
     const maxIterations = 10;
+    let activatedTools: ToolDefinition[] = [];
 
     for (let i = 0; i < maxIterations; i++) {
       // Check for conversation-level model override
       const modelOverride = getConversationModelOverride(conversationId);
+
+      // Resolve model to determine tool strategy (native defer vs brain-side search)
+      const resolvedModel = modelRouter.resolveModelDefinition('agent', modelOverride ?? undefined);
+      const { tools: requestTools, usesSearchIndex } = buildToolsForRequest(
+        allTools, resolvedModel.provider, activatedTools,
+      );
 
       const response = await withSpan('brain.llm.call', {
         'llm.role': 'agent',
@@ -749,7 +891,7 @@ export function createAgent(
         return modelRouter.chat({
           role: 'agent',
           system: systemBlocks,
-          tools: allTools,
+          tools: requestTools,
           messages,
           ...(modelOverride ? { modelOverride } : {}),
         });
@@ -793,6 +935,30 @@ export function createAgent(
         for (const block of response.content) {
           if (block.type === 'tool_use') {
             toolCallCount++;
+
+            // Handle search_tools specially when using brain-side search
+            if (usesSearchIndex && block.name === 'search_tools') {
+              const query = (block.input as { query: string; limit?: number }).query;
+              const limit = (block.input as { query: string; limit?: number }).limit;
+              const results = toolSearchIndex.search(query, limit);
+
+              // Inject found tools for next iteration
+              activatedTools = results.map((r) => r.fullSchema);
+
+              const resultText = results.length > 0
+                ? results.map((r) => `- ${r.name}: ${r.description}`).join('\n')
+                : 'No matching tools found. Try different keywords.';
+
+              log.info({ query, found: results.length, activated: activatedTools.map(t => t.name) }, 'tool search completed');
+
+              toolResults.push({
+                type: 'tool_result',
+                tool_use_id: block.id,
+                content: `Found ${results.length} tool(s):\n${resultText}\n\nThese tools are now available for use.`,
+              });
+              continue;
+            }
+
             log.info({ tool: block.name, input: block.input }, 'executing tool call');
 
             // Guardrail: check before execution
@@ -913,16 +1079,23 @@ export function createAgent(
     let toolCallCount = 0;
     const maxIterations = 10;
     let fullResponseText = '';
+    let activatedTools: ToolDefinition[] = [];
 
     try {
       for (let i = 0; i < maxIterations; i++) {
         // Check for conversation-level model override
         const streamModelOverride = getConversationModelOverride(conversationId);
 
+        // Resolve model to determine tool strategy (native defer vs brain-side search)
+        const resolvedModel = modelRouter.resolveModelDefinition('agent', streamModelOverride ?? undefined);
+        const { tools: requestTools, usesSearchIndex } = buildToolsForRequest(
+          allTools, resolvedModel.provider, activatedTools,
+        );
+
         const streamGen = modelRouter.chatStream({
           role: 'agent',
           system: systemBlocks,
-          tools: allTools,
+          tools: requestTools,
           messages,
           ...(streamModelOverride ? { modelOverride: streamModelOverride } : {}),
         });
@@ -958,6 +1131,33 @@ export function createAgent(
           for (const block of response.content) {
             if (block.type === 'tool_use') {
               toolCallCount++;
+
+              // Handle search_tools specially when using brain-side search
+              if (usesSearchIndex && block.name === 'search_tools') {
+                const query = (block.input as { query: string; limit?: number }).query;
+                const limit = (block.input as { query: string; limit?: number }).limit;
+                const results = toolSearchIndex.search(query, limit);
+
+                // Inject found tools for next iteration
+                activatedTools = results.map((r) => r.fullSchema);
+
+                const resultText = results.length > 0
+                  ? results.map((r) => `- ${r.name}: ${r.description}`).join('\n')
+                  : 'No matching tools found. Try different keywords.';
+
+                log.info({ query, found: results.length, activated: activatedTools.map(t => t.name) }, 'tool search completed');
+
+                const searchSummary = `Found ${results.length} tool(s)`;
+                yield { type: 'tool_result', tool: 'search_tools', summary: searchSummary };
+
+                toolResults.push({
+                  type: 'tool_result',
+                  tool_use_id: block.id,
+                  content: `Found ${results.length} tool(s):\n${resultText}\n\nThese tools are now available for use.`,
+                });
+                continue;
+              }
+
               yield { type: 'thinking', tool: block.name, input: block.input as Record<string, unknown> };
 
               // Guardrail: check before execution
