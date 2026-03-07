@@ -33,6 +33,8 @@ export interface McpToolResult {
 interface ConnectedClient {
   client: Client;
   transport: StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport;
+  /** Connection info for automatic reconnection on session loss */
+  httpInfo?: { url: string; transportType: SkillTransport; headers?: Record<string, string> };
 }
 
 export class McpClientManager {
@@ -125,7 +127,11 @@ export class McpClientManager {
 
     try {
       await client.connect(transport);
-      this.clients.set(skillId, { client, transport });
+      this.clients.set(skillId, {
+        client,
+        transport,
+        httpInfo: { url, transportType, headers },
+      });
       log.info({ skillId }, 'MCP client connected via HTTP');
     } catch (err) {
       log.error({ err, skillId, url }, 'failed to connect MCP client via HTTP');
@@ -152,6 +158,7 @@ export class McpClientManager {
 
   /**
    * Call a tool on a connected MCP server.
+   * Automatically reconnects and retries once on session loss.
    */
   async callTool(skillId: string, toolName: string, input: Record<string, unknown>): Promise<McpToolResult> {
     const entry = this.clients.get(skillId);
@@ -172,9 +179,42 @@ export class McpClientManager {
         isError: result.isError as boolean | undefined,
       };
     } catch (err) {
+      // Detect session loss — the server no longer recognizes our session ID.
+      // This happens when the SSE stream disconnects and the server evicts the session.
+      if (this.isSessionLostError(err) && entry.httpInfo) {
+        log.warn({ skillId, toolName }, 'session lost — reconnecting and retrying');
+        try {
+          await this.close(skillId);
+          await this.connectHttp(skillId, entry.httpInfo.url, entry.httpInfo.transportType, entry.httpInfo.headers);
+
+          const retryEntry = this.clients.get(skillId);
+          if (!retryEntry) throw new Error('reconnection failed');
+
+          const result = await retryEntry.client.callTool({
+            name: toolName,
+            arguments: input,
+          });
+
+          return {
+            content: (result.content ?? []) as McpToolResult['content'],
+            isError: result.isError as boolean | undefined,
+          };
+        } catch (retryErr) {
+          log.error({ err: retryErr, skillId, toolName }, 'MCP tool call failed after session recovery');
+          throw retryErr;
+        }
+      }
+
       log.error({ err, skillId, toolName }, 'MCP tool call failed');
       throw err;
     }
+  }
+
+  /** Check if an error indicates the MCP session was lost/expired */
+  private isSessionLostError(err: unknown): boolean {
+    if (!(err instanceof Error)) return false;
+    const msg = err.message;
+    return msg.includes('Session not found') || msg.includes('session expired');
   }
 
   /** Check if a skill is currently connected */

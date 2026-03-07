@@ -16,7 +16,7 @@ import type { ScheduleManager } from './schedule-manager.js';
 import type { BrainStateMachine } from './brain-state.js';
 import type { CompanionManager } from './companion-manager.js';
 import type { ExtensionManager } from './extension-manager.js';
-import { listConversations, getConversation, getMessages, listSkills, getSkill, upsertSkill, deleteSkill as deleteSkillDb, getDb, getModelConfigValue, setModelConfigValue, getMemoryState, getObservations, getActiveObservationLog, getReflections, type ScheduleRow } from './db.js';
+import { listConversations, getConversation, getMessages, setConversationModelOverride, listSkills, getSkill, upsertSkill, deleteSkill as deleteSkillDb, getDb, getModelConfigValue, setModelConfigValue, getMemoryState, getObservations, getActiveObservationLog, getReflections, type ScheduleRow } from './db.js';
 import { getSecrets, updateSecrets, restartDeployment } from './k8s-client.js';
 import { noopAuditSink, type AuditSink } from '@bakerst/core';
 import { reloadInstructionSkills } from './skill-loader.js';
@@ -112,7 +112,7 @@ export function createApi(
       res.setHeader('Access-Control-Allow-Origin', origin ?? '*');
     }
     res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     if (req.method === 'OPTIONS') {
       res.status(204).end();
@@ -269,6 +269,38 @@ export function createApi(
     }
     const messages = getMessages(req.params.id);
     res.json({ conversation, messages });
+  });
+
+  app.patch('/conversations/:id/model', (req, res) => {
+    try {
+      const conversation = getConversation(req.params.id);
+      if (!conversation) {
+        res.status(404).json({ error: 'conversation not found' });
+        return;
+      }
+
+      const { model } = req.body;
+      if (model !== null && model !== undefined && typeof model !== 'string') {
+        res.status(400).json({ error: 'model must be a string or null' });
+        return;
+      }
+
+      // Validate model exists in router config
+      if (model && modelRouter) {
+        const config = modelRouter.routerConfig;
+        const exists = config.models.some(m => m.id === model || m.modelName === model);
+        if (!exists) {
+          res.status(400).json({ error: `unknown model '${model}'` });
+          return;
+        }
+      }
+
+      setConversationModelOverride(req.params.id, model ?? null);
+      res.json({ ok: true, model: model ?? null });
+    } catch (err) {
+      log.error({ err }, 'set conversation model error');
+      res.status(500).json({ error: 'failed to set model' });
+    }
   });
 
   app.get('/jobs', (_req, res) => {
@@ -850,7 +882,6 @@ export function createApi(
       for (const [key, provider] of Object.entries(config.providers)) {
         const masked = { ...provider } as Record<string, unknown>;
         if ('apiKey' in masked && masked.apiKey) masked.apiKey = '***';
-        if ('oauthToken' in masked && masked.oauthToken) masked.oauthToken = '***';
         maskedProviders[key] = masked;
       }
 

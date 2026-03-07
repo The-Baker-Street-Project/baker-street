@@ -80,6 +80,17 @@ export function ChatPage() {
     }
   }, [conversationId, id, navigate]);
 
+  // Restore conversation from server if we have a saved ID but no cached messages
+  useEffect(() => {
+    if (!id && conversationId && messages.length === 0) {
+      loadConversation(conversationId).catch(() => {
+        sessionStorage.removeItem('bakerst_active_conversation');
+        sessionStorage.removeItem('bakerst_chat_messages');
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (showHistory) {
       getConversations().then(setConversations).catch(() => {});

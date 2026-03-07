@@ -25,14 +25,11 @@ const log = logger.child({ module: 'model-config' });
 function defaultProviders(): Record<string, ProviderConfig> {
   const providers: Record<string, ProviderConfig> = {};
 
-  const oauthToken = process.env.ANTHROPIC_OAUTH_TOKEN;
   const apiKey = process.env.ANTHROPIC_API_KEY;
-
-  if (oauthToken || apiKey) {
+  if (apiKey) {
     providers['anthropic'] = {
       provider: 'anthropic',
-      oauthToken: oauthToken || undefined,
-      apiKey: apiKey || undefined,
+      apiKey,
     };
   }
 
@@ -42,6 +39,34 @@ function defaultProviders(): Record<string, ProviderConfig> {
       provider: 'openrouter',
       apiKey: openRouterKey,
     };
+  }
+
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (openaiKey) {
+    providers['openai'] = {
+      provider: 'openai',
+      apiKey: openaiKey,
+    };
+  }
+
+  // Ollama endpoints — OLLAMA_ENDPOINTS=host1:port1,host2:port2
+  const OLLAMA_ENDPOINT_PATTERN = /^[\w.-]+:\d{1,5}$/;
+
+  const ollamaEndpoints = process.env.OLLAMA_ENDPOINTS;
+  if (ollamaEndpoints) {
+    const endpoints = ollamaEndpoints.split(',').map(e => e.trim()).filter(Boolean);
+    for (const endpoint of endpoints) {
+      if (!OLLAMA_ENDPOINT_PATTERN.test(endpoint)) {
+        log.warn({ endpoint }, 'skipping invalid OLLAMA_ENDPOINTS entry (expected host:port)');
+        continue;
+      }
+      const isLocalhost = endpoint.startsWith('localhost') || endpoint.startsWith('127.0.0.1');
+      const key = isLocalhost ? 'ollama' : `ollama@${endpoint.split(':')[0]}`;
+      providers[key] = {
+        provider: 'ollama',
+        baseURL: `http://${endpoint}/v1`,
+      };
+    }
   }
 
   return providers;
@@ -58,6 +83,14 @@ function defaultModels(): ModelDefinition[] {
       costPer1MOutput: 15,
     },
     {
+      id: 'opus-4',
+      modelName: 'claude-opus-4-20250514',
+      provider: 'anthropic',
+      maxTokens: 4096,
+      costPer1MInput: 15,
+      costPer1MOutput: 75,
+    },
+    {
       id: 'haiku-4.5',
       modelName: 'claude-haiku-4-5-20251001',
       provider: 'anthropic',
@@ -65,6 +98,35 @@ function defaultModels(): ModelDefinition[] {
       costPer1MInput: 0.8,
       costPer1MOutput: 4,
     },
+    // OpenAI models (only included when OPENAI_API_KEY is set)
+    ...(process.env.OPENAI_API_KEY
+      ? [
+          {
+            id: 'gpt-4o',
+            modelName: 'gpt-4o',
+            provider: 'openai' as const,
+            maxTokens: 4096,
+            costPer1MInput: 2.5,
+            costPer1MOutput: 10,
+          },
+          {
+            id: 'gpt-4o-mini',
+            modelName: 'gpt-4o-mini',
+            provider: 'openai' as const,
+            maxTokens: 4096,
+            costPer1MInput: 0.15,
+            costPer1MOutput: 0.6,
+          },
+          {
+            id: 'o3-mini',
+            modelName: 'o3-mini',
+            provider: 'openai' as const,
+            maxTokens: 4096,
+            costPer1MInput: 1.1,
+            costPer1MOutput: 4.4,
+          },
+        ]
+      : []),
   ];
 }
 
@@ -200,6 +262,13 @@ function applyEnvOverrides(config: ModelRouterConfig): ModelRouterConfig {
     };
   }
 
+  // FALLBACK_STRATEGY — set fallback ordering
+  const fallbackStrategy = process.env.FALLBACK_STRATEGY;
+  if (fallbackStrategy === 'cheapest-first' || fallbackStrategy === 'configured') {
+    config.fallbackStrategy = fallbackStrategy;
+    log.info({ fallbackStrategy }, 'FALLBACK_STRATEGY override applied');
+  }
+
   return config;
 }
 
@@ -207,15 +276,17 @@ function applyEnvOverrides(config: ModelRouterConfig): ModelRouterConfig {
 function guessProvider(
   modelName: string,
   config: ModelRouterConfig,
-): 'anthropic' | 'openrouter' | 'ollama' | 'openai-compatible' {
-  let guessed: 'anthropic' | 'openrouter' | 'ollama' | 'openai-compatible';
+): string {
+  let guessed: string;
 
   if (modelName.startsWith('claude')) {
     guessed = 'anthropic';
+  } else if (modelName.startsWith('gpt-') || modelName.startsWith('o1') || modelName.startsWith('o3')) {
+    guessed = 'openai';
   } else if (config.providers['openrouter']) {
     guessed = 'openrouter';
-  } else if (config.providers['ollama']) {
-    guessed = 'ollama';
+  } else if (Object.keys(config.providers).find(k => k.startsWith('ollama'))) {
+    guessed = Object.keys(config.providers).find(k => k.startsWith('ollama'))!;
   } else {
     guessed = 'anthropic';
   }
@@ -236,7 +307,7 @@ function guessProvider(
 function validateConfig(config: ModelRouterConfig): void {
   if (Object.keys(config.providers).length === 0) {
     throw new Error(
-      'model-config: no providers configured. Set ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_API_KEY at minimum.',
+      'model-config: no providers configured. Set ANTHROPIC_API_KEY at minimum.',
     );
   }
 

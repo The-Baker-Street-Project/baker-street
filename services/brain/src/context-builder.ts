@@ -27,20 +27,12 @@ export function buildContext(
   conversationId: string,
   systemPrompt: string,
   relevantMemories: MemorySearchResult[],
-  opts: { useOAuth: boolean; channel?: string },
+  opts: { channel?: string },
 ): BuiltContext {
   // --- Stable prefix (cacheable) ---
   const systemBlocks: CacheableTextBlock[] = [];
 
-  // Block 1: Claude Code identity (if OAuth) — stable across all conversations
-  if (opts.useOAuth) {
-    systemBlocks.push({
-      type: 'text',
-      text: "You are Claude Code, Anthropic's official CLI for Claude.",
-    });
-  }
-
-  // Block 2: SOUL.md + BRAIN.md system prompt — stable across all conversations
+  // Block 1: SOUL.md + BRAIN.md system prompt — stable across all conversations
   if (systemPrompt) {
     systemBlocks.push({ type: 'text', text: systemPrompt });
   }

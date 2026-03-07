@@ -2,8 +2,9 @@
  * ModelRouter — routes chat requests to the appropriate LLM provider.
  *
  * Supports:
- *   - Anthropic (direct, OAuth or API key)
+ *   - Anthropic (direct, API key)
  *   - OpenRouter (Anthropic SDK with custom baseURL)
+ *   - OpenAI native (openai SDK with full tool support)
  *   - Ollama / OpenAI-compatible (openai SDK with custom baseURL)
  *
  * The router resolves role -> model definition -> provider adapter, handles
@@ -21,6 +22,7 @@ import type {
   OpenRouterProviderConfig,
   OllamaProviderConfig,
   OpenAICompatibleProviderConfig,
+  OpenAIProviderConfig,
   ChatParams,
   ChatResponse,
   ChatContentBlock,
@@ -79,9 +81,28 @@ function validateContentBlocks(content: unknown[]): ChatContentBlock[] {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function isOAuthToken(key: string): boolean {
-  return key.includes('sk-ant-oat');
+// ---------------------------------------------------------------------------
+// Failure classification
+// ---------------------------------------------------------------------------
+
+type FailureType = 'rate_limit' | 'auth' | 'timeout' | 'server_error' | 'unknown';
+
+function classifyError(err: Error): FailureType {
+  const status = (err as any).status ?? (err as any).statusCode;
+  if (status === 429 || err.message.toLowerCase().includes('rate limit')) return 'rate_limit';
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 500 || status === 502 || status === 503) return 'server_error';
+  if (err.message.includes('ETIMEDOUT') || err.message.includes('ECONNABORTED') || err.message.includes('timeout')) return 'timeout';
+  return 'unknown';
 }
+
+const COOLDOWN_MS: Record<FailureType, number> = {
+  rate_limit: 60_000,
+  timeout: 30_000,
+  server_error: 30_000,
+  auth: Infinity, // permanent
+  unknown: 30_000,
+};
 
 // ---------------------------------------------------------------------------
 // Provider adapter interface
@@ -96,28 +117,14 @@ interface ProviderAdapter {
 // Anthropic adapter
 // ---------------------------------------------------------------------------
 
-function createAnthropicAdapter(providerCfg: AnthropicProviderConfig): { adapter: ProviderAdapter; useOAuth: boolean } {
-  const oauthToken = providerCfg.oauthToken || process.env.ANTHROPIC_OAUTH_TOKEN;
+function createAnthropicAdapter(providerCfg: AnthropicProviderConfig): ProviderAdapter {
   const apiKey = providerCfg.apiKey || process.env.ANTHROPIC_API_KEY;
-  let client: Anthropic;
-  let useOAuth = false;
-
-  if (oauthToken && isOAuthToken(oauthToken)) {
-    client = new Anthropic({
-      authToken: oauthToken,
-      apiKey: null,
-      defaultHeaders: {
-        'anthropic-beta': 'claude-code-20250219,oauth-2025-04-20',
-      },
-    });
-    useOAuth = true;
-    log.info('anthropic adapter: using OAuth token');
-  } else if (apiKey) {
-    client = new Anthropic({ apiKey });
-    log.info('anthropic adapter: using API key');
-  } else {
+  if (!apiKey) {
     throw new Error('anthropic adapter: no credentials found');
   }
+
+  const client = new Anthropic({ apiKey });
+  log.info('anthropic adapter: using API key');
 
   const adapter: ProviderAdapter = {
     async chat(model: ModelDefinition, params: ChatParams): Promise<ChatResponse> {
@@ -201,7 +208,7 @@ function createAnthropicAdapter(providerCfg: AnthropicProviderConfig): { adapter
     },
   };
 
-  return { adapter, useOAuth };
+  return adapter;
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +282,265 @@ function createOpenRouterAdapter(providerCfg: OpenRouterProviderConfig): Provide
             inputTokens: finalMessage.usage.input_tokens,
             outputTokens: finalMessage.usage.output_tokens,
           },
+        },
+      };
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI native adapter (uses openai SDK with full tool support)
+// ---------------------------------------------------------------------------
+
+/** Map OpenAI finish_reason to Anthropic-style stop reason */
+function mapOpenAIFinishReason(reason: string | null): string {
+  switch (reason) {
+    case 'stop':
+      return 'end_turn';
+    case 'tool_calls':
+      return 'tool_use';
+    case 'length':
+      return 'max_tokens';
+    default:
+      return reason ?? 'end_turn';
+  }
+}
+
+/** Safely parse JSON, returning empty object on failure */
+function safeJsonParse(str: string): Record<string, unknown> {
+  try {
+    return JSON.parse(str);
+  } catch {
+    log.warn({ str: str.slice(0, 200) }, 'failed to parse tool call arguments');
+    return {};
+  }
+}
+
+/** Normalize an OpenAI chat completion choice into ChatResponse */
+function normalizeOpenAIResponse(
+  choice: { message: Record<string, unknown>; finish_reason: string | null },
+  model: string,
+  usage?: { prompt_tokens: number; completion_tokens: number | null } | null,
+): ChatResponse {
+  const content: ChatContentBlock[] = [];
+
+  if (typeof choice.message.content === 'string' && choice.message.content) {
+    content.push({ type: 'text', text: choice.message.content });
+  }
+
+  // Convert tool_calls to tool_use content blocks
+  const toolCalls = choice.message.tool_calls as Array<{
+    id: string;
+    function: { name: string; arguments: string };
+  }> | undefined;
+
+  if (toolCalls) {
+    for (const tc of toolCalls) {
+      content.push({
+        type: 'tool_use',
+        id: tc.id,
+        name: tc.function.name,
+        input: safeJsonParse(tc.function.arguments),
+      });
+    }
+  }
+
+  return {
+    content,
+    stopReason: mapOpenAIFinishReason(choice.finish_reason),
+    model,
+    usage: usage
+      ? {
+          inputTokens: usage.prompt_tokens,
+          outputTokens: usage.completion_tokens ?? 0,
+        }
+      : undefined,
+  };
+}
+
+/** Convert Anthropic-style messages to OpenAI format, preserving tool_use and tool_result blocks.
+ *  Returns a loosely-typed array — callers cast to ChatCompletionMessageParam[] at the SDK boundary. */
+function convertToOpenAIMessagesWithTools(
+  params: ChatParams,
+): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+
+  // System blocks -> single system message
+  if (params.system && params.system.length > 0) {
+    out.push({
+      role: 'system',
+      content: params.system.map((b) => b.text).join('\n\n'),
+    });
+  }
+
+  for (const msg of params.messages) {
+    if (typeof msg.content === 'string') {
+      out.push({ role: msg.role, content: msg.content });
+      continue;
+    }
+
+    // Check for tool_result blocks (user messages with tool results)
+    const toolResults = msg.content.filter(b => b.type === 'tool_result');
+    if (toolResults.length > 0) {
+      for (const tr of toolResults) {
+        if (tr.type === 'tool_result') {
+          out.push({
+            role: 'tool',
+            tool_call_id: tr.tool_use_id,
+            content: typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content),
+          });
+        }
+      }
+      continue;
+    }
+
+    // Check for tool_use blocks (assistant messages with tool calls)
+    const toolUses = msg.content.filter(b => b.type === 'tool_use');
+    if (toolUses.length > 0) {
+      const textParts = msg.content
+        .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+        .map(b => b.text)
+        .join('\n');
+
+      out.push({
+        role: 'assistant',
+        content: textParts || null,
+        tool_calls: toolUses.map(b => {
+          if (b.type !== 'tool_use') return undefined;
+          return {
+            id: b.id,
+            type: 'function',
+            function: {
+              name: b.name,
+              arguments: JSON.stringify(b.input),
+            },
+          };
+        }).filter(Boolean),
+      });
+      continue;
+    }
+
+    // Plain text content blocks
+    const text = msg.content
+      .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+      .map(b => b.text)
+      .join('\n');
+    out.push({ role: msg.role, content: text });
+  }
+
+  return out;
+}
+
+/** Convert Anthropic tool definitions to OpenAI function format */
+function convertToolsToOpenAI(
+  tools: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>,
+): Array<{ type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }> {
+  return tools.map(t => ({
+    type: 'function' as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.input_schema,
+    },
+  }));
+}
+
+async function createOpenAINativeAdapter(
+  providerCfg: OpenAIProviderConfig,
+): Promise<ProviderAdapter> {
+  const { default: OpenAI } = await import('openai');
+
+  const client = new OpenAI({ apiKey: providerCfg.apiKey });
+
+  log.info('openai native adapter: initialized');
+
+  return {
+    async chat(model: ModelDefinition, params: ChatParams): Promise<ChatResponse> {
+      const messages = convertToOpenAIMessagesWithTools(params);
+      const tools = params.tools ? convertToolsToOpenAI(params.tools) : undefined;
+
+      const response = await client.chat.completions.create({
+        model: model.modelName,
+        max_tokens: params.maxTokens ?? model.maxTokens,
+        messages: messages as unknown as Parameters<typeof client.chat.completions.create>[0]['messages'],
+        ...(tools && tools.length > 0 ? { tools: tools as Parameters<typeof client.chat.completions.create>[0]['tools'] } : {}),
+      });
+
+      const choice = response.choices[0];
+      if (!choice) {
+        throw new Error('openai native adapter: no choices in response');
+      }
+
+      return normalizeOpenAIResponse(choice as any, response.model, response.usage);
+    },
+
+    async *chatStream(model: ModelDefinition, params: ChatParams): AsyncGenerator<ModelStreamEvent> {
+      const messages = convertToOpenAIMessagesWithTools(params);
+      const tools = params.tools ? convertToolsToOpenAI(params.tools) : undefined;
+
+      const stream = await client.chat.completions.create({
+        model: model.modelName,
+        max_tokens: params.maxTokens ?? model.maxTokens,
+        messages: messages as unknown as Parameters<typeof client.chat.completions.create>[0]['messages'],
+        ...(tools && tools.length > 0 ? { tools: tools as Parameters<typeof client.chat.completions.create>[0]['tools'] } : {}),
+        stream: true,
+      });
+
+      let fullText = '';
+      let finishReason = 'end_turn';
+      // Accumulate tool call fragments across chunks
+      const toolCallAccumulator = new Map<number, { id: string; name: string; args: string }>();
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta;
+        if (delta?.content) {
+          fullText += delta.content;
+          yield { type: 'text_delta', text: delta.content };
+        }
+
+        // Accumulate tool call deltas
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const existing = toolCallAccumulator.get(tc.index);
+            if (!existing) {
+              toolCallAccumulator.set(tc.index, {
+                id: tc.id ?? '',
+                name: tc.function?.name ?? '',
+                args: tc.function?.arguments ?? '',
+              });
+            } else {
+              if (tc.id) existing.id = tc.id;
+              if (tc.function?.name) existing.name += tc.function.name;
+              if (tc.function?.arguments) existing.args += tc.function.arguments;
+            }
+          }
+        }
+
+        if (chunk.choices[0]?.finish_reason) {
+          finishReason = mapOpenAIFinishReason(chunk.choices[0].finish_reason);
+        }
+      }
+
+      // Build final content blocks
+      const content: ChatContentBlock[] = [];
+      if (fullText) {
+        content.push({ type: 'text', text: fullText });
+      }
+      for (const [, tc] of toolCallAccumulator) {
+        content.push({
+          type: 'tool_use',
+          id: tc.id,
+          name: tc.name,
+          input: safeJsonParse(tc.args || '{}'),
+        });
+      }
+
+      yield {
+        type: 'message_done',
+        response: {
+          content,
+          stopReason: finishReason,
+          model: model.modelName,
         },
       };
     },
@@ -414,17 +680,12 @@ function convertToOpenAIMessages(
 export class ModelRouter {
   private adapters: Map<string, ProviderAdapter> = new Map();
   private circuitBreakers: Map<string, CircuitBreaker> = new Map();
+  private authLockedModels: Set<string> = new Set();
   private config: ModelRouterConfig;
-  private _useOAuth = false;
   private onApiCall?: (info: { provider: string; model: string; durationMs: number; inputTokens?: number; outputTokens?: number; error?: string }) => void;
 
   private constructor(config: ModelRouterConfig) {
     this.config = config;
-  }
-
-  /** Whether the Anthropic adapter is using OAuth (needed for identity prefix) */
-  get useOAuth(): boolean {
-    return this._useOAuth;
   }
 
   /** The resolved config for external inspection */
@@ -442,15 +703,19 @@ export class ModelRouter {
     // Eagerly initialise Anthropic adapter if configured (most common case)
     const anthropicCfg = config.providers['anthropic'];
     if (anthropicCfg && anthropicCfg.provider === 'anthropic') {
-      const { adapter, useOAuth } = createAnthropicAdapter(anthropicCfg);
-      router.adapters.set('anthropic', adapter);
-      router._useOAuth = useOAuth;
+      router.adapters.set('anthropic', createAnthropicAdapter(anthropicCfg));
     }
 
     // OpenRouter — eager if configured
     const orCfg = config.providers['openrouter'];
     if (orCfg && orCfg.provider === 'openrouter') {
       router.adapters.set('openrouter', createOpenRouterAdapter(orCfg));
+    }
+
+    // OpenAI native — eager if configured
+    const openaiCfg = config.providers['openai'];
+    if (openaiCfg && openaiCfg.provider === 'openai') {
+      router.adapters.set('openai', await createOpenAINativeAdapter(openaiCfg as OpenAIProviderConfig));
     }
 
     return router;
@@ -512,6 +777,12 @@ export class ModelRouter {
       return adapter;
     }
 
+    if (providerCfg.provider === 'openai') {
+      const adapter = await createOpenAINativeAdapter(providerCfg as OpenAIProviderConfig);
+      this.adapters.set(provider, adapter);
+      return adapter;
+    }
+
     throw new Error(`model-router: cannot create adapter for provider '${provider}'`);
   }
 
@@ -534,19 +805,33 @@ export class ModelRouter {
   /** Non-streaming chat call with fallback support */
   async chat(params: ChatParams): Promise<ChatResponse> {
     const model = this.resolveModel(params);
-    const modelsToTry = [model];
+    let modelsToTry = [model];
 
     // Append fallback chain if configured
     if (this.config.fallbackChain) {
+      const fallbacks: ModelDefinition[] = [];
       for (const fbId of this.config.fallbackChain) {
         if (fbId === model.id) continue;
         const fbModel = this.config.models.find((m) => m.id === fbId);
-        if (fbModel) modelsToTry.push(fbModel);
+        if (fbModel) fallbacks.push(fbModel);
       }
+
+      // Sort fallbacks by cost if cheapest-first strategy
+      if (this.config.fallbackStrategy === 'cheapest-first') {
+        fallbacks.sort((a, b) => (a.costPer1MInput ?? 0) - (b.costPer1MInput ?? 0));
+      }
+
+      modelsToTry = [model, ...fallbacks];
     }
 
     let lastError: Error = new Error('All models in fallback chain failed');
     for (const m of modelsToTry) {
+      // Skip auth-locked models
+      if (this.authLockedModels.has(m.id)) {
+        log.warn({ model: m.id, provider: m.provider }, 'skipping auth-locked model');
+        continue;
+      }
+
       const start = Date.now();
       try {
         const adapter = await this.getAdapter(m.provider);
@@ -560,8 +845,20 @@ export class ModelRouter {
         lastError = err instanceof Error ? err : new Error(String(err));
         const durationMs = Date.now() - start;
         this.onApiCall?.({ provider: m.provider, model: m.modelName, durationMs, error: lastError.message });
+
+        // Classify failure and set appropriate cooldown
+        const failureType = classifyError(lastError);
+        if (failureType === 'auth') {
+          this.authLockedModels.add(m.id);
+          log.error({ model: m.id, provider: m.provider }, 'auth failure — model locked until key updated');
+        } else {
+          // Adjust circuit breaker timeout based on failure type
+          const cb = this.getOrCreateBreaker(m.provider);
+          cb.resetTimeoutMs = COOLDOWN_MS[failureType];
+        }
+
         log.warn(
-          { err, model: m.modelName, provider: m.provider },
+          { err, model: m.modelName, provider: m.provider, failureType },
           'chat request failed, trying fallback',
         );
       }
@@ -573,6 +870,12 @@ export class ModelRouter {
   /** Streaming chat call with circuit breaker (no fallback — fails immediately) */
   async *chatStream(params: ChatParams): AsyncGenerator<ModelStreamEvent> {
     const model = this.resolveModel(params);
+
+    // Reject early if model is auth-locked
+    if (this.authLockedModels.has(model.id)) {
+      throw new Error(`Model '${model.id}' is auth-locked (previous 401/403 failure)`);
+    }
+
     const adapter = await this.getAdapter(model.provider);
     const cb = this.getOrCreateBreaker(model.provider);
     log.info({ model: model.modelName, provider: model.provider, role: params.role ?? 'agent' }, 'routing streaming chat request');

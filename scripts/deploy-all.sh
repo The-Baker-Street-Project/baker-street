@@ -368,25 +368,12 @@ if [[ "$SKIP_SECRETS" == false ]]; then
   # --- Anthropic auth ---
   step "Anthropic authentication (required)"
 
-  HAVE_ANTHROPIC=false
-  if [[ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]]; then
-    info "ANTHROPIC_OAUTH_TOKEN is set (****${ANTHROPIC_OAUTH_TOKEN: -4})"
-    HAVE_ANTHROPIC=true
-  fi
   if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
     info "ANTHROPIC_API_KEY is set (****${ANTHROPIC_API_KEY: -4})"
-    HAVE_ANTHROPIC=true
-  fi
-
-  if [[ "$HAVE_ANTHROPIC" == false ]]; then
-    warn "No Anthropic credentials found."
-    info "Provide either an OAuth token (preferred) or an API key."
-    ANTHROPIC_OAUTH_TOKEN=$(ask_secret "ANTHROPIC_OAUTH_TOKEN (or press Enter to use API key instead)" "")
-    if [[ -z "$ANTHROPIC_OAUTH_TOKEN" ]]; then
-      ANTHROPIC_API_KEY=$(ask_secret "ANTHROPIC_API_KEY" "")
-      if [[ -z "$ANTHROPIC_API_KEY" ]]; then
-        fail "At least one of ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_API_KEY is required."
-      fi
+  else
+    ANTHROPIC_API_KEY=$(ask_secret "ANTHROPIC_API_KEY" "")
+    if [[ -z "$ANTHROPIC_API_KEY" ]]; then
+      fail "ANTHROPIC_API_KEY is required."
     fi
   fi
 
@@ -399,6 +386,38 @@ if [[ "$SKIP_SECRETS" == false ]]; then
     VOYAGE_API_KEY=$(ask_secret "VOYAGE_API_KEY (optional, press Enter to skip)" "")
     if [[ -z "$VOYAGE_API_KEY" ]]; then
       warn "Skipped — embeddings will not be available."
+    fi
+  fi
+
+  # --- OpenAI ---
+  step "OpenAI (optional)"
+
+  if [[ -n "${OPENAI_API_KEY:-}" ]]; then
+    info "OPENAI_API_KEY is set (****${OPENAI_API_KEY: -4})"
+  else
+    if [[ "$AUTO_YES" == false ]] && confirm "Configure OpenAI API key?"; then
+      OPENAI_API_KEY=$(ask_secret "OPENAI_API_KEY (optional, press Enter to skip)" "")
+      if [[ -z "$OPENAI_API_KEY" ]]; then
+        warn "Skipped — OpenAI models will not be available."
+      fi
+    else
+      info "Skipped"
+    fi
+  fi
+
+  # --- Ollama ---
+  step "Ollama (optional)"
+
+  if [[ -n "${OLLAMA_ENDPOINTS:-}" ]]; then
+    info "OLLAMA_ENDPOINTS is set: ${OLLAMA_ENDPOINTS}"
+  else
+    if [[ "$AUTO_YES" == false ]] && confirm "Configure Ollama endpoints?"; then
+      OLLAMA_ENDPOINTS=$(ask "Comma-separated Ollama URLs (e.g. localhost:11434)" "${OLLAMA_ENDPOINTS:-}")
+      if [[ -z "$OLLAMA_ENDPOINTS" ]]; then
+        warn "Skipped — Ollama models will not be available."
+      fi
+    else
+      info "Skipped"
     fi
   fi
 
@@ -509,9 +528,11 @@ if [[ "$SKIP_SECRETS" == false ]]; then
   step "Saving secrets to .env-secrets"
 
   {
-    [[ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]] && echo "ANTHROPIC_OAUTH_TOKEN=$ANTHROPIC_OAUTH_TOKEN"
     [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+    [[ -n "${DEFAULT_MODEL:-}" ]]         && echo "DEFAULT_MODEL=$DEFAULT_MODEL"
     [[ -n "${VOYAGE_API_KEY:-}" ]]        && echo "VOYAGE_API_KEY=$VOYAGE_API_KEY"
+    [[ -n "${OPENAI_API_KEY:-}" ]]       && echo "OPENAI_API_KEY=$OPENAI_API_KEY"
+    [[ -n "${OLLAMA_ENDPOINTS:-}" ]]     && echo "OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS"
     [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]    && echo "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN"
     [[ -n "${TELEGRAM_ALLOWED_CHAT_IDS:-}" ]] && echo "TELEGRAM_ALLOWED_CHAT_IDS=$TELEGRAM_ALLOWED_CHAT_IDS"
     [[ -n "${DISCORD_BOT_TOKEN:-}" ]]     && echo "DISCORD_BOT_TOKEN=$DISCORD_BOT_TOKEN"
@@ -621,9 +642,11 @@ step "Creating Kubernetes secrets..."
 
 # --- Brain secrets ---
 BRAIN_ARGS=()
-[[ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]] && BRAIN_ARGS+=(--from-literal="ANTHROPIC_OAUTH_TOKEN=$ANTHROPIC_OAUTH_TOKEN")
 [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && BRAIN_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+[[ -n "${DEFAULT_MODEL:-}" ]]         && BRAIN_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
 [[ -n "${VOYAGE_API_KEY:-}" ]]        && BRAIN_ARGS+=(--from-literal="VOYAGE_API_KEY=$VOYAGE_API_KEY")
+[[ -n "${OPENAI_API_KEY:-}" ]]       && BRAIN_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
+[[ -n "${OLLAMA_ENDPOINTS:-}" ]]     && BRAIN_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
 BRAIN_ARGS+=(--from-literal="AUTH_TOKEN=$AUTH_TOKEN")
 [[ -n "${AGENT_NAME:-}" ]] && BRAIN_ARGS+=(--from-literal="AGENT_NAME=$AGENT_NAME")
 
@@ -639,8 +662,10 @@ kubectl create secret generic bakerst-brain-secrets \
 
 # --- Worker secrets ---
 WORKER_ARGS=()
-[[ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]] && WORKER_ARGS+=(--from-literal="ANTHROPIC_OAUTH_TOKEN=$ANTHROPIC_OAUTH_TOKEN")
 [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && WORKER_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+[[ -n "${DEFAULT_MODEL:-}" ]]         && WORKER_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
+[[ -n "${OPENAI_API_KEY:-}" ]]       && WORKER_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
+[[ -n "${OLLAMA_ENDPOINTS:-}" ]]     && WORKER_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
 
 [[ -n "${AGENT_NAME:-}" ]] && WORKER_ARGS+=(--from-literal="AGENT_NAME=$AGENT_NAME")
 
@@ -730,9 +755,8 @@ if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
     ext_name=$(basename "$ext_dir")
     k8s_dir="${ext_dir}k8s"
 
-    # Skip ext-github if no token
-    if [[ "$ext_name" == "extension-github" && -z "${GITHUB_TOKEN:-}" ]]; then
-      warn "Skipping ${ext_name} — no GITHUB_TOKEN configured"
+    # Skip deprecated standalone extensions (superseded by ext-toolbox)
+    if [[ "$ext_name" == "extension-utilities" || "$ext_name" == "extension-github" ]]; then
       continue
     fi
 
@@ -946,8 +970,10 @@ fi
 echo -e "${BOLD}  Configuration:${NC}"
 info "Version:     ${VERSION}"
 info "Mode:        $(if [[ "$USE_DEV" == true ]]; then echo "dev"; else echo "production"; fi)"
-info "Anthropic:   $(if [[ -n "${ANTHROPIC_OAUTH_TOKEN:-}" ]]; then echo "OAuth token"; elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then echo "API key"; fi)"
+info "Anthropic:   $(if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then echo "API key set"; else echo "not configured"; fi)"
 info "Voyage:      $(if [[ -n "${VOYAGE_API_KEY:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
+info "OpenAI:      $(if [[ -n "${OPENAI_API_KEY:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
+info "Ollama:      $(if [[ -n "${OLLAMA_ENDPOINTS:-}" ]]; then echo "${OLLAMA_ENDPOINTS}"; else echo "not configured"; fi)"
 info "Telegram:    $(if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured (gateway scaled to 0)"; fi)"
 info "Discord:     $(if [[ -n "${DISCORD_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
 info "GitHub:      $(if [[ -n "${GITHUB_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"

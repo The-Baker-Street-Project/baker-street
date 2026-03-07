@@ -1,0 +1,395 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    Preflight,
+    EnvVarChoice,
+    Secrets,
+    Providers,
+    Features,
+    Confirm,
+    Pull,
+    Deploy,
+    Health,
+    Complete,
+}
+
+impl Phase {
+    pub fn index(&self) -> usize {
+        match self {
+            Phase::Preflight => 0,
+            Phase::EnvVarChoice => 1,
+            Phase::Secrets => 2,
+            Phase::Providers => 3,
+            Phase::Features => 4,
+            Phase::Confirm => 5,
+            Phase::Pull => 6,
+            Phase::Deploy => 7,
+            Phase::Health => 8,
+            Phase::Complete => 9,
+        }
+    }
+
+    pub fn total() -> usize {
+        10
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Phase::Preflight => "Preflight",
+            Phase::EnvVarChoice => "Secret Source",
+            Phase::Secrets => "Secrets",
+            Phase::Providers => "Providers",
+            Phase::Features => "Features",
+            Phase::Confirm => "Confirm",
+            Phase::Pull => "Pull Images",
+            Phase::Deploy => "Deploy",
+            Phase::Health => "Health Check",
+            Phase::Complete => "Complete",
+        }
+    }
+
+    pub fn next(&self) -> Option<Phase> {
+        match self {
+            Phase::Preflight => Some(Phase::EnvVarChoice),
+            Phase::EnvVarChoice => Some(Phase::Secrets),
+            Phase::Secrets => Some(Phase::Providers),
+            Phase::Providers => Some(Phase::Features),
+            Phase::Features => Some(Phase::Confirm),
+            Phase::Confirm => Some(Phase::Pull),
+            Phase::Pull => Some(Phase::Deploy),
+            Phase::Deploy => Some(Phase::Health),
+            Phase::Health => Some(Phase::Complete),
+            Phase::Complete => None,
+        }
+    }
+}
+
+/// Status of an individual item (image pull, resource creation, pod health)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ItemStatus {
+    Pending,
+    InProgress,
+    Done,
+    Failed(String),
+    Skipped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderType {
+    Anthropic,
+    OpenAI,
+    Ollama,
+}
+
+impl ProviderType {
+    pub fn label(&self) -> &'static str {
+        match self {
+            ProviderType::Anthropic => "Anthropic",
+            ProviderType::OpenAI => "OpenAI",
+            ProviderType::Ollama => "Ollama",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderStep {
+    BrainProvider,
+    BrainModel,
+    BrainCredential,
+    WorkerChoice,
+    WorkerProvider,
+    WorkerModel,
+    WorkerCredential,
+    Done,
+}
+
+/// Collected secrets and configuration — now manifest-driven.
+///
+/// `collected_secrets` is the single source of truth for all key→value pairs.
+/// The manifest's `targetSecrets` field routes them to K8s Secret objects at deploy time.
+#[derive(Debug, Clone, Default)]
+pub struct InstallConfig {
+    pub collected_secrets: std::collections::HashMap<String, String>,
+    pub features: Vec<FeatureSelection>,
+    pub namespace: String,
+}
+
+impl InstallConfig {
+    pub fn agent_name(&self) -> &str {
+        self.collected_secrets
+            .get("AGENT_NAME")
+            .map(|s| s.as_str())
+            .unwrap_or("Baker")
+    }
+
+    pub fn auth_token(&self) -> &str {
+        self.collected_secrets
+            .get("AUTH_TOKEN")
+            .map(|s| s.as_str())
+            .unwrap_or("")
+    }
+
+    pub fn default_model(&self) -> Option<&str> {
+        self.collected_secrets.get("DEFAULT_MODEL").map(|s| s.as_str())
+    }
+
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.collected_secrets.get(key).map(|s| s.as_str())
+    }
+
+    pub fn set(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        self.collected_secrets.insert(key.into(), value.into());
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FeatureSelection {
+    pub id: String,
+    pub name: String,
+    pub enabled: bool,
+    pub secrets: Vec<(String, Option<String>)>, // (key, value)
+}
+
+/// A single secret prompt in the Secrets phase — enriched with v2 manifest fields
+#[derive(Debug, Clone)]
+pub struct SecretPrompt {
+    pub key: String,
+    pub description: String,
+    pub prompt_text: Option<String>,
+    pub required: bool,
+    pub is_secret: bool,
+    pub is_feature: bool,
+    pub value: Option<String>,
+    pub instructions: Option<String>,
+    pub depends_on: Option<String>,
+    pub choices: Vec<(String, String, Option<String>)>, // (value, label, description)
+    pub auto_generate: Option<String>,
+    pub default_value: Option<String>,
+    pub placeholder: Option<String>,
+    pub silent: bool,
+}
+
+/// Top-level app state
+pub struct App {
+    pub phase: Phase,
+    pub config: InstallConfig,
+    pub should_quit: bool,
+    pub cluster_name: String,
+
+    // Preflight results
+    pub preflight_checks: Vec<(String, ItemStatus)>,
+
+    // Env var choice phase
+    pub use_env_vars: Option<bool>,
+    pub detected_env_vars: Vec<(String, String)>, // (key, masked_value)
+
+    // Secrets phase
+    pub secret_prompts: Vec<SecretPrompt>,
+    pub current_secret_index: usize,
+    pub secret_input: String,
+
+    // Providers phase
+    pub provider_step: ProviderStep,
+    pub provider_cursor: usize,
+    pub provider_input: String,
+
+    pub brain_provider: Option<ProviderType>,
+    pub brain_model_id: Option<String>,
+    pub brain_model_display: Option<String>,
+
+    pub worker_same_as_brain: bool,
+    pub worker_provider: Option<ProviderType>,
+    pub worker_model_id: Option<String>,
+    pub worker_model_display: Option<String>,
+
+    // Features phase
+    pub feature_cursor: usize,
+    pub collecting_feature_secrets: bool,
+
+    // Confirm phase
+    pub confirm_selected: usize, // 0 = Confirm, 1 = Cancel
+
+    // Pull phase
+    pub pull_statuses: Vec<(String, ItemStatus)>,
+    pub pull_progress: (usize, usize), // (done, total)
+
+    // Deploy phase
+    pub deploy_statuses: Vec<(String, ItemStatus)>,
+    pub deploy_progress: (usize, usize),
+
+    // Health phase
+    pub pod_statuses: Vec<crate::health::PodHealth>,
+    pub health_done: bool,
+    pub health_failed: bool,
+
+    // Complete phase
+    pub manifest_version: String,
+
+    // Manifest (stored after preflight fetch)
+    pub manifest: Option<crate::manifest::ReleaseManifest>,
+}
+
+impl App {
+    pub fn new(namespace: String) -> Self {
+        Self {
+            phase: Phase::Preflight,
+            config: InstallConfig {
+                namespace,
+                ..Default::default()
+            },
+            should_quit: false,
+            cluster_name: String::new(),
+
+            // Preflight
+            preflight_checks: Vec::new(),
+
+            // Env var choice
+            use_env_vars: None,
+            detected_env_vars: Vec::new(),
+
+            // Secrets
+            secret_prompts: Vec::new(),
+            current_secret_index: 0,
+            secret_input: String::new(),
+
+            // Providers
+            provider_step: ProviderStep::BrainProvider,
+            provider_cursor: 0,
+            provider_input: String::new(),
+
+            brain_provider: None,
+            brain_model_id: None,
+            brain_model_display: None,
+
+            worker_same_as_brain: true,
+            worker_provider: None,
+            worker_model_id: None,
+            worker_model_display: None,
+
+            // Features
+            feature_cursor: 0,
+            collecting_feature_secrets: false,
+
+            // Confirm
+            confirm_selected: 0,
+
+            // Pull
+            pull_statuses: Vec::new(),
+            pull_progress: (0, 0),
+
+            // Deploy
+            deploy_statuses: Vec::new(),
+            deploy_progress: (0, 0),
+
+            // Health
+            pod_statuses: Vec::new(),
+            health_done: false,
+            health_failed: false,
+
+            // Complete
+            manifest_version: String::new(),
+
+            // Manifest
+            manifest: None,
+        }
+    }
+
+    pub fn advance(&mut self) -> bool {
+        if let Some(next) = self.phase.next() {
+            self.phase = next;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Go back to Providers from Confirm
+    pub fn back_to_providers(&mut self) {
+        if self.phase == Phase::Confirm {
+            self.phase = Phase::Providers;
+            // Reset provider step to beginning for re-entry
+            self.provider_step = ProviderStep::BrainProvider;
+            self.provider_cursor = 0;
+            self.provider_input.clear();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn phase_advances_through_all_stages() {
+        let mut phase = Phase::Preflight;
+        let mut count = 0;
+        while let Some(next) = phase.next() {
+            phase = next;
+            count += 1;
+        }
+        assert_eq!(count, 9);
+        assert_eq!(phase, Phase::Complete);
+    }
+
+    #[test]
+    fn complete_has_no_next() {
+        assert_eq!(Phase::Complete.next(), None);
+    }
+
+    #[test]
+    fn phase_index_is_sequential() {
+        assert_eq!(Phase::Preflight.index(), 0);
+        assert_eq!(Phase::Complete.index(), 9);
+    }
+
+    #[test]
+    fn app_advance_works() {
+        let mut app = App::new("bakerst".into());
+        assert_eq!(app.phase, Phase::Preflight);
+        assert!(app.advance());
+        assert_eq!(app.phase, Phase::EnvVarChoice);
+    }
+
+    #[test]
+    fn app_back_to_providers_only_from_confirm() {
+        let mut app = App::new("bakerst".into());
+        app.phase = Phase::Confirm;
+        app.back_to_providers();
+        assert_eq!(app.phase, Phase::Providers);
+    }
+
+    #[test]
+    fn app_back_to_providers_noop_from_other_phases() {
+        let mut app = App::new("bakerst".into());
+        app.phase = Phase::Deploy;
+        app.back_to_providers();
+        assert_eq!(app.phase, Phase::Deploy);
+    }
+
+    #[test]
+    fn provider_type_labels() {
+        assert_eq!(ProviderType::Anthropic.label(), "Anthropic");
+        assert_eq!(ProviderType::OpenAI.label(), "OpenAI");
+        assert_eq!(ProviderType::Ollama.label(), "Ollama");
+    }
+
+    #[test]
+    fn install_config_accessors() {
+        let mut config = InstallConfig::default();
+        config.set("AGENT_NAME", "Sherlock");
+        config.set("AUTH_TOKEN", "abc123");
+        config.set("DEFAULT_MODEL", "claude-sonnet-4-20250514");
+        assert_eq!(config.agent_name(), "Sherlock");
+        assert_eq!(config.auth_token(), "abc123");
+        assert_eq!(config.default_model(), Some("claude-sonnet-4-20250514"));
+        assert_eq!(config.get("AGENT_NAME"), Some("Sherlock"));
+        assert_eq!(config.get("NONEXISTENT"), None);
+    }
+
+    #[test]
+    fn install_config_defaults() {
+        let config = InstallConfig::default();
+        assert_eq!(config.agent_name(), "Baker");
+        assert_eq!(config.auth_token(), "");
+        assert_eq!(config.default_model(), None);
+    }
+}

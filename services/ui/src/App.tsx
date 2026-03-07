@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Layout } from './components/Layout';
+import { SittingRoom } from './components/SittingRoom';
 import { ChatPage } from './pages/ChatPage';
 import { JobsPage } from './pages/JobsPage';
 import { ConversationsPage } from './pages/ConversationsPage';
@@ -24,35 +25,42 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 }
 
 function AppRoutes() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isValidating } = useAuth();
+
+  if (isValidating) {
+    return <div className="flex items-center justify-center h-screen text-gray-400">Verifying session…</div>;
+  }
 
   return (
-    <Routes>
-      <Route
-        path="/login"
-        element={isAuthenticated ? <Navigate to="/chat" replace /> : <LoginPage />}
-      />
-      <Route
-        element={
-          <ProtectedRoute>
-            <Layout />
-          </ProtectedRoute>
-        }
-      >
-        <Route path="/chat/:id?" element={<ChatPage />} />
-        <Route path="/jobs/:id?" element={<JobsPage />} />
-        <Route path="/schedules" element={<SchedulesPage />} />
-        <Route path="/conversations" element={<ConversationsPage />} />
-        <Route path="/conversations/:id" element={<ConversationsPage />} />
-        <Route path="/memory" element={<MemoryPage />} />
-        <Route path="/secrets" element={<SecretsPage />} />
-        <Route path="/extensions" element={<ExtensionsPage />} />
-        <Route path="/skills" element={<Navigate to="/extensions" replace />} />
-        <Route path="/models" element={<ModelsPage />} />
-        <Route path="/system" element={<SystemPage />} />
-      </Route>
-      <Route path="*" element={<Navigate to="/chat" replace />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route
+          path="/login"
+          element={isAuthenticated ? <Navigate to="/chat" replace /> : <LoginPage />}
+        />
+        <Route
+          element={
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="/chat/:id?" element={<ChatPage />} />
+          <Route path="/jobs/:id?" element={<JobsPage />} />
+          <Route path="/schedules" element={<SchedulesPage />} />
+          <Route path="/conversations" element={<ConversationsPage />} />
+          <Route path="/conversations/:id" element={<ConversationsPage />} />
+          <Route path="/memory" element={<MemoryPage />} />
+          <Route path="/secrets" element={<SecretsPage />} />
+          <Route path="/extensions" element={<ExtensionsPage />} />
+          <Route path="/skills" element={<Navigate to="/extensions" replace />} />
+          <Route path="/models" element={<ModelsPage />} />
+          <Route path="/system" element={<SystemPage />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/chat" replace />} />
+      </Routes>
+      {isAuthenticated && <SittingRoom picovoiceKey={import.meta.env.VITE_PICOVOICE_KEY} />}
+    </>
   );
 }
 

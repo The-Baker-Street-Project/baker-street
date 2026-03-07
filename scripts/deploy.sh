@@ -25,6 +25,7 @@ kubectl rollout status deployment/brain-blue -n bakerst --timeout=60s
 kubectl rollout status deployment/worker -n bakerst --timeout=60s
 kubectl rollout status deployment/ui -n bakerst --timeout=60s
 kubectl rollout status deployment/gateway -n bakerst --timeout=60s
+kubectl rollout status deployment/sysadmin -n bakerst --timeout=60s
 
 if [[ "$DEPLOY_TELEMETRY" == true ]]; then
   echo "==> Deploying telemetry stack..."

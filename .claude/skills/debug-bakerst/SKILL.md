@@ -91,7 +91,7 @@ kubectl get secret bakerst-brain-secrets -n bakerst -o json | jq '.data | keys'
 kubectl get secret bakerst-worker-secrets -n bakerst -o json | jq '.data | keys'
 kubectl get secret bakerst-gateway-secrets -n bakerst -o json | jq '.data | keys'
 ```
-- Missing `ANTHROPIC_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` → brain/worker can't call Claude
+- Missing `ANTHROPIC_API_KEY` → brain/worker can't call Claude
 - Missing `AUTH_TOKEN` → gateway can't authenticate to brain
 - Fix: re-run `scripts/deploy-all.sh` or `scripts/secrets.sh`
 

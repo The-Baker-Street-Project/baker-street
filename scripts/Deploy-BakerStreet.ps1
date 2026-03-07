@@ -208,29 +208,14 @@ if (-not $SkipSecrets) {
     # --- Anthropic auth ---
     Write-Step "Anthropic authentication (required)"
 
-    $hasAnthropic = $false
-    if ($secrets['ANTHROPIC_OAUTH_TOKEN']) {
-        Write-Info "ANTHROPIC_OAUTH_TOKEN is set (****$($secrets['ANTHROPIC_OAUTH_TOKEN'].Substring($secrets['ANTHROPIC_OAUTH_TOKEN'].Length - 4)))"
-        $hasAnthropic = $true
-    }
     if ($secrets['ANTHROPIC_API_KEY']) {
         Write-Info "ANTHROPIC_API_KEY is set (****$($secrets['ANTHROPIC_API_KEY'].Substring($secrets['ANTHROPIC_API_KEY'].Length - 4)))"
-        $hasAnthropic = $true
-    }
-
-    if (-not $hasAnthropic) {
-        Write-Warn "No Anthropic credentials found."
-        Write-Info "Provide either an OAuth token (preferred) or an API key."
-        $token = Read-Secret "ANTHROPIC_OAUTH_TOKEN (or press Enter for API key)"
-        if ($token) {
-            $secrets['ANTHROPIC_OAUTH_TOKEN'] = $token
-        } else {
-            $key = Read-Secret "ANTHROPIC_API_KEY"
-            if (-not $key) {
-                Write-Fail "At least one of ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_API_KEY is required."
-            }
-            $secrets['ANTHROPIC_API_KEY'] = $key
+    } else {
+        $key = Read-Secret "ANTHROPIC_API_KEY"
+        if (-not $key) {
+            Write-Fail "ANTHROPIC_API_KEY is required."
         }
+        $secrets['ANTHROPIC_API_KEY'] = $key
     }
 
     # --- Voyage ---
@@ -241,6 +226,30 @@ if (-not $SkipSecrets) {
         $voyage = Read-Secret "VOYAGE_API_KEY (optional, press Enter to skip)"
         if ($voyage) { $secrets['VOYAGE_API_KEY'] = $voyage }
         else { Write-Warn "Skipped - embeddings will not be available." }
+    }
+
+    # --- OpenAI ---
+    Write-Step "OpenAI (optional)"
+    if ($secrets['OPENAI_API_KEY']) {
+        Write-Info "OPENAI_API_KEY is set (****$($secrets['OPENAI_API_KEY'].Substring($secrets['OPENAI_API_KEY'].Length - 4)))"
+    } elseif (-not $Yes -and (Confirm-Prompt "Configure OpenAI API key?" $false)) {
+        $openaiKey = Read-Secret "OPENAI_API_KEY (optional, press Enter to skip)"
+        if ($openaiKey) { $secrets['OPENAI_API_KEY'] = $openaiKey }
+        else { Write-Warn "Skipped - OpenAI models will not be available." }
+    } else {
+        Write-Info "Skipped"
+    }
+
+    # --- Ollama ---
+    Write-Step "Ollama (optional)"
+    if ($secrets['OLLAMA_ENDPOINTS']) {
+        Write-Info "OLLAMA_ENDPOINTS is set: $($secrets['OLLAMA_ENDPOINTS'])"
+    } elseif (-not $Yes -and (Confirm-Prompt "Configure Ollama endpoints?" $false)) {
+        $ollamaEndpoints = Read-Value "Comma-separated Ollama URLs (e.g. localhost:11434)" $secrets['OLLAMA_ENDPOINTS']
+        if ($ollamaEndpoints) { $secrets['OLLAMA_ENDPOINTS'] = $ollamaEndpoints }
+        else { Write-Warn "Skipped - Ollama models will not be available." }
+    } else {
+        Write-Info "Skipped"
     }
 
     # --- Telegram ---
@@ -294,8 +303,9 @@ if (-not $SkipSecrets) {
     Write-Step "Saving secrets to .env-secrets"
     $lines = @()
     $orderedKeys = @(
-        'ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY',
+        'ANTHROPIC_API_KEY', 'DEFAULT_MODEL',
         'VOYAGE_API_KEY',
+        'OPENAI_API_KEY', 'OLLAMA_ENDPOINTS',
         'TELEGRAM_BOT_TOKEN', 'TELEGRAM_ALLOWED_CHAT_IDS',
         'DISCORD_BOT_TOKEN', 'DISCORD_ALLOWED_CHANNEL_IDS',
         'AUTH_TOKEN', 'AGENT_NAME'

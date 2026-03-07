@@ -58,11 +58,12 @@ describe('model-config', () => {
     vi.clearAllMocks();
     // Ensure basic providers are available
     setEnv('ANTHROPIC_API_KEY', 'sk-test-key');
-    setEnv('ANTHROPIC_OAUTH_TOKEN', undefined);
     setEnv('OPENROUTER_API_KEY', undefined);
+    setEnv('OPENAI_API_KEY', undefined);
     setEnv('MODEL_ROUTER_CONFIG_PATH', undefined);
     setEnv('DEFAULT_MODEL', undefined);
     setEnv('OBSERVER_MODEL', undefined);
+    setEnv('OLLAMA_ENDPOINTS', undefined);
   });
 
   afterEach(() => {
@@ -86,13 +87,6 @@ describe('model-config', () => {
       expect(config.providers['anthropic'].provider).toBe('anthropic');
     });
 
-    it('includes anthropic provider when ANTHROPIC_OAUTH_TOKEN is set', () => {
-      setEnv('ANTHROPIC_API_KEY', undefined);
-      setEnv('ANTHROPIC_OAUTH_TOKEN', 'sk-ant-oat-test');
-      const config = createDefaultConfig();
-      expect(config.providers).toHaveProperty('anthropic');
-    });
-
     it('includes openrouter when OPENROUTER_API_KEY set', () => {
       setEnv('OPENROUTER_API_KEY', 'or-test-key');
       const config = createDefaultConfig();
@@ -103,6 +97,28 @@ describe('model-config', () => {
     it('does not include openrouter when OPENROUTER_API_KEY not set', () => {
       const config = createDefaultConfig();
       expect(config.providers).not.toHaveProperty('openrouter');
+    });
+
+    it('includes openai provider when OPENAI_API_KEY is set', () => {
+      setEnv('OPENAI_API_KEY', 'sk-openai-test');
+      const config = createDefaultConfig();
+      expect(config.providers).toHaveProperty('openai');
+      expect(config.providers['openai'].provider).toBe('openai');
+    });
+
+    it('does not include openai when OPENAI_API_KEY not set', () => {
+      const config = createDefaultConfig();
+      expect(config.providers).not.toHaveProperty('openai');
+    });
+
+    it('includes openai model definitions when OPENAI_API_KEY set', () => {
+      setEnv('OPENAI_API_KEY', 'sk-openai-test');
+      const config = createDefaultConfig();
+      const openaiModels = config.models.filter(m => m.provider === 'openai');
+      expect(openaiModels.length).toBeGreaterThanOrEqual(3);
+      expect(openaiModels.map(m => m.id)).toEqual(
+        expect.arrayContaining(['gpt-4o', 'gpt-4o-mini', 'o3-mini'])
+      );
     });
   });
 
@@ -134,13 +150,19 @@ describe('model-config', () => {
       expect(config.roles.agent).toBe('haiku-4.5');
     });
 
-    it('applies DEFAULT_MODEL override with unknown model as ad-hoc', async () => {
+    it('applies DEFAULT_MODEL override with known model name', async () => {
       setEnv('DEFAULT_MODEL', 'claude-opus-4-20250514');
+      const config = await loadModelConfig();
+      expect(config.roles.agent).toBe('opus-4');
+    });
+
+    it('applies DEFAULT_MODEL override with unknown model as ad-hoc', async () => {
+      setEnv('DEFAULT_MODEL', 'claude-unknown-model');
       const config = await loadModelConfig();
       expect(config.roles.agent).toBe('custom-agent');
       const adHoc = config.models.find((m) => m.id === 'custom-agent');
       expect(adHoc).toBeDefined();
-      expect(adHoc!.modelName).toBe('claude-opus-4-20250514');
+      expect(adHoc!.modelName).toBe('claude-unknown-model');
     });
 
     it('applies OBSERVER_MODEL override', async () => {
@@ -153,6 +175,30 @@ describe('model-config', () => {
       setEnv('OPENROUTER_API_KEY', 'or-new-key');
       const config = await loadModelConfig();
       expect(config.providers).toHaveProperty('openrouter');
+    });
+
+    it('applies DEFAULT_MODEL override with gpt- prefix model', async () => {
+      setEnv('OPENAI_API_KEY', 'sk-openai-test');
+      setEnv('DEFAULT_MODEL', 'gpt-4o');
+      const config = await loadModelConfig();
+      expect(config.roles.agent).toBe('gpt-4o');
+    });
+
+    it('guesses openai provider for unknown gpt- model', async () => {
+      setEnv('OPENAI_API_KEY', 'sk-openai-test');
+      setEnv('DEFAULT_MODEL', 'gpt-4-turbo');
+      const config = await loadModelConfig();
+      expect(config.roles.agent).toBe('custom-agent');
+      const adHoc = config.models.find(m => m.id === 'custom-agent');
+      expect(adHoc!.provider).toBe('openai');
+    });
+
+    it('guesses openai provider for o3/o1 models', async () => {
+      setEnv('OPENAI_API_KEY', 'sk-openai-test');
+      setEnv('DEFAULT_MODEL', 'o1-preview');
+      const config = await loadModelConfig();
+      const adHoc = config.models.find(m => m.id === 'custom-agent');
+      expect(adHoc!.provider).toBe('openai');
     });
   });
 
@@ -183,10 +229,53 @@ describe('model-config', () => {
     });
   });
 
+  describe('OLLAMA_ENDPOINTS', () => {
+    beforeEach(() => {
+      setEnv('ANTHROPIC_API_KEY', 'sk-test-key'); // required for validateConfig()
+      setEnv('OLLAMA_ENDPOINTS', undefined);
+    });
+
+    it('parses OLLAMA_ENDPOINTS into multiple provider entries', async () => {
+      setEnv('OLLAMA_ENDPOINTS', 'localhost:11434,192.168.4.94:11434');
+      const config = await loadModelConfig();
+
+      expect(config.providers).toHaveProperty('ollama');
+      expect(config.providers['ollama']).toEqual({
+        provider: 'ollama',
+        baseURL: 'http://localhost:11434/v1',
+      });
+
+      expect(config.providers).toHaveProperty('ollama@192.168.4.94');
+      expect(config.providers['ollama@192.168.4.94']).toEqual({
+        provider: 'ollama',
+        baseURL: 'http://192.168.4.94:11434/v1',
+      });
+    });
+
+    it('handles single OLLAMA_ENDPOINTS entry', async () => {
+      setEnv('OLLAMA_ENDPOINTS', 'localhost:11434');
+      const config = await loadModelConfig();
+      expect(config.providers).toHaveProperty('ollama');
+      expect(Object.keys(config.providers).filter(k => k.startsWith('ollama'))).toHaveLength(1);
+    });
+
+    it('skips empty OLLAMA_ENDPOINTS', async () => {
+      setEnv('OLLAMA_ENDPOINTS', '');
+      const config = await loadModelConfig();
+      expect(Object.keys(config.providers).filter(k => k.startsWith('ollama'))).toHaveLength(0);
+    });
+
+    it('trims whitespace from OLLAMA_ENDPOINTS entries', async () => {
+      setEnv('OLLAMA_ENDPOINTS', ' localhost:11434 , 192.168.4.94:11434 ');
+      const config = await loadModelConfig();
+      expect(config.providers).toHaveProperty('ollama');
+      expect(config.providers).toHaveProperty('ollama@192.168.4.94');
+    });
+  });
+
   describe('validateConfig()', () => {
     it('throws when no providers configured', async () => {
       setEnv('ANTHROPIC_API_KEY', undefined);
-      setEnv('ANTHROPIC_OAUTH_TOKEN', undefined);
       await expect(loadModelConfig()).rejects.toThrow('no providers configured');
     });
 

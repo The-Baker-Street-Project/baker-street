@@ -14,11 +14,25 @@ package-lock.json
 .code-review/review-*.json
 .code-review/abort-reason.md
 
+# Build cache
+.build-hashes/
+
 # Deploy
 deploy.log
 
 # OS
 .DS_Store
+*:Zone.Identifier
+
+# Archives
+*.zip
+*.7z
+
+# Secrets (OAuth credentials)
+client_secret_*.json
+
+# AI tool configs
+.codex/
 
 # IDE
 .vscode/

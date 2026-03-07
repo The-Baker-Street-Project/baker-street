@@ -1,0 +1,114 @@
+# Brain ServiceAccount + Role + RoleBinding
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: brain
+  namespace: {{NAMESPACE}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: brain-secrets
+  namespace: {{NAMESPACE}}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["bakerst-secrets"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: brain-secrets
+  namespace: {{NAMESPACE}}
+subjects:
+  - kind: ServiceAccount
+    name: brain
+    namespace: {{NAMESPACE}}
+roleRef:
+  kind: Role
+  name: brain-secrets
+  apiGroup: rbac.authorization.k8s.io
+---
+# SysAdmin ServiceAccount + Role + RoleBinding
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sysadmin
+  namespace: {{NAMESPACE}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sysadmin
+  namespace: {{NAMESPACE}}
+rules:
+  # Secrets: full CRUD (creates all cluster secrets)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "delete", "get", "list", "update", "patch"]
+  # Deployments/StatefulSets: full CRUD + scale
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["create", "delete", "get", "list", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale", "statefulsets/scale"]
+    verbs: ["get", "update", "patch"]
+  # Services: full CRUD
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "delete", "get", "list", "update", "patch"]
+  # ConfigMaps: full CRUD (state persistence + bakerst-os)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "delete", "get", "list", "update", "patch"]
+  # Pods/Logs/Events: read-only (health monitoring)
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events"]
+    verbs: ["get", "list", "watch"]
+  # Jobs: create/delete/get/list (task pods)
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "delete", "get", "list"]
+  # RBAC: create/update for other services
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["create", "get", "update"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["create", "get", "update"]
+  # NetworkPolicies: full CRUD
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["create", "delete", "get", "list", "update", "patch"]
+  # PVCs: create/delete/get/list
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "delete", "get", "list"]
+  # Namespaces: read (to check existence)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sysadmin
+  namespace: {{NAMESPACE}}
+subjects:
+  - kind: ServiceAccount
+    name: sysadmin
+    namespace: {{NAMESPACE}}
+roleRef:
+  kind: Role
+  name: sysadmin
+  apiGroup: rbac.authorization.k8s.io
