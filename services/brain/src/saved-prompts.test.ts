@@ -2,23 +2,34 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import Database from 'better-sqlite3';
 
-// Point DATA_DIR at a temp directory so tests use an isolated DB
-const testDir = mkdtempSync(path.join(tmpdir(), 'bakerst-test-'));
-process.env.DATA_DIR = testDir;
+// Create an isolated test DB (avoids DATA_DIR / module caching issues)
+const testDir = mkdtempSync(path.join(tmpdir(), 'bakerst-saved-prompts-'));
+const testDb = new Database(path.join(testDir, 'bakerst.db'));
+testDb.pragma('journal_mode = DELETE');
+testDb.pragma('foreign_keys = ON');
+testDb.exec(`
+  CREATE TABLE IF NOT EXISTS saved_prompts (
+    id         TEXT PRIMARY KEY,
+    text       TEXT NOT NULL,
+    label      TEXT,
+    created_at TEXT NOT NULL
+  )
+`);
 
-// Import after setting DATA_DIR
-import { getDb } from './db.js';
+// Mock getDb to return our test database
+vi.mock('./db.js', () => ({
+  getDb: () => testDb,
+}));
+
 import {
   savePrompt,
   listSavedPrompts,
   getSavedPrompt,
   deleteSavedPrompt,
 } from './saved-prompts.js';
-
-// Initialize DB for tests
-beforeAll(() => { getDb(); });
 
 describe('saved-prompts', () => {
   it('saves a prompt and returns it with an id', () => {
