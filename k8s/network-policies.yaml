@@ -310,3 +310,43 @@ spec:
       ports:
         - port: 443
           protocol: TCP
+---
+# Google Workspace extension — needs HTTPS to googleapis.com, accounts.google.com
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: extension-google-workspace-egress
+  namespace: bakerst
+spec:
+  podSelector:
+    matchLabels:
+      app: bakerst-extension
+      extension: google-workspace
+  policyTypes:
+    - Egress
+  egress:
+    # NATS (sidecar → announce/heartbeat)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: nats
+      ports:
+        - port: 4222
+          protocol: TCP
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Google APIs (HTTPS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP

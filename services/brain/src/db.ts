@@ -213,6 +213,19 @@ export function getDb(): Database.Database {
     )
   `);
 
+  // Migration: add self-healing columns to schedules
+  try {
+    db.exec('ALTER TABLE schedules ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0');
+  } catch { /* Column already exists */ }
+
+  try {
+    db.exec('ALTER TABLE schedules ADD COLUMN max_consecutive_failures INTEGER NOT NULL DEFAULT 5');
+  } catch { /* Column already exists */ }
+
+  try {
+    db.exec("ALTER TABLE schedules ADD COLUMN case_file TEXT NOT NULL DEFAULT 'sitting-room'");
+  } catch { /* Column already exists */ }
+
   // --- Brain transfer handoff notes ---
 
   db.exec(`
@@ -282,6 +295,17 @@ export function getDb(): Database.Database {
       trace_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  // --- Saved Prompts ---
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS saved_prompts (
+      id         TEXT PRIMARY KEY,
+      text       TEXT NOT NULL,
+      label      TEXT,
+      created_at TEXT NOT NULL
     )
   `);
 
@@ -808,6 +832,9 @@ export interface ScheduleRow {
   last_run_at: string | null;
   last_status: string | null;
   last_output: string | null;
+  consecutive_failures: number;
+  max_consecutive_failures: number;
+  case_file: string;
   created_at: string;
   updated_at: string;
 }
@@ -829,12 +856,14 @@ export function insertSchedule(params: {
   type: string;
   config: Record<string, unknown>;
   enabled?: boolean;
+  case_file?: string;
+  max_consecutive_failures?: number;
 }): void {
   const db = getDb();
   const now = new Date().toISOString();
   db.prepare(`
-    INSERT INTO schedules (id, name, schedule, type, config, enabled, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO schedules (id, name, schedule, type, config, enabled, case_file, max_consecutive_failures, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     params.id,
     params.name,
@@ -842,6 +871,8 @@ export function insertSchedule(params: {
     params.type,
     JSON.stringify(params.config),
     params.enabled !== false ? 1 : 0,
+    params.case_file ?? 'sitting-room',
+    params.max_consecutive_failures ?? 5,
     now,
     now,
   );
@@ -853,6 +884,8 @@ export function updateScheduleRow(id: string, updates: Partial<{
   type: string;
   config: Record<string, unknown>;
   enabled: boolean;
+  case_file: string;
+  max_consecutive_failures: number;
 }>): boolean {
   const db = getDb();
   const sets: string[] = [];
@@ -863,6 +896,8 @@ export function updateScheduleRow(id: string, updates: Partial<{
   if (updates.type !== undefined) { sets.push('type = ?'); values.push(updates.type); }
   if (updates.config !== undefined) { sets.push('config = ?'); values.push(JSON.stringify(updates.config)); }
   if (updates.enabled !== undefined) { sets.push('enabled = ?'); values.push(updates.enabled ? 1 : 0); }
+  if (updates.case_file !== undefined) { sets.push('case_file = ?'); values.push(updates.case_file); }
+  if (updates.max_consecutive_failures !== undefined) { sets.push('max_consecutive_failures = ?'); values.push(updates.max_consecutive_failures); }
 
   if (sets.length === 0) return false;
 
@@ -874,13 +909,19 @@ export function updateScheduleRow(id: string, updates: Partial<{
   return result.changes > 0;
 }
 
-export function updateScheduleRunStatus(id: string, status: string, output: string): void {
+export function updateScheduleRunStatus(id: string, status: string, output: string, consecutiveFailures?: number): void {
   const db = getDb();
   const now = new Date().toISOString();
   const truncatedOutput = output.length > 1024 ? output.slice(0, 1024) + '...(truncated)' : output;
-  db.prepare(`
-    UPDATE schedules SET last_run_at = ?, last_status = ?, last_output = ?, updated_at = ? WHERE id = ?
-  `).run(now, status, truncatedOutput, now, id);
+  if (consecutiveFailures !== undefined) {
+    db.prepare(
+      'UPDATE schedules SET last_run_at = ?, last_status = ?, last_output = ?, consecutive_failures = ?, updated_at = ? WHERE id = ?',
+    ).run(now, status, truncatedOutput, consecutiveFailures, now, id);
+  } else {
+    db.prepare(
+      'UPDATE schedules SET last_run_at = ?, last_status = ?, last_output = ?, updated_at = ? WHERE id = ?',
+    ).run(now, status, truncatedOutput, now, id);
+  }
 }
 
 export function deleteSchedule(id: string): boolean {

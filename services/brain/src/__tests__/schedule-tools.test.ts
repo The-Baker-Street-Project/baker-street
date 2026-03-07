@@ -41,6 +41,9 @@ function makeScheduleRow(overrides?: Partial<ScheduleRow>): ScheduleRow {
     last_run_at: '2026-03-01T09:00:00Z',
     last_status: 'dispatched',
     last_output: null,
+    consecutive_failures: 0,
+    max_consecutive_failures: 5,
+    case_file: 'sitting-room',
     created_at: '2026-02-28T10:00:00Z',
     updated_at: '2026-02-28T10:00:00Z',
     ...overrides,
@@ -110,6 +113,8 @@ describe('executeScheduleTool', () => {
         schedule: '*/5 * * * *',
         type: 'command',
         config: { command: 'curl http://localhost/health' },
+        case_file: undefined,
+        max_consecutive_failures: undefined,
       });
     });
 

@@ -126,6 +126,18 @@ if should_build "ext-browser" "$REPO_ROOT/examples/extension-browser" "$REPO_ROO
     -f "$REPO_ROOT/examples/extension-browser/Dockerfile" "$REPO_ROOT" && save_hash "ext-browser"
 fi
 
+if should_build "nats-sidecar" "$REPO_ROOT/packages/nats-sidecar" "$REPO_ROOT/packages/nats-sidecar/Dockerfile"; then
+  echo "==> Building bakerst-nats-sidecar..."
+  docker build --network host $NO_CACHE -t bakerst-nats-sidecar:latest \
+    -f "$REPO_ROOT/packages/nats-sidecar/Dockerfile" "$REPO_ROOT/packages/nats-sidecar" && save_hash "nats-sidecar"
+fi
+
+if should_build "ext-google-workspace" "$REPO_ROOT/examples/extension-google-workspace" "$REPO_ROOT/examples/extension-google-workspace/Dockerfile"; then
+  echo "==> Building bakerst-ext-google-workspace..."
+  docker build --network host $NO_CACHE -t bakerst-ext-google-workspace:latest \
+    -f "$REPO_ROOT/examples/extension-google-workspace/Dockerfile" "$REPO_ROOT/examples/extension-google-workspace" && save_hash "ext-google-workspace"
+fi
+
 echo "==> Building bakerst-install CLI..."
 make -C "$REPO_ROOT/tools/installer" install
 

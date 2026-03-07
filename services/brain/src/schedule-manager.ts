@@ -120,6 +120,8 @@ export class ScheduleManager {
     type: string;
     config: ScheduleConfig;
     enabled?: boolean;
+    case_file?: string;
+    max_consecutive_failures?: number;
   }): ScheduleRow {
     if (!cron.validate(params.schedule)) {
       throw new Error(`Invalid cron expression: ${params.schedule}`);
@@ -136,6 +138,8 @@ export class ScheduleManager {
       type: params.type,
       config: params.config as Record<string, unknown>,
       enabled: params.enabled,
+      case_file: params.case_file,
+      max_consecutive_failures: params.max_consecutive_failures,
     });
 
     const row = getSchedule(id)!;
@@ -256,12 +260,26 @@ export class ScheduleManager {
         source: 'schedule',
       });
 
-      updateScheduleRunStatus(current.id, 'dispatched', `Job ${dispatched.jobId} dispatched`);
+      // Success: reset consecutive failures
+      updateScheduleRunStatus(current.id, 'dispatched', `Job ${dispatched.jobId} dispatched`, 0);
       return dispatched.jobId;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      updateScheduleRunStatus(current.id, 'failed', msg);
-      log.error({ err, scheduleId: current.id }, 'schedule execution failed');
+      const failures = (current.consecutive_failures ?? 0) + 1;
+      const maxFailures = current.max_consecutive_failures ?? 5;
+
+      updateScheduleRunStatus(current.id, 'failed', msg, failures);
+
+      // Self-healing: auto-disable after too many consecutive failures
+      if (failures >= maxFailures) {
+        log.warn(
+          { scheduleId: current.id, name: current.name, failures, maxFailures },
+          'auto-disabling standing order after consecutive failures',
+        );
+        this.update(current.id, { enabled: false });
+      }
+
+      log.error({ err, scheduleId: current.id, failures }, 'schedule execution failed');
       throw err;
     }
   }
