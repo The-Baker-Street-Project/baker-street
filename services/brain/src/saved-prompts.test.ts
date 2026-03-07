@@ -1,16 +1,24 @@
 // services/brain/src/saved-prompts.test.ts
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, it, expect, beforeAll } from 'vitest';
+
+// Point DATA_DIR at a temp directory so tests use an isolated DB
+const testDir = mkdtempSync(path.join(tmpdir(), 'bakerst-test-'));
+process.env.DATA_DIR = testDir;
+
+// Import after setting DATA_DIR
 import { getDb } from './db.js';
-
-// Initialize DB for tests
-beforeAll(() => { getDb(); });
-
 import {
   savePrompt,
   listSavedPrompts,
   getSavedPrompt,
   deleteSavedPrompt,
 } from './saved-prompts.js';
+
+// Initialize DB for tests
+beforeAll(() => { getDb(); });
 
 describe('saved-prompts', () => {
   it('saves a prompt and returns it with an id', () => {
