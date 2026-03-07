@@ -70,9 +70,7 @@ export function ChatPage() {
 
   useEffect(() => {
     if (id && id !== conversationId) {
-      loadConversation(id).then((conv) => {
-        setModelOverride(conv?.model_override ?? null);
-      });
+      loadConversation(id);
     }
   }, [id, conversationId, loadConversation]);
 
