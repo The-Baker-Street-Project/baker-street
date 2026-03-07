@@ -4,6 +4,7 @@ import { useChat } from '../hooks/useChat';
 import { useVoiceChat } from '../hooks/useVoiceChat';
 import { MessageList } from '../components/chat/MessageList';
 import { ChatInput } from '../components/chat/ChatInput';
+import { ModelSelector } from '../components/chat/ModelSelector';
 import { getConversations } from '../api/client';
 import type { Conversation } from '../api/types';
 
@@ -17,6 +18,7 @@ export function ChatPage() {
   } = useChat(id);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [modelOverride, setModelOverride] = useState<string | null>(null);
 
   const voice = useVoiceChat({
     conversationId,
@@ -109,15 +111,23 @@ export function ChatPage() {
               History
             </button>
           </div>
-          <button
-            onClick={() => {
-              newChat();
-              navigate('/chat', { replace: true });
-            }}
-            className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
-          >
-            New Chat
-          </button>
+          <div className="flex items-center gap-3">
+            <ModelSelector
+              conversationId={conversationId}
+              currentModel={modelOverride}
+              onModelChange={setModelOverride}
+            />
+            <button
+              onClick={() => {
+                newChat();
+                setModelOverride(null);
+                navigate('/chat', { replace: true });
+              }}
+              className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              New Chat
+            </button>
+          </div>
         </div>
         <MessageList messages={messages} isStreaming={isStreaming || voice.state === 'processing'} />
         <ChatInput
