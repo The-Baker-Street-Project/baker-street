@@ -122,7 +122,7 @@ describe('ScheduleManager', () => {
         source: 'schedule',
       }),
     );
-    expect(mockUpdateScheduleRunStatus).toHaveBeenCalledWith('test-schedule', 'dispatched', expect.any(String));
+    expect(mockUpdateScheduleRunStatus).toHaveBeenCalledWith('test-schedule', 'dispatched', expect.any(String), 0);
   });
 
   it('deletes a schedule and cancels timer', () => {
