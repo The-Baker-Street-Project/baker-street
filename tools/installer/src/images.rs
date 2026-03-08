@@ -51,7 +51,7 @@ async fn pull_one(image: &str) -> Result<Duration, String> {
     for attempt in 1..=MAX_RETRIES {
         let start = Instant::now();
         let output = Command::new("docker")
-            .args(["pull", image])
+            .args(["pull", "--platform", "linux/amd64", image])
             .output()
             .await
             .map_err(|e| format!("failed to run docker: {}", e))?;
