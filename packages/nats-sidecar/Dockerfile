@@ -1,6 +1,6 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
-COPY packages/nats-sidecar/package.json packages/nats-sidecar/package-lock.json packages/nats-sidecar/tsconfig.json ./
+COPY packages/nats-sidecar/package.json packages/nats-sidecar/tsconfig.json ./
 RUN npm install
 COPY packages/nats-sidecar/src/ src/
 RUN npm run build
