@@ -359,6 +359,7 @@ impl App {
 
     pub fn advance(&mut self) -> bool {
         if let Some(next) = self.phase.next() {
+            tracing::info!("Phase transition: {:?} → {:?}", self.phase, next);
             self.phase = next;
             true
         } else {
