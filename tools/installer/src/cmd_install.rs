@@ -49,6 +49,7 @@ async fn run_tui(cli: &Cli, args: &InstallArgs) -> Result<()> {
     let mut tui = Tui::new()?;
 
     // Run preflight immediately
+    tracing::info!("Starting interactive TUI installer");
     run_preflight(&mut app, cli).await;
 
     loop {
@@ -58,6 +59,7 @@ async fn run_tui(cli: &Cli, args: &InstallArgs) -> Result<()> {
             if let Event::Key(key) = event::read()? {
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c')
                 {
+                    tracing::info!("User pressed Ctrl-C, exiting gracefully");
                     app.should_quit = true;
                 }
 
@@ -87,6 +89,7 @@ async fn run_tui(cli: &Cli, args: &InstallArgs) -> Result<()> {
 // ============================================================
 
 async fn run_preflight(app: &mut App, cli: &Cli) {
+    tracing::info!("Running preflight checks");
     app.preflight_checks.clear();
 
     // Check 1: Docker available
@@ -961,10 +964,12 @@ fn handle_async_msg(app: &mut App, msg: AsyncMsg) {
             if let Some(entry) = app.deploy_statuses.get_mut(index) {
                 match result {
                     Ok(()) => {
+                        tracing::info!("Deploy step {}: {} applied", index, entry.0);
                         entry.1 = ItemStatus::Done;
                         app.deploy_progress.0 += 1;
                     }
                     Err(e) => {
+                        tracing::error!("Deploy step {} FAILED: {} — {}", index, entry.0, e);
                         entry.1 = ItemStatus::Failed(e);
                         app.deploy_progress.0 += 1;
                     }
@@ -986,9 +991,10 @@ fn handle_pull_event(app: &mut App, event: PullEvent) {
         }
         PullEvent::Completed {
             index,
-            image: _,
-            elapsed: _,
+            ref image,
+            elapsed,
         } => {
+            tracing::info!("Pull complete: {} ({:.1}s)", image, elapsed.as_secs_f64());
             if let Some(entry) = app.pull_statuses.get_mut(index) {
                 entry.1 = ItemStatus::Done;
             }
@@ -996,12 +1002,13 @@ fn handle_pull_event(app: &mut App, event: PullEvent) {
         }
         PullEvent::Failed {
             index,
-            image: _,
-            error,
-            attempt: _,
+            ref image,
+            ref error,
+            attempt,
         } => {
+            tracing::error!("Pull FAILED: {} (attempt {}): {}", image, attempt, error);
             if let Some(entry) = app.pull_statuses.get_mut(index) {
-                entry.1 = ItemStatus::Failed(error);
+                entry.1 = ItemStatus::Failed(error.clone());
             }
             app.pull_progress.0 += 1;
         }
@@ -1168,6 +1175,11 @@ fn start_pull_phase(
             continue;
         }
         image_list.push(manifest.resolve_image(&img.image));
+    }
+
+    tracing::info!("Pull phase: {} images to pull", image_list.len());
+    for img in &image_list {
+        tracing::info!("  image: {}", img);
     }
 
     app.pull_statuses = image_list
