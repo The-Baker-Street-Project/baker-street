@@ -1072,16 +1072,21 @@ async fn handle_auto_advance(
             if app.use_env_vars == Some(true) && app.provider_step == ProviderStep::BrainProvider {
                 if app.config.get("ANTHROPIC_API_KEY").is_some() {
                     app.brain_provider = Some(ProviderType::Anthropic);
-                    app.brain_model_id = Some("claude-sonnet-4-20250514".to_string());
-                    app.brain_model_display = Some("Sonnet 4".to_string());
+                    let model = app.config.get("DEFAULT_MODEL").map(|s| s.to_string());
+                    app.brain_model_id = Some(model.clone().unwrap_or_else(|| "claude-sonnet-4-20250514".to_string()));
+                    app.brain_model_display = Some(model.unwrap_or_else(|| "Sonnet 4".to_string()));
                 } else if app.config.get("OPENAI_API_KEY").is_some() {
                     app.brain_provider = Some(ProviderType::OpenAI);
-                    app.brain_model_id = Some("gpt-4o".to_string());
-                    app.brain_model_display = Some("GPT-4o".to_string());
+                    let model = app.config.get("DEFAULT_MODEL").map(|s| s.to_string());
+                    app.brain_model_id = Some(model.clone().unwrap_or_else(|| "gpt-4o".to_string()));
+                    app.brain_model_display = Some(model.unwrap_or_else(|| "GPT-4o".to_string()));
                 } else if app.config.get("OLLAMA_ENDPOINTS").is_some() {
                     app.brain_provider = Some(ProviderType::Ollama);
-                    app.brain_model_id = Some("llama3".to_string());
-                    app.brain_model_display = Some("llama3".to_string());
+                    let model = app.config.get("DEFAULT_MODEL")
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "llama3".to_string());
+                    app.brain_model_id = Some(model.clone());
+                    app.brain_model_display = Some(model);
                 }
 
                 if app.brain_provider.is_some() {
