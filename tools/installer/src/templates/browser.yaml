@@ -28,7 +28,7 @@ spec:
       containers:
         - name: agent-browser
           image: {{IMAGE_BROWSER}}
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           command: ["node", "/app/dist/index.js", "--transport", "http"]
           ports:
             - name: http

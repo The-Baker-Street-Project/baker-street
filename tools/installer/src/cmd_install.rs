@@ -1502,7 +1502,7 @@ pub(crate) fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, c
             "ext-browser" => "IMAGE_BROWSER",
             _ => continue,
         };
-        vars.insert(key.into(), img.image.clone());
+        vars.insert(key.into(), manifest.resolve_image(&img.image));
     }
 
     // Build FEATURE_VARS and GATEWAY_FEATURE_VARS from manifest featureFlags
