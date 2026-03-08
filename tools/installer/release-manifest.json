@@ -1,29 +1,80 @@
 {
   "schemaVersion": 2,
   "manifestVersion": "2.0.0",
-  "version": "0.2.0",
+  "version": "0.3.4",
   "registry": "ghcr.io/the-baker-street-project",
-
   "images": [
-    { "component": "brain", "image": "bakerst-brain:latest", "version": "0.2.0", "required": true },
-    { "component": "worker", "image": "bakerst-worker:latest", "version": "0.2.0", "required": true },
-    { "component": "ui", "image": "bakerst-ui:latest", "version": "0.2.0", "required": true },
-    { "component": "gateway", "image": "bakerst-gateway:latest", "version": "0.2.0", "required": true },
-    { "component": "sysadmin", "image": "bakerst-sysadmin:latest", "version": "0.2.0", "required": false },
-    { "component": "ext-toolbox", "image": "bakerst-ext-toolbox:latest", "version": "0.2.0", "required": false },
-    { "component": "ext-browser", "image": "bakerst-ext-browser:latest", "version": "0.2.0", "required": false },
-    { "component": "voice", "image": "bakerst-voice:latest", "version": "0.2.0", "required": false },
-    { "component": "nats-sidecar", "image": "bakerst-nats-sidecar:latest", "version": "0.2.0", "required": false },
-    { "component": "ext-google-workspace", "image": "bakerst-ext-google-workspace:latest", "version": "0.2.0", "required": false }
+    {
+      "component": "brain",
+      "image": "bakerst-brain:latest",
+      "version": "0.3.4",
+      "required": true
+    },
+    {
+      "component": "worker",
+      "image": "bakerst-worker:latest",
+      "version": "0.3.4",
+      "required": true
+    },
+    {
+      "component": "ui",
+      "image": "bakerst-ui:latest",
+      "version": "0.3.4",
+      "required": true
+    },
+    {
+      "component": "gateway",
+      "image": "bakerst-gateway:latest",
+      "version": "0.3.4",
+      "required": true
+    },
+    {
+      "component": "sysadmin",
+      "image": "bakerst-sysadmin:latest",
+      "version": "0.3.4",
+      "required": false
+    },
+    {
+      "component": "ext-toolbox",
+      "image": "bakerst-ext-toolbox:latest",
+      "version": "0.3.4",
+      "required": false
+    },
+    {
+      "component": "ext-browser",
+      "image": "bakerst-ext-browser:latest",
+      "version": "0.3.4",
+      "required": false
+    },
+    {
+      "component": "voice",
+      "image": "bakerst-voice:latest",
+      "version": "0.3.4",
+      "required": false
+    },
+    {
+      "component": "nats-sidecar",
+      "image": "bakerst-nats-sidecar:latest",
+      "version": "0.3.4",
+      "required": false
+    },
+    {
+      "component": "ext-google-workspace",
+      "image": "bakerst-ext-google-workspace:latest",
+      "version": "0.3.4",
+      "required": false
+    }
   ],
-
   "secrets": [
     {
       "key": "ANTHROPIC_API_KEY",
       "description": "Anthropic API key — powers Claude models for brain and worker",
       "required": false,
       "inputType": "secret",
-      "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"],
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-worker-secrets"
+      ],
       "prompt": "Let's get your AI connected! Paste your Anthropic API key",
       "group": "providers"
     },
@@ -33,11 +84,26 @@
       "required": false,
       "inputType": "choice",
       "choices": [
-        { "value": "claude-sonnet-4-20250514", "label": "Sonnet 4", "description": "balanced" },
-        { "value": "claude-opus-4-20250514", "label": "Opus 4", "description": "most capable" },
-        { "value": "claude-haiku-4-5-20251001", "label": "Haiku 4.5", "description": "fastest" }
+        {
+          "value": "claude-sonnet-4-20250514",
+          "label": "Sonnet 4",
+          "description": "balanced"
+        },
+        {
+          "value": "claude-opus-4-20250514",
+          "label": "Opus 4",
+          "description": "most capable"
+        },
+        {
+          "value": "claude-haiku-4-5-20251001",
+          "label": "Haiku 4.5",
+          "description": "fastest"
+        }
       ],
-      "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"],
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-worker-secrets"
+      ],
       "prompt": "Which model should your agent think with?",
       "group": "providers",
       "dependsOn": "ANTHROPIC_API_KEY"
@@ -47,7 +113,10 @@
       "description": "OpenAI API key — enables GPT models as an alternative provider",
       "required": false,
       "inputType": "secret",
-      "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"],
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-worker-secrets"
+      ],
       "prompt": "If you'd also like GPT models available, paste your OpenAI key (or skip)",
       "group": "providers"
     },
@@ -56,7 +125,10 @@
       "description": "Ollama endpoint URLs — enables local/self-hosted models",
       "required": false,
       "inputType": "text",
-      "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"],
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-worker-secrets"
+      ],
       "prompt": "Got Ollama running locally? Drop the endpoint URL here (or skip)",
       "placeholder": "localhost:11434",
       "group": "providers"
@@ -66,7 +138,11 @@
       "description": "Bearer token protecting the Brain API — auto-generated if not provided",
       "required": false,
       "inputType": "secret",
-      "targetSecrets": ["bakerst-brain-secrets", "bakerst-gateway-secrets", "bakerst-voice-secrets"],
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-gateway-secrets",
+        "bakerst-voice-secrets"
+      ],
       "prompt": "Got a specific auth token you'd like to use? (leave blank and I'll generate a secure one for you)",
       "autoGenerate": "hex:32",
       "group": "core"
@@ -76,7 +152,10 @@
       "description": "The persona name your AI agent responds to",
       "required": false,
       "inputType": "text",
-      "targetSecrets": ["bakerst-brain-secrets", "bakerst-worker-secrets"],
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-worker-secrets"
+      ],
       "prompt": "What would you like to call your agent?",
       "default": "Baker",
       "group": "core"
@@ -91,7 +170,6 @@
       "group": "core"
     }
   ],
-
   "features": [
     {
       "id": "telegram",
@@ -103,21 +181,29 @@
           "key": "TELEGRAM_BOT_TOKEN",
           "description": "Telegram Bot API token from @BotFather",
           "inputType": "secret",
-          "targetSecrets": ["bakerst-gateway-secrets"],
+          "targetSecrets": [
+            "bakerst-gateway-secrets"
+          ],
           "prompt": "Paste your Telegram bot token (from @BotFather)"
         },
         {
           "key": "TELEGRAM_ALLOWED_CHAT_IDS",
           "description": "Restrict bot to specific chat IDs",
           "inputType": "text",
-          "targetSecrets": ["bakerst-gateway-secrets"],
+          "targetSecrets": [
+            "bakerst-gateway-secrets"
+          ],
           "prompt": "Which chat IDs should the bot respond to? (comma-separated, or leave blank for all)",
           "required": false
         }
       ],
       "featureFlags": {
-        "brain": { "FEATURE_TELEGRAM": "true" },
-        "gateway": { "FEATURE_TELEGRAM": "true" }
+        "brain": {
+          "FEATURE_TELEGRAM": "true"
+        },
+        "gateway": {
+          "FEATURE_TELEGRAM": "true"
+        }
       }
     },
     {
@@ -130,13 +216,19 @@
           "key": "DISCORD_BOT_TOKEN",
           "description": "Discord bot token from the Developer Portal",
           "inputType": "secret",
-          "targetSecrets": ["bakerst-gateway-secrets"],
+          "targetSecrets": [
+            "bakerst-gateway-secrets"
+          ],
           "prompt": "Paste your Discord bot token"
         }
       ],
       "featureFlags": {
-        "brain": { "FEATURE_DISCORD": "true" },
-        "gateway": { "FEATURE_DISCORD": "true" }
+        "brain": {
+          "FEATURE_DISCORD": "true"
+        },
+        "gateway": {
+          "FEATURE_DISCORD": "true"
+        }
       }
     },
     {
@@ -149,12 +241,16 @@
           "key": "VOYAGE_API_KEY",
           "description": "Voyage AI API key for semantic embeddings",
           "inputType": "secret",
-          "targetSecrets": ["bakerst-brain-secrets"],
+          "targetSecrets": [
+            "bakerst-brain-secrets"
+          ],
           "prompt": "Paste your Voyage AI key (or skip — memory still works, just less precise)"
         }
       ],
       "featureFlags": {
-        "brain": { "FEATURE_MEMORY": "true" }
+        "brain": {
+          "FEATURE_MEMORY": "true"
+        }
       }
     },
     {
@@ -167,12 +263,16 @@
           "key": "GITHUB_TOKEN",
           "description": "GitHub personal access token (classic or fine-grained)",
           "inputType": "secret",
-          "targetSecrets": ["bakerst-github-secrets"],
+          "targetSecrets": [
+            "bakerst-github-secrets"
+          ],
           "prompt": "Paste your GitHub personal access token"
         }
       ],
       "featureFlags": {
-        "brain": { "FEATURE_EXTENSIONS": "true" }
+        "brain": {
+          "FEATURE_EXTENSIONS": "true"
+        }
       }
     },
     {
@@ -185,12 +285,16 @@
           "key": "PERPLEXITY_API_KEY",
           "description": "Perplexity AI API key for web search",
           "inputType": "secret",
-          "targetSecrets": ["bakerst-perplexity-secrets"],
+          "targetSecrets": [
+            "bakerst-perplexity-secrets"
+          ],
           "prompt": "Paste your Perplexity API key"
         }
       ],
       "featureFlags": {
-        "brain": { "FEATURE_EXTENSIONS": "true" }
+        "brain": {
+          "FEATURE_EXTENSIONS": "true"
+        }
       }
     },
     {
@@ -208,7 +312,9 @@
         }
       ],
       "featureFlags": {
-        "brain": { "FEATURE_EXTENSIONS": "true" }
+        "brain": {
+          "FEATURE_EXTENSIONS": "true"
+        }
       }
     },
     {
@@ -221,21 +327,27 @@
           "key": "STT_API_KEY",
           "description": "Speech-to-text provider API key",
           "inputType": "secret",
-          "targetSecrets": ["bakerst-voice-secrets"],
+          "targetSecrets": [
+            "bakerst-voice-secrets"
+          ],
           "prompt": "Paste your Speech-to-Text API key (for understanding you)"
         },
         {
           "key": "TTS_API_KEY",
           "description": "Text-to-speech provider API key",
           "inputType": "secret",
-          "targetSecrets": ["bakerst-voice-secrets"],
+          "targetSecrets": [
+            "bakerst-voice-secrets"
+          ],
           "prompt": "Paste your Text-to-Speech API key (for speaking back)"
         },
         {
           "key": "PICOVOICE_ACCESS_KEY",
           "description": "Picovoice access key for wake word detection",
           "inputType": "secret",
-          "targetSecrets": ["bakerst-voice-secrets"],
+          "targetSecrets": [
+            "bakerst-voice-secrets"
+          ],
           "prompt": "Paste your Picovoice key (this powers the wake word — like saying 'Hey Baker')"
         }
       ]
@@ -250,7 +362,9 @@
           "key": "GOOGLE_OAUTH_CLIENT_ID",
           "description": "Google OAuth 2.0 client ID (Desktop type)",
           "inputType": "text",
-          "targetSecrets": ["bakerst-google-secrets"],
+          "targetSecrets": [
+            "bakerst-google-secrets"
+          ],
           "prompt": "Paste your Google OAuth Client ID",
           "instructions": "You'll need OAuth credentials from Google Cloud Console:\n1. Go to https://console.cloud.google.com/apis/credentials\n2. Create an OAuth 2.0 Client ID (choose 'Desktop app')\n3. Copy the Client ID and Secret from the confirmation screen"
         },
@@ -258,7 +372,9 @@
           "key": "GOOGLE_OAUTH_CLIENT_SECRET",
           "description": "Google OAuth 2.0 client secret",
           "inputType": "secret",
-          "targetSecrets": ["bakerst-google-secrets"],
+          "targetSecrets": [
+            "bakerst-google-secrets"
+          ],
           "prompt": "And the Client Secret that came with it",
           "dependsOn": "GOOGLE_OAUTH_CLIENT_ID"
         },
@@ -266,7 +382,9 @@
           "key": "GOOGLE_CREDENTIAL_FILE",
           "description": "Pre-authorized OAuth token JSON (contains refresh token)",
           "inputType": "file_or_paste",
-          "targetSecrets": ["bakerst-google-cred-file"],
+          "targetSecrets": [
+            "bakerst-google-cred-file"
+          ],
           "prompt": "If you already have an authorized token file, drop the path here or paste the JSON",
           "dependsOn": "GOOGLE_OAUTH_CLIENT_SECRET",
           "silent": true,
@@ -276,19 +394,23 @@
         }
       ],
       "featureFlags": {
-        "brain": { "FEATURE_EXTENSIONS": "true" }
+        "brain": {
+          "FEATURE_EXTENSIONS": "true"
+        }
       }
     }
   ],
-
   "defaults": {
     "agentName": "Baker",
     "namespace": "bakerst",
     "resourceProfile": "standard"
   },
-
   "providerValidation": {
-    "requireAtLeastOne": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_ENDPOINTS"],
+    "requireAtLeastOne": [
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY",
+      "OLLAMA_ENDPOINTS"
+    ],
     "message": "At least one AI provider must be configured"
   }
 }
