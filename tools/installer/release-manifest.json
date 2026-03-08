@@ -2,6 +2,7 @@
   "schemaVersion": 2,
   "manifestVersion": "2.0.0",
   "version": "0.2.0",
+  "registry": "ghcr.io/the-baker-street-project",
 
   "images": [
     { "component": "brain", "image": "bakerst-brain:latest", "version": "0.2.0", "required": true },
