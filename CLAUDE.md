@@ -36,6 +36,15 @@ scripts/deploy.sh               # kubectl apply all manifests
 
 Windows: See `scripts/Deploy-BakerStreet.ps1` (requires Docker Desktop with Kubernetes + WSL2).
 
+### Releasing
+
+```bash
+scripts/release.sh           # auto-increment patch (e.g. v0.3.0 → v0.3.1)
+scripts/release.sh 0.4.0     # explicit version
+```
+
+This tags the release, bumps `release-manifest.json`, pushes to GitHub, and triggers the CI/CD pipeline which builds all images to GHCR and publishes installer binaries to the GitHub Release.
+
 ### Manifest Updates
 
 The installer embeds `tools/installer/release-manifest.json` at compile time. When adding/removing
