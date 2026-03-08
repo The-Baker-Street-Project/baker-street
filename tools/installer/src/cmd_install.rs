@@ -1167,7 +1167,7 @@ fn start_pull_phase(
         if !img.required && args.skip_extensions {
             continue;
         }
-        image_list.push(img.image.clone());
+        image_list.push(manifest.resolve_image(&img.image));
     }
 
     app.pull_statuses = image_list

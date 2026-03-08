@@ -8,6 +8,10 @@ pub struct ReleaseManifest {
     #[serde(default)]
     pub manifest_version: String,
     pub version: String,
+    /// Registry prefix for pulling images (e.g. "ghcr.io/the-baker-street-project").
+    /// When set, image names like "bakerst-brain:latest" become "ghcr.io/the-baker-street-project/bakerst-brain:latest".
+    #[serde(default)]
+    pub registry: Option<String>,
     pub images: Vec<ManifestImage>,
     /// v2: top-level secrets (replaces v1 `requiredSecrets`)
     #[serde(alias = "requiredSecrets")]
@@ -151,6 +155,15 @@ pub struct ProviderValidation {
 }
 
 impl ReleaseManifest {
+    /// Resolve an image name by prepending the registry prefix (if configured).
+    /// e.g. "bakerst-brain:latest" → "ghcr.io/the-baker-street-project/bakerst-brain:latest"
+    pub fn resolve_image(&self, image: &str) -> String {
+        match &self.registry {
+            Some(registry) if !registry.is_empty() => format!("{}/{}", registry, image),
+            _ => image.to_string(),
+        }
+    }
+
     /// Collect all secret keys defined in the manifest (top-level + feature secrets).
     pub fn all_secret_keys(&self) -> Vec<&str> {
         let mut keys: Vec<&str> = self.secrets.iter().map(|s| s.key.as_str()).collect();
@@ -332,6 +345,28 @@ mod tests {
         let m = embedded_manifest().unwrap();
         let targets = m.target_secrets_for("TELEGRAM_BOT_TOKEN");
         assert!(targets.contains(&"bakerst-gateway-secrets".to_string()));
+    }
+
+    #[test]
+    fn embedded_manifest_has_registry() {
+        let m = embedded_manifest().unwrap();
+        assert_eq!(m.registry.as_deref(), Some("ghcr.io/the-baker-street-project"));
+    }
+
+    #[test]
+    fn resolve_image_prepends_registry() {
+        let m = embedded_manifest().unwrap();
+        assert_eq!(
+            m.resolve_image("bakerst-brain:latest"),
+            "ghcr.io/the-baker-street-project/bakerst-brain:latest"
+        );
+    }
+
+    #[test]
+    fn resolve_image_without_registry() {
+        let mut m = embedded_manifest().unwrap();
+        m.registry = None;
+        assert_eq!(m.resolve_image("bakerst-brain:latest"), "bakerst-brain:latest");
     }
 
     #[test]
