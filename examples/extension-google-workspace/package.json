@@ -1,0 +1,6 @@
+{
+  "name": "@bakerst/ext-google-workspace",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Google Workspace MCP extension for Baker Street"
+}
