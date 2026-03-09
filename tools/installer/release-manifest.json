@@ -1,67 +1,67 @@
 {
   "schemaVersion": 2,
   "manifestVersion": "2.0.0",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "registry": "ghcr.io/the-baker-street-project",
   "images": [
     {
       "component": "brain",
       "image": "bakerst-brain:latest",
-      "version": "0.3.5",
+      "version": "0.4.0",
       "required": true
     },
     {
       "component": "worker",
       "image": "bakerst-worker:latest",
-      "version": "0.3.5",
+      "version": "0.4.0",
       "required": true
     },
     {
       "component": "ui",
       "image": "bakerst-ui:latest",
-      "version": "0.3.5",
+      "version": "0.4.0",
       "required": true
     },
     {
       "component": "gateway",
       "image": "bakerst-gateway:latest",
-      "version": "0.3.5",
+      "version": "0.4.0",
       "required": true
     },
     {
       "component": "sysadmin",
       "image": "bakerst-sysadmin:latest",
-      "version": "0.3.5",
+      "version": "0.4.0",
       "required": false
     },
     {
       "component": "ext-toolbox",
       "image": "bakerst-ext-toolbox:latest",
-      "version": "0.3.5",
+      "version": "0.4.0",
       "required": false
     },
     {
       "component": "ext-browser",
       "image": "bakerst-ext-browser:latest",
-      "version": "0.3.5",
+      "version": "0.4.0",
       "required": false
     },
     {
       "component": "voice",
       "image": "bakerst-voice:latest",
-      "version": "0.3.5",
+      "version": "0.4.0",
       "required": false
     },
     {
       "component": "nats-sidecar",
       "image": "bakerst-nats-sidecar:latest",
-      "version": "0.3.5",
+      "version": "0.4.0",
       "required": false
     },
     {
       "component": "ext-google-workspace",
       "image": "bakerst-ext-google-workspace:latest",
-      "version": "0.3.5",
+      "version": "0.4.0",
       "required": false
     }
   ],
