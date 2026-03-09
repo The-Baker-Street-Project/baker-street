@@ -297,7 +297,7 @@ describe('model-config', () => {
       await expect(loadModelConfig()).rejects.toThrow('no providers configured');
     });
 
-    it('throws when role references unknown model', async () => {
+    it('reassigns role when it references unknown model', async () => {
       const fileConfig = {
         providers: { anthropic: { provider: 'anthropic', apiKey: 'key' } },
         models: [{ id: 'model-a', modelName: 'model-a-name', provider: 'anthropic', maxTokens: 1024 }],
@@ -305,10 +305,11 @@ describe('model-config', () => {
       };
       mockReadFile.mockResolvedValue(JSON.stringify(fileConfig));
       setEnv('MODEL_ROUTER_CONFIG_PATH', '/bad-role.json');
-      await expect(loadModelConfig()).rejects.toThrow("role 'observer' references unknown model");
+      const config = await loadModelConfig();
+      expect(config.roles.observer).toBe('model-a');
     });
 
-    it('throws when model references unconfigured provider', async () => {
+    it('prunes model with unconfigured provider and reassigns role', async () => {
       const fileConfig = {
         providers: { anthropic: { provider: 'anthropic', apiKey: 'key' } },
         models: [
@@ -319,10 +320,12 @@ describe('model-config', () => {
       };
       mockReadFile.mockResolvedValue(JSON.stringify(fileConfig));
       setEnv('MODEL_ROUTER_CONFIG_PATH', '/bad-provider.json');
-      await expect(loadModelConfig()).rejects.toThrow("model 'model-b' uses provider 'ollama' but no config exists");
+      const config = await loadModelConfig();
+      expect(config.models.map(m => m.id)).toEqual(['model-a']);
+      expect(config.roles.observer).toBe('model-a');
     });
 
-    it('validates fallback chain references', async () => {
+    it('prunes invalid entries from fallback chain', async () => {
       const fileConfig = {
         providers: { anthropic: { provider: 'anthropic', apiKey: 'key' } },
         models: [{ id: 'model-a', modelName: 'model-a-name', provider: 'anthropic', maxTokens: 1024 }],
@@ -331,7 +334,8 @@ describe('model-config', () => {
       };
       mockReadFile.mockResolvedValue(JSON.stringify(fileConfig));
       setEnv('MODEL_ROUTER_CONFIG_PATH', '/bad-fallback.json');
-      await expect(loadModelConfig()).rejects.toThrow("fallback chain references unknown model id 'nonexistent'");
+      const config = await loadModelConfig();
+      expect(config.fallbackChain).toEqual(['model-a']);
     });
   });
 });
