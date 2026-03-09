@@ -42,7 +42,7 @@ spec:
       containers:
         - name: brain
           image: {{IMAGE_BRAIN}}
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -165,7 +165,7 @@ spec:
       containers:
         - name: brain
           image: {{IMAGE_BRAIN}}
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
