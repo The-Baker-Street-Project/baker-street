@@ -28,6 +28,7 @@ spec:
       containers:
         - name: sysadmin
           image: {{IMAGE_SYSADMIN}}
+          imagePullPolicy: Never
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

@@ -37,6 +37,7 @@ spec:
       containers:
         - name: gateway
           image: {{IMAGE_GATEWAY}}
+          imagePullPolicy: Never
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
