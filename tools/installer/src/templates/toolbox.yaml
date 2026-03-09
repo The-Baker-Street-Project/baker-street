@@ -28,6 +28,7 @@ spec:
       containers:
         - name: toolbox
           image: {{IMAGE_TOOLBOX}}
+          imagePullPolicy: Never
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

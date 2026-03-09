@@ -25,6 +25,7 @@ spec:
       containers:
         - name: worker
           image: {{IMAGE_WORKER}}
+          imagePullPolicy: Never
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
