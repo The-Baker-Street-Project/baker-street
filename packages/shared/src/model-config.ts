@@ -9,6 +9,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { logger } from './logger.js';
+import { discoverOllamaModels } from './ollama-discovery.js';
 import type {
   ModelRouterConfig,
   ModelDefinition,
@@ -55,13 +56,20 @@ function defaultProviders(): Record<string, ProviderConfig> {
   const ollamaEndpoints = process.env.OLLAMA_ENDPOINTS;
   if (ollamaEndpoints) {
     const endpoints = ollamaEndpoints.split(',').map(e => e.trim()).filter(Boolean);
+    const seenHosts = new Set<string>();
     for (const endpoint of endpoints) {
       if (!OLLAMA_ENDPOINT_PATTERN.test(endpoint)) {
         log.warn({ endpoint }, 'skipping invalid OLLAMA_ENDPOINTS entry (expected host:port)');
         continue;
       }
-      const isLocalhost = endpoint.startsWith('localhost') || endpoint.startsWith('127.0.0.1');
-      const key = isLocalhost ? 'ollama' : `ollama@${endpoint.split(':')[0]}`;
+      const host = endpoint.split(':')[0];
+      const isLocalhost = host === 'localhost' || host === '127.0.0.1';
+      // Include port in key when multiple endpoints share the same host
+      const needsPort = seenHosts.has(host);
+      seenHosts.add(host);
+      const key = isLocalhost
+        ? (needsPort ? `ollama:${endpoint.split(':')[1]}` : 'ollama')
+        : `ollama@${needsPort ? endpoint : host}`;
       providers[key] = {
         provider: 'ollama',
         baseURL: `http://${endpoint}/v1`,
@@ -262,11 +270,14 @@ function applyEnvOverrides(config: ModelRouterConfig): ModelRouterConfig {
     if (existing) {
       config.roles.worker = existing.id;
     } else {
+      // When multiple ollama endpoints exist, prefer one not already used by agent
+      const agentModel = config.models.find(m => m.id === config.roles.agent);
+      const agentProvider = agentModel?.provider;
       const adHocId = `custom-worker`;
       config.models.push({
         id: adHocId,
         modelName: workerModel,
-        provider: guessProvider(workerModel, config),
+        provider: guessProvider(workerModel, config, agentProvider),
         maxTokens: 4096,
       });
       config.roles.worker = adHocId;
@@ -293,10 +304,15 @@ function applyEnvOverrides(config: ModelRouterConfig): ModelRouterConfig {
   return config;
 }
 
-/** Best-effort guess of provider based on model name, validated against config */
+/**
+ * Best-effort guess of provider based on model name, validated against config.
+ * When excludeProvider is set, prefers a different ollama endpoint (for worker
+ * routing to a separate model server than the agent).
+ */
 function guessProvider(
   modelName: string,
   config: ModelRouterConfig,
+  excludeProvider?: string,
 ): string {
   let guessed: string;
 
@@ -307,7 +323,12 @@ function guessProvider(
   } else if (config.providers['openrouter']) {
     guessed = 'openrouter';
   } else if (Object.keys(config.providers).find(k => k.startsWith('ollama'))) {
-    guessed = Object.keys(config.providers).find(k => k.startsWith('ollama'))!;
+    const ollamaKeys = Object.keys(config.providers).filter(k => k.startsWith('ollama'));
+    // Prefer an ollama provider that isn't already taken by the agent
+    const preferred = excludeProvider
+      ? ollamaKeys.find(k => k !== excludeProvider) ?? ollamaKeys[0]
+      : ollamaKeys[0];
+    guessed = preferred;
   } else {
     guessed = 'anthropic';
   }
@@ -413,13 +434,42 @@ function validateConfig(config: ModelRouterConfig): void {
 // ---------------------------------------------------------------------------
 
 /**
+ * Discover models from all configured ollama/OpenAI-compatible endpoints.
+ * Runs before env overrides so DEFAULT_MODEL / WORKER_MODEL can match
+ * discovered models by name and get the correct provider automatically.
+ */
+async function discoverEndpointModels(config: ModelRouterConfig): Promise<ModelRouterConfig> {
+  const ollamaProviders = Object.entries(config.providers).filter(
+    ([, p]) => p.provider === 'ollama' && 'baseURL' in p,
+  );
+  if (ollamaProviders.length === 0) return config;
+
+  const discoveryResults = await Promise.all(
+    ollamaProviders.map(([key, p]) =>
+      discoverOllamaModels((p as { baseURL: string }).baseURL, key),
+    ),
+  );
+  const discovered = discoveryResults.flat();
+  if (discovered.length === 0) return config;
+
+  const models = [...config.models];
+  for (const model of discovered) {
+    if (!models.find((m) => m.id === model.id)) {
+      models.push(model);
+    }
+  }
+  return { ...config, models };
+}
+
+/**
  * Load and return a fully resolved ModelRouterConfig.
  *
  * Resolution order:
  *   1. If MODEL_ROUTER_CONFIG_PATH is set, load from that JSON file
  *   2. Otherwise use built-in defaults (current hardcoded models)
- *   3. Apply env-var overrides (DEFAULT_MODEL, OBSERVER_MODEL, OPENROUTER_API_KEY)
- *   4. Validate the final config
+ *   3. Discover models from ollama/OpenAI-compatible endpoints
+ *   4. Apply env-var overrides (DEFAULT_MODEL, OBSERVER_MODEL, OPENROUTER_API_KEY)
+ *   5. Validate the final config
  */
 export async function loadModelConfig(): Promise<ModelRouterConfig> {
   let config: ModelRouterConfig;
@@ -433,6 +483,7 @@ export async function loadModelConfig(): Promise<ModelRouterConfig> {
     config = createDefaultConfig();
   }
 
+  config = await discoverEndpointModels(config);
   config = applyEnvOverrides(config);
   config = pruneUnavailableModels(config);
   validateConfig(config);

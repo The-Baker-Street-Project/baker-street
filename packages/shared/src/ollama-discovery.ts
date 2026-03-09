@@ -15,11 +15,49 @@ interface OllamaShowResponse {
 }
 
 /**
+ * Try the OpenAI-compatible /v1/models endpoint as a fallback when
+ * /api/tags fails (e.g. MLX-LM, vLLM, or other OpenAI-compatible servers).
+ */
+async function discoverViaOpenAI(
+  baseURL: string,
+  providerKey: string,
+): Promise<ModelDefinition[]> {
+  // baseURL typically ends with /v1 already
+  const v1Base = baseURL.endsWith('/v1') ? baseURL : `${baseURL}/v1`;
+  try {
+    const res = await fetch(`${v1Base}/models`, {
+      signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { data?: Array<{ id: string }> };
+    if (!data.data || data.data.length === 0) return [];
+
+    const models: ModelDefinition[] = data.data.map((m) => ({
+      id: `${providerKey}:${m.id}`,
+      modelName: m.id,
+      provider: providerKey,
+      maxTokens: DEFAULT_MAX_TOKENS,
+    }));
+
+    log.info(
+      { baseURL, providerKey, modelCount: models.length, models: models.map((m) => m.id) },
+      'discovered models via OpenAI-compatible endpoint',
+    );
+    return models;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Query an Ollama endpoint's /api/tags to discover locally-available models,
  * then return them as ModelDefinition[] ready to merge into the ModelRouter config.
  *
+ * Falls back to the OpenAI-compatible /v1/models endpoint for non-Ollama
+ * servers (MLX-LM, vLLM, etc.).
+ *
  * Non-fatal: returns [] on any network or API error so the brain can start
- * even if Ollama is unreachable.
+ * even if the endpoint is unreachable.
  */
 export async function discoverOllamaModels(
   baseURL: string,
@@ -34,12 +72,12 @@ export async function discoverOllamaModels(
       signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
     });
     if (!res.ok) {
-      log.warn({ baseURL, status: res.status }, 'Ollama /api/tags returned non-OK');
-      return [];
+      // Not an Ollama server — try OpenAI-compatible discovery
+      return discoverViaOpenAI(baseURL, providerKey);
     }
     tagsResponse = (await res.json()) as OllamaTagsResponse;
   } catch (err) {
-    log.warn({ baseURL, err: (err as Error).message }, 'Ollama endpoint unreachable — skipping discovery');
+    log.warn({ baseURL, err: (err as Error).message }, 'endpoint unreachable — skipping discovery');
     return [];
   }
 

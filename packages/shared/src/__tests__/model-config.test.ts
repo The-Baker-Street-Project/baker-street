@@ -13,6 +13,14 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock ollama-discovery (avoid real network calls during tests)
+// ---------------------------------------------------------------------------
+
+vi.mock('../ollama-discovery.js', () => ({
+  discoverOllamaModels: vi.fn().mockResolvedValue([]),
+}));
+
+// ---------------------------------------------------------------------------
 // Import after mocks
 // ---------------------------------------------------------------------------
 
@@ -288,6 +296,36 @@ describe('model-config', () => {
       const config = await loadModelConfig();
       expect(config.providers).toHaveProperty('ollama');
       expect(config.providers).toHaveProperty('ollama@192.168.4.94');
+    });
+
+    it('creates unique keys for same-host different-port endpoints', async () => {
+      setEnv('OLLAMA_ENDPOINTS', 'myhost:8085,myhost:8086');
+      const config = await loadModelConfig();
+      expect(config.providers).toHaveProperty('ollama@myhost');
+      expect(config.providers['ollama@myhost']).toEqual({
+        provider: 'ollama',
+        baseURL: 'http://myhost:8085/v1',
+      });
+      expect(config.providers).toHaveProperty('ollama@myhost:8086');
+      expect(config.providers['ollama@myhost:8086']).toEqual({
+        provider: 'ollama',
+        baseURL: 'http://myhost:8086/v1',
+      });
+    });
+
+    it('creates unique keys for same localhost different-port endpoints', async () => {
+      setEnv('OLLAMA_ENDPOINTS', 'localhost:11434,localhost:8086');
+      const config = await loadModelConfig();
+      expect(config.providers).toHaveProperty('ollama');
+      expect(config.providers['ollama']).toEqual({
+        provider: 'ollama',
+        baseURL: 'http://localhost:11434/v1',
+      });
+      expect(config.providers).toHaveProperty('ollama:8086');
+      expect(config.providers['ollama:8086']).toEqual({
+        provider: 'ollama',
+        baseURL: 'http://localhost:8086/v1',
+      });
     });
   });
 

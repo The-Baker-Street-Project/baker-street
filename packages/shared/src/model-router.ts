@@ -316,6 +316,14 @@ function safeJsonParse(str: string): Record<string, unknown> {
   }
 }
 
+/**
+ * Strip `<think>…</think>` blocks that some models (e.g. Qwen via MLX-LM)
+ * embed directly in the content field instead of a separate reasoning field.
+ */
+function stripThinkingTags(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}
+
 /** Normalize an OpenAI chat completion choice into ChatResponse */
 function normalizeOpenAIResponse(
   choice: { message: Record<string, unknown>; finish_reason: string | null },
@@ -325,7 +333,10 @@ function normalizeOpenAIResponse(
   const content: ChatContentBlock[] = [];
 
   if (typeof choice.message.content === 'string' && choice.message.content) {
-    content.push({ type: 'text', text: choice.message.content });
+    const cleaned = stripThinkingTags(choice.message.content);
+    if (cleaned) {
+      content.push({ type: 'text', text: cleaned });
+    }
   }
 
   // Convert tool_calls to tool_use content blocks
@@ -605,13 +616,59 @@ async function createOpenAICompatibleAdapter(
 
       let fullText = '';
       let finishReason = 'end_turn';
+      // Track <think> blocks so we don't stream internal reasoning to the user
+      let insideThink = false;
+      let pendingBuffer = '';
       const toolCallAccumulator = new Map<number, { id: string; name: string; args: string }>();
 
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta;
         if (delta?.content) {
           fullText += delta.content;
-          yield { type: 'text_delta', text: delta.content };
+
+          // Filter out <think>…</think> blocks from streamed text
+          pendingBuffer += delta.content;
+          if (insideThink) {
+            const closeIdx = pendingBuffer.indexOf('</think>');
+            if (closeIdx !== -1) {
+              insideThink = false;
+              const after = pendingBuffer.slice(closeIdx + 8);
+              pendingBuffer = '';
+              if (after) {
+                yield { type: 'text_delta', text: after };
+              }
+            } else {
+              pendingBuffer = ''; // Still inside think, discard
+            }
+          } else {
+            const openIdx = pendingBuffer.indexOf('<think>');
+            if (openIdx !== -1) {
+              const before = pendingBuffer.slice(0, openIdx);
+              if (before) {
+                yield { type: 'text_delta', text: before };
+              }
+              insideThink = true;
+              // Check if </think> is also in this chunk
+              const rest = pendingBuffer.slice(openIdx + 7);
+              const closeIdx = rest.indexOf('</think>');
+              if (closeIdx !== -1) {
+                insideThink = false;
+                const after = rest.slice(closeIdx + 8);
+                pendingBuffer = '';
+                if (after) {
+                  yield { type: 'text_delta', text: after };
+                }
+              } else {
+                pendingBuffer = '';
+              }
+            } else if (!pendingBuffer.includes('<')) {
+              // No partial tag — safe to emit
+              yield { type: 'text_delta', text: pendingBuffer };
+              pendingBuffer = '';
+            }
+            // If pendingBuffer contains '<' but not '<think>', keep buffering
+            // in case the tag is split across chunks
+          }
         }
 
         if (delta?.tool_calls) {
@@ -636,9 +693,15 @@ async function createOpenAICompatibleAdapter(
         }
       }
 
+      // Flush any remaining buffered text (non-think content)
+      if (pendingBuffer && !insideThink) {
+        yield { type: 'text_delta', text: pendingBuffer };
+      }
+
       const content: ChatContentBlock[] = [];
-      if (fullText) {
-        content.push({ type: 'text', text: fullText });
+      const cleanedText = stripThinkingTags(fullText);
+      if (cleanedText) {
+        content.push({ type: 'text', text: cleanedText });
       }
       for (const [, tc] of toolCallAccumulator) {
         content.push({
