@@ -25,7 +25,7 @@ spec:
       containers:
         - name: ui
           image: {{IMAGE_UI}}
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

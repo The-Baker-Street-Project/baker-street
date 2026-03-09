@@ -322,13 +322,59 @@ function guessProvider(
 }
 
 // ---------------------------------------------------------------------------
+// Pruning — remove models whose provider is not configured
+// ---------------------------------------------------------------------------
+
+function pruneUnavailableModels(config: ModelRouterConfig): ModelRouterConfig {
+  const availableProviders = new Set(Object.keys(config.providers));
+
+  // Remove models whose provider is missing
+  const prunedModels = config.models.filter((m) => {
+    if (availableProviders.has(m.provider)) return true;
+    log.info(
+      { model: m.id, provider: m.provider },
+      'pruning model — provider not configured',
+    );
+    return false;
+  });
+
+  const availableModelIds = new Set(prunedModels.map((m) => m.id));
+
+  // Reassign roles that pointed to pruned models
+  const prunedRoles = { ...config.roles };
+  const firstAvailable = prunedModels[0]?.id;
+  for (const [role, modelId] of Object.entries(prunedRoles)) {
+    if (modelId && !availableModelIds.has(modelId)) {
+      const fallback = firstAvailable ?? null;
+      log.info(
+        { role, was: modelId, now: fallback },
+        'reassigning role — model was pruned',
+      );
+      (prunedRoles as Record<string, string | undefined>)[role] = fallback ?? undefined;
+    }
+  }
+
+  // Prune fallback chain
+  const prunedFallback = config.fallbackChain?.filter((id) =>
+    availableModelIds.has(id),
+  );
+
+  return {
+    ...config,
+    models: prunedModels,
+    roles: prunedRoles,
+    fallbackChain: prunedFallback,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
 
 function validateConfig(config: ModelRouterConfig): void {
   if (Object.keys(config.providers).length === 0) {
     throw new Error(
-      'model-config: no providers configured. Set ANTHROPIC_API_KEY at minimum.',
+      'model-config: no providers configured. Set at least one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, OLLAMA_ENDPOINTS.',
     );
   }
 
@@ -388,6 +434,7 @@ export async function loadModelConfig(): Promise<ModelRouterConfig> {
   }
 
   config = applyEnvOverrides(config);
+  config = pruneUnavailableModels(config);
   validateConfig(config);
 
   log.info(

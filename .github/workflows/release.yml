@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: 'Image platforms to build'
+        required: false
+        default: 'linux/amd64,linux/arm64'
+        type: choice
+        options:
+          - 'linux/amd64,linux/arm64'
+          - 'linux/amd64'
+          - 'linux/arm64'
 
 env:
   REGISTRY: ghcr.io
@@ -81,6 +92,9 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -124,7 +138,7 @@ jobs:
           context: .
           file: ${{ matrix.service.dockerfile }}
           push: true
-          platforms: linux/amd64
+          platforms: ${{ inputs.arch || 'linux/amd64,linux/arm64' }}
           tags: |
             ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}:${{ steps.svc-version.outputs.version }}
             ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}:latest
