@@ -366,14 +366,14 @@ if [[ "$SKIP_SECRETS" == false ]]; then
   fi
 
   # --- Anthropic auth ---
-  step "Anthropic authentication (required)"
+  step "Anthropic authentication (optional if using local models)"
 
   if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
     info "ANTHROPIC_API_KEY is set (****${ANTHROPIC_API_KEY: -4})"
   else
-    ANTHROPIC_API_KEY=$(ask_secret "ANTHROPIC_API_KEY" "")
+    ANTHROPIC_API_KEY=$(ask_secret "ANTHROPIC_API_KEY (optional if using Ollama/MLX)" "")
     if [[ -z "$ANTHROPIC_API_KEY" ]]; then
-      fail "ANTHROPIC_API_KEY is required."
+      warn "No Anthropic key — only local models will be available."
     fi
   fi
 
@@ -405,16 +405,35 @@ if [[ "$SKIP_SECRETS" == false ]]; then
     fi
   fi
 
+  # --- Model overrides ---
+  step "Model configuration (optional)"
+
+  if [[ -n "${DEFAULT_MODEL:-}" ]]; then
+    info "DEFAULT_MODEL is set: ${DEFAULT_MODEL}"
+  else
+    if [[ "$AUTO_YES" == false ]] && confirm "Configure default model? (overrides agent model)"; then
+      DEFAULT_MODEL=$(ask "DEFAULT_MODEL (model name or id)" "")
+    fi
+  fi
+
+  if [[ -n "${WORKER_MODEL:-}" ]]; then
+    info "WORKER_MODEL is set: ${WORKER_MODEL}"
+  else
+    if [[ "$AUTO_YES" == false ]] && confirm "Configure worker model? (separate model for reasoning tasks)"; then
+      WORKER_MODEL=$(ask "WORKER_MODEL (model name or id)" "")
+    fi
+  fi
+
   # --- Ollama ---
-  step "Ollama (optional)"
+  step "Ollama / OpenAI-compatible endpoints (optional)"
 
   if [[ -n "${OLLAMA_ENDPOINTS:-}" ]]; then
     info "OLLAMA_ENDPOINTS is set: ${OLLAMA_ENDPOINTS}"
   else
-    if [[ "$AUTO_YES" == false ]] && confirm "Configure Ollama endpoints?"; then
-      OLLAMA_ENDPOINTS=$(ask "Comma-separated Ollama URLs (e.g. localhost:11434)" "${OLLAMA_ENDPOINTS:-}")
+    if [[ "$AUTO_YES" == false ]] && confirm "Configure Ollama/MLX endpoints?"; then
+      OLLAMA_ENDPOINTS=$(ask "Comma-separated host:port (e.g. localhost:11434,192.168.4.42:8085)" "${OLLAMA_ENDPOINTS:-}")
       if [[ -z "$OLLAMA_ENDPOINTS" ]]; then
-        warn "Skipped — Ollama models will not be available."
+        warn "Skipped — local models will not be available."
       fi
     else
       info "Skipped"
@@ -547,6 +566,7 @@ if [[ "$SKIP_SECRETS" == false ]]; then
   {
     [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
     [[ -n "${DEFAULT_MODEL:-}" ]]         && echo "DEFAULT_MODEL=$DEFAULT_MODEL"
+    [[ -n "${WORKER_MODEL:-}" ]]         && echo "WORKER_MODEL=$WORKER_MODEL"
     [[ -n "${VOYAGE_API_KEY:-}" ]]        && echo "VOYAGE_API_KEY=$VOYAGE_API_KEY"
     [[ -n "${OPENAI_API_KEY:-}" ]]       && echo "OPENAI_API_KEY=$OPENAI_API_KEY"
     [[ -n "${OLLAMA_ENDPOINTS:-}" ]]     && echo "OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS"
@@ -664,6 +684,7 @@ step "Creating Kubernetes secrets..."
 BRAIN_ARGS=()
 [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && BRAIN_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
 [[ -n "${DEFAULT_MODEL:-}" ]]         && BRAIN_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
+[[ -n "${WORKER_MODEL:-}" ]]         && BRAIN_ARGS+=(--from-literal="WORKER_MODEL=$WORKER_MODEL")
 [[ -n "${VOYAGE_API_KEY:-}" ]]        && BRAIN_ARGS+=(--from-literal="VOYAGE_API_KEY=$VOYAGE_API_KEY")
 [[ -n "${OPENAI_API_KEY:-}" ]]       && BRAIN_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
 [[ -n "${OLLAMA_ENDPOINTS:-}" ]]     && BRAIN_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
@@ -671,7 +692,9 @@ BRAIN_ARGS+=(--from-literal="AUTH_TOKEN=$AUTH_TOKEN")
 [[ -n "${AGENT_NAME:-}" ]] && BRAIN_ARGS+=(--from-literal="AGENT_NAME=$AGENT_NAME")
 
 if [[ ${#BRAIN_ARGS[@]} -lt 2 ]]; then
-  fail "No Anthropic credentials configured. Cannot create brain secrets."
+  if [[ -z "${OLLAMA_ENDPOINTS:-}" ]]; then
+    fail "No model provider configured. Set ANTHROPIC_API_KEY or OLLAMA_ENDPOINTS."
+  fi
 fi
 
 info "Creating bakerst-brain-secrets"
@@ -684,6 +707,7 @@ kubectl create secret generic bakerst-brain-secrets \
 WORKER_ARGS=()
 [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && WORKER_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
 [[ -n "${DEFAULT_MODEL:-}" ]]         && WORKER_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
+[[ -n "${WORKER_MODEL:-}" ]]         && WORKER_ARGS+=(--from-literal="WORKER_MODEL=$WORKER_MODEL")
 [[ -n "${OPENAI_API_KEY:-}" ]]       && WORKER_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
 [[ -n "${OLLAMA_ENDPOINTS:-}" ]]     && WORKER_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
 
