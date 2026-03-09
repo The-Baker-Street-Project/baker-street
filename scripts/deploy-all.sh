@@ -625,40 +625,13 @@ fi
 if [[ "$SKIP_BUILD" == false && "$SKIP_IMAGES" == false ]]; then
   banner "Docker Images"
 
-  DOCKER_CACHE_FLAG=""
+  BUILD_ARGS=("--version" "$VERSION")
   if [[ "$NO_CACHE" == true ]]; then
-    DOCKER_CACHE_FLAG="--no-cache"
-    info "Docker cache disabled (--no-cache)"
+    BUILD_ARGS+=("--no-cache")
   fi
 
-  step "Building bakerst-brain (version: ${VERSION})..."
-  docker build $DOCKER_CACHE_FLAG -t bakerst-brain:latest -t "bakerst-brain:${VERSION}" \
-    --build-arg BRAIN_VERSION="$VERSION" \
-    -f "$REPO_ROOT/services/brain/Dockerfile" "$REPO_ROOT"
-
-  step "Building bakerst-worker..."
-  docker build $DOCKER_CACHE_FLAG -t bakerst-worker:latest \
-    -f "$REPO_ROOT/services/worker/Dockerfile" "$REPO_ROOT"
-
-  step "Building bakerst-ui..."
-  docker build $DOCKER_CACHE_FLAG -t bakerst-ui:latest \
-    -f "$REPO_ROOT/services/ui/Dockerfile" "$REPO_ROOT"
-
-  step "Building bakerst-gateway..."
-  docker build $DOCKER_CACHE_FLAG -t bakerst-gateway:latest \
-    -f "$REPO_ROOT/services/gateway/Dockerfile" "$REPO_ROOT"
-
-  # Extension images
-  if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
-    for ext_dir in "$REPO_ROOT/examples"/*/; do
-      ext_name=$(basename "$ext_dir")
-      if [[ -f "${ext_dir}Dockerfile" ]]; then
-        step "Building bakerst-ext-${ext_name#extension-}..."
-        docker build $DOCKER_CACHE_FLAG -t "bakerst-ext-${ext_name#extension-}:latest" \
-          -f "${ext_dir}Dockerfile" "$REPO_ROOT"
-      fi
-    done
-  fi
+  step "Building all Docker images via scripts/build.sh..."
+  SKIP_INSTALLER=true "$REPO_ROOT/scripts/build.sh" "${BUILD_ARGS[@]}"
 
   step "Images built:"
   docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | grep bakerst

@@ -76,70 +76,81 @@ save_hash() {
   echo "$CURRENT_HASH" > "$HASH_DIR/$name.hash"
 }
 
+# --network host only works on Linux; skip on macOS
+NETWORK_FLAG=""
+if [[ "$(uname -s)" == "Linux" ]]; then
+  NETWORK_FLAG="--network host"
+fi
+
 echo "==> Build version: $VERSION"
 
 if should_build "brain" "$REPO_ROOT/services/brain" "$REPO_ROOT/services/brain/Dockerfile"; then
   echo "==> Building bakerst-brain..."
-  docker build --network host $NO_CACHE -t bakerst-brain:latest --build-arg BRAIN_VERSION="$VERSION" \
+  docker build $NETWORK_FLAG $NO_CACHE -t bakerst-brain:latest --build-arg BRAIN_VERSION="$VERSION" \
     -f "$REPO_ROOT/services/brain/Dockerfile" "$REPO_ROOT" && save_hash "brain"
 fi
 
 if should_build "worker" "$REPO_ROOT/services/worker" "$REPO_ROOT/services/worker/Dockerfile"; then
   echo "==> Building bakerst-worker..."
-  docker build --network host $NO_CACHE -t bakerst-worker:latest \
+  docker build $NETWORK_FLAG $NO_CACHE -t bakerst-worker:latest \
     -f "$REPO_ROOT/services/worker/Dockerfile" "$REPO_ROOT" && save_hash "worker"
 fi
 
 if should_build "ui" "$REPO_ROOT/services/ui" "$REPO_ROOT/services/ui/Dockerfile"; then
   echo "==> Building bakerst-ui..."
-  docker build --network host $NO_CACHE -t bakerst-ui:latest \
+  docker build $NETWORK_FLAG $NO_CACHE -t bakerst-ui:latest \
     -f "$REPO_ROOT/services/ui/Dockerfile" "$REPO_ROOT" && save_hash "ui"
 fi
 
 if should_build "gateway" "$REPO_ROOT/services/gateway" "$REPO_ROOT/services/gateway/Dockerfile"; then
   echo "==> Building bakerst-gateway..."
-  docker build --network host $NO_CACHE -t bakerst-gateway:latest \
+  docker build $NETWORK_FLAG $NO_CACHE -t bakerst-gateway:latest \
     -f "$REPO_ROOT/services/gateway/Dockerfile" "$REPO_ROOT" && save_hash "gateway"
 fi
 
 if should_build "sysadmin" "$REPO_ROOT/services/sysadmin" "$REPO_ROOT/services/sysadmin/Dockerfile"; then
   echo "==> Building bakerst-sysadmin..."
-  docker build --network host $NO_CACHE -t bakerst-sysadmin:latest \
+  docker build $NETWORK_FLAG $NO_CACHE -t bakerst-sysadmin:latest \
     -f "$REPO_ROOT/services/sysadmin/Dockerfile" "$REPO_ROOT" && save_hash "sysadmin"
 fi
 
 if should_build "voice" "$REPO_ROOT/services/voice" "$REPO_ROOT/services/voice/Dockerfile"; then
   echo "==> Building bakerst-voice..."
-  docker build --network host $NO_CACHE -t bakerst-voice:latest \
+  docker build $NETWORK_FLAG $NO_CACHE -t bakerst-voice:latest \
     -f "$REPO_ROOT/services/voice/Dockerfile" "$REPO_ROOT" && save_hash "voice"
 fi
 
 if should_build "ext-toolbox" "$REPO_ROOT/examples/extension-toolbox" "$REPO_ROOT/examples/extension-toolbox/Dockerfile"; then
   echo "==> Building bakerst-ext-toolbox..."
-  docker build --network host $NO_CACHE -t bakerst-ext-toolbox:latest \
+  docker build $NETWORK_FLAG $NO_CACHE -t bakerst-ext-toolbox:latest \
     -f "$REPO_ROOT/examples/extension-toolbox/Dockerfile" "$REPO_ROOT" && save_hash "ext-toolbox"
 fi
 
 if should_build "ext-browser" "$REPO_ROOT/examples/extension-browser" "$REPO_ROOT/examples/extension-browser/Dockerfile"; then
   echo "==> Building bakerst-ext-browser..."
-  docker build --network host $NO_CACHE -t bakerst-ext-browser:latest \
+  docker build $NETWORK_FLAG $NO_CACHE -t bakerst-ext-browser:latest \
     -f "$REPO_ROOT/examples/extension-browser/Dockerfile" "$REPO_ROOT" && save_hash "ext-browser"
 fi
 
 if should_build "nats-sidecar" "$REPO_ROOT/packages/nats-sidecar" "$REPO_ROOT/packages/nats-sidecar/Dockerfile"; then
   echo "==> Building bakerst-nats-sidecar..."
-  docker build --network host $NO_CACHE -t bakerst-nats-sidecar:latest \
+  docker build $NETWORK_FLAG $NO_CACHE -t bakerst-nats-sidecar:latest \
     -f "$REPO_ROOT/packages/nats-sidecar/Dockerfile" "$REPO_ROOT/packages/nats-sidecar" && save_hash "nats-sidecar"
 fi
 
 if should_build "ext-google-workspace" "$REPO_ROOT/examples/extension-google-workspace" "$REPO_ROOT/examples/extension-google-workspace/Dockerfile"; then
   echo "==> Building bakerst-ext-google-workspace..."
-  docker build --network host $NO_CACHE -t bakerst-ext-google-workspace:latest \
+  docker build $NETWORK_FLAG $NO_CACHE -t bakerst-ext-google-workspace:latest \
     -f "$REPO_ROOT/examples/extension-google-workspace/Dockerfile" "$REPO_ROOT/examples/extension-google-workspace" && save_hash "ext-google-workspace"
 fi
 
-echo "==> Building bakerst-install CLI..."
-make -C "$REPO_ROOT/tools/installer" install
+# Only build installer if cargo is available and not skipped
+if [[ "${SKIP_INSTALLER:-false}" != "true" ]] && command -v cargo &>/dev/null; then
+  echo "==> Building bakerst-install CLI..."
+  make -C "$REPO_ROOT/tools/installer" install
+else
+  echo "==> Skipping installer build (set SKIP_INSTALLER=false or install cargo)"
+fi
 
 echo "==> Done. Images:"
 docker images | grep bakerst
