@@ -6,15 +6,10 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      arch:
-        description: 'Image platforms to build'
-        required: false
-        default: 'linux/amd64,linux/arm64'
-        type: choice
-        options:
-          - 'linux/amd64,linux/arm64'
-          - 'linux/amd64'
-          - 'linux/arm64'
+      version:
+        description: 'Version to release (e.g. 0.5.1)'
+        required: true
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -23,10 +18,33 @@ env:
 permissions:
   contents: write
   packages: write
-  id-token: write  # cosign keyless signing
 
 jobs:
-  build-and-push:
+  # ─── Stage 1: Extract version ───────────────────────────────────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Determine version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ -n "$INPUT_VERSION" ]]; then
+            V="$INPUT_VERSION"
+          else
+            V="$REF_NAME"
+          fi
+          # Strip leading 'v' if present
+          V="${V#v}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Version: $V"
+
+  # ─── Stage 2: Native AMD64 image builds ─────────────────────────────
+  build-image-amd64:
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -34,66 +52,27 @@ jobs:
         service:
           - name: brain
             dockerfile: services/brain/Dockerfile
-            pkg-path: services/brain
-            has-build-args: true
+            context: .
           - name: worker
             dockerfile: services/worker/Dockerfile
-            pkg-path: services/worker
-            has-build-args: false
+            context: .
           - name: ui
             dockerfile: services/ui/Dockerfile
-            pkg-path: services/ui
-            has-build-args: false
+            context: .
           - name: gateway
             dockerfile: services/gateway/Dockerfile
-            pkg-path: services/gateway
-            has-build-args: false
-          - name: sysadmin
-            dockerfile: services/sysadmin/Dockerfile
-            pkg-path: services/sysadmin
-            has-build-args: false
-          - name: ext-utilities
-            dockerfile: examples/extension-utilities/Dockerfile
-            pkg-path: examples/extension-utilities
-            has-build-args: false
-          - name: ext-github
-            dockerfile: examples/extension-github/Dockerfile
-            pkg-path: examples/extension-github
-            has-build-args: false
-          - name: ext-obsidian
-            dockerfile: examples/extension-obsidian/Dockerfile
-            pkg-path: examples/extension-obsidian
-            has-build-args: false
-          - name: ext-toolbox
-            dockerfile: examples/extension-toolbox/Dockerfile
-            pkg-path: examples/extension-toolbox
-            has-build-args: false
-          - name: ext-browser
-            dockerfile: examples/extension-browser/Dockerfile
-            pkg-path: examples/extension-browser
-            has-build-args: false
-          - name: voice
-            dockerfile: services/voice/Dockerfile
-            pkg-path: services/voice
-            has-build-args: false
+            context: .
           - name: nats-sidecar
             dockerfile: packages/nats-sidecar/Dockerfile
-            pkg-path: packages/nats-sidecar
-            has-build-args: false
-          - name: ext-google-workspace
-            dockerfile: examples/extension-google-workspace/Dockerfile
-            pkg-path: examples/extension-google-workspace
-            has-build-args: false
-
+            context: packages/nats-sidecar
+          - name: ext-toolbox
+            dockerfile: examples/extension-toolbox/Dockerfile
+            context: .
+          - name: ext-browser
+            dockerfile: examples/extension-browser/Dockerfile
+            context: .
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Set up QEMU (multi-arch)
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -105,79 +84,124 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3
-
-      - name: Install syft
-        uses: anchore/sbom-action/download-syft@v0
-
-      - name: Read service version
-        id: svc-version
-        env:
-          PKG_PATH: ${{ matrix.service.pkg-path }}
-        run: |
-          VERSION=$(node -e "console.log(require('./${PKG_PATH}/package.json').version)")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Compute build args
-        id: build-args
-        env:
-          REF_NAME: ${{ github.ref_name }}
-          HAS_BUILD_ARGS: ${{ matrix.service.has-build-args }}
-        run: |
-          if [ "$HAS_BUILD_ARGS" = "true" ]; then
-            echo "args=BRAIN_VERSION=$REF_NAME" >> "$GITHUB_OUTPUT"
-          else
-            echo "args=" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build and push image
-        id: build
+      - name: Build and push (amd64)
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
           push: true
-          platforms: ${{ inputs.arch || 'linux/amd64,linux/arm64' }}
-          tags: |
-            ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}:${{ steps.svc-version.outputs.version }}
-            ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}:latest
-          build-args: ${{ steps.build-args.outputs.args }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          tags: ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}:${{ needs.prepare.outputs.version }}-amd64
+          cache-from: type=gha,scope=${{ matrix.service.name }}-amd64
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}-amd64
+
+  # ─── Stage 3: Native ARM64 image builds ─────────────────────────────
+  build-image-arm64:
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: brain
+            dockerfile: services/brain/Dockerfile
+            context: .
+          - name: worker
+            dockerfile: services/worker/Dockerfile
+            context: .
+          - name: ui
+            dockerfile: services/ui/Dockerfile
+            context: .
+          - name: gateway
+            dockerfile: services/gateway/Dockerfile
+            context: .
+          - name: nats-sidecar
+            dockerfile: packages/nats-sidecar/Dockerfile
+            context: packages/nats-sidecar
+          - name: ext-toolbox
+            dockerfile: examples/extension-toolbox/Dockerfile
+            context: .
+          - name: ext-browser
+            dockerfile: examples/extension-browser/Dockerfile
+            context: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          platforms: linux/arm64
+          tags: ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}:${{ needs.prepare.outputs.version }}-arm64
+          cache-from: type=gha,scope=${{ matrix.service.name }}-arm64
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}-arm64
+
+  # ─── Stage 4: Create multi-arch manifests ────────────────────────────
+  create-manifests:
+    needs: [prepare, build-image-amd64, build-image-arm64]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - brain
+          - worker
+          - ui
+          - gateway
+          - nats-sidecar
+          - ext-toolbox
+          - ext-browser
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SERVICE: ${{ matrix.service }}
+        run: |
+          IMAGE="${IMAGE_PREFIX}-${SERVICE}"
+          docker manifest create "${IMAGE}:${VERSION}" \
+            "${IMAGE}:${VERSION}-amd64" \
+            "${IMAGE}:${VERSION}-arm64"
+          docker manifest push "${IMAGE}:${VERSION}"
+
+          docker manifest create "${IMAGE}:latest" \
+            "${IMAGE}:${VERSION}-amd64" \
+            "${IMAGE}:${VERSION}-arm64"
+          docker manifest push "${IMAGE}:latest"
 
       - name: Make package public
         env:
-          SERVICE_NAME: ${{ matrix.service.name }}
+          SERVICE: ${{ matrix.service }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh api \
             --method PUT \
             -H "Accept: application/vnd.github+json" \
-            /orgs/The-Baker-Street-Project/packages/container/bakerst-${SERVICE_NAME}/visibility \
+            /orgs/The-Baker-Street-Project/packages/container/bakerst-${SERVICE}/visibility \
             -f visibility=public \
           || echo "Warning: could not set package visibility (may already be public)"
 
-      - name: Sign image with cosign
-        env:
-          IMAGE_REF: ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}@${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "$IMAGE_REF"
-
-      - name: Generate and attach SBOM
-        env:
-          IMAGE_REF: ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}@${{ steps.build.outputs.digest }}
-          SERVICE_NAME: ${{ matrix.service.name }}
-        run: |
-          syft "$IMAGE_REF" -o spdx-json > "sbom-${SERVICE_NAME}.spdx.json"
-          cosign attach sbom --sbom "sbom-${SERVICE_NAME}.spdx.json" "$IMAGE_REF"
-
-      - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom-${{ matrix.service.name }}
-          path: sbom-${{ matrix.service.name }}.spdx.json
-
+  # ─── Stage 5: Build installer binaries ───────────────────────────────
   build-installer:
+    needs: prepare
     runs-on: ${{ matrix.target.runner }}
     strategy:
       fail-fast: false
@@ -186,20 +210,9 @@ jobs:
           - triple: x86_64-unknown-linux-gnu
             binary: bakerst-install-linux-amd64
             runner: ubuntu-latest
-            use-cross: false
-          - triple: aarch64-unknown-linux-gnu
-            binary: bakerst-install-linux-arm64
-            runner: ubuntu-latest
-            use-cross: true
-          - triple: x86_64-apple-darwin
-            binary: bakerst-install-darwin-amd64
-            runner: macos-latest
-            use-cross: false
           - triple: aarch64-apple-darwin
             binary: bakerst-install-darwin-arm64
             runner: macos-latest
-            use-cross: false
-
     steps:
       - uses: actions/checkout@v4
 
@@ -208,17 +221,7 @@ jobs:
         with:
           targets: ${{ matrix.target.triple }}
 
-      - name: Install cross (Linux ARM64)
-        if: matrix.target.use-cross
-        run: cargo install cross --locked
-
-      - name: Build with cross
-        if: matrix.target.use-cross
-        working-directory: tools/installer
-        run: cross build --release --target ${{ matrix.target.triple }}
-
-      - name: Build with cargo
-        if: ${{ !matrix.target.use-cross }}
+      - name: Build installer
         working-directory: tools/installer
         run: cargo build --release --target ${{ matrix.target.triple }}
 
@@ -228,39 +231,145 @@ jobs:
           BINARY_NAME: ${{ matrix.target.binary }}
         run: |
           cp "tools/installer/target/${TARGET}/release/bakerst-install" "$BINARY_NAME"
-          if command -v sha256sum &> /dev/null; then
+          if command -v sha256sum &>/dev/null; then
             sha256sum "$BINARY_NAME" > "${BINARY_NAME}.sha256"
           else
             shasum -a 256 "$BINARY_NAME" > "${BINARY_NAME}.sha256"
           fi
 
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: installer-${{ matrix.target.binary }}
+          path: |
             ${{ matrix.target.binary }}
             ${{ matrix.target.binary }}.sha256
 
-  create-release:
-    needs: [build-and-push, build-installer]
+  # ─── Stage 6: Package release artifacts ──────────────────────────────
+  package-artifacts:
+    needs: [prepare, build-installer, create-manifests]
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Attach manifest to release
-        run: cp tools/installer/release-manifest.json release-manifest.json
-
-      - name: Download SBOMs
+      - name: Download installer artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: sbom-*
+          pattern: installer-*
           merge-multiple: true
+
+      - name: Read installer checksums
+        id: checksums
+        run: |
+          if [[ -f "bakerst-install-linux-amd64.sha256" ]]; then
+            SHA=$(cut -d' ' -f1 bakerst-install-linux-amd64.sha256)
+            echo "linux_amd64_sha256=$SHA" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ -f "bakerst-install-darwin-arm64.sha256" ]]; then
+            SHA=$(cut -d' ' -f1 bakerst-install-darwin-arm64.sha256)
+            echo "darwin_arm64_sha256=$SHA" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bundle install template
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: scripts/bundle-template.sh
+
+      - name: Generate release manifest
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SERVICES: "brain worker ui gateway nats-sidecar ext-toolbox ext-browser"
+          INSTALLER_LINUX_AMD64_SHA256: ${{ steps.checksums.outputs.linux_amd64_sha256 }}
+          INSTALLER_DARWIN_ARM64_SHA256: ${{ steps.checksums.outputs.darwin_arm64_sha256 }}
+        run: scripts/generate-manifest.sh
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            manifest.json
+            install-template.tar.gz
+            bakerst-install-linux-amd64
+            bakerst-install-linux-amd64.sha256
+            bakerst-install-darwin-arm64
+            bakerst-install-darwin-arm64.sha256
+
+  # ─── Stage 7: Acceptance test ────────────────────────────────────────
+  acceptance-test:
+    needs: [prepare, package-artifacts, create-manifests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: bakerst-test
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+
+      - name: Pull images and load into kind
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          SERVICES="brain worker ui gateway nats-sidecar ext-toolbox ext-browser"
+          for svc in $SERVICES; do
+            IMAGE="${IMAGE_PREFIX}-${svc}:${VERSION}"
+            docker pull "$IMAGE"
+            kind load docker-image "$IMAGE" --name bakerst-test
+          done
+
+      - name: Make installer executable
+        run: chmod +x bakerst-install-linux-amd64
+
+      - name: Run installer with test config
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          ./bakerst-install-linux-amd64 install \
+            --config test/acceptance/test-config.yaml \
+            --template install-template.tar.gz \
+            --manifest manifest.json
+
+      - name: Wait for pods
+        run: |
+          kubectl wait --for=condition=ready pod -l app=brain -n bakerst --timeout=180s
+          kubectl wait --for=condition=ready pod -l app=worker -n bakerst --timeout=180s
+          kubectl wait --for=condition=ready pod -l app=ui -n bakerst --timeout=180s
+
+      - name: Smoke test — ping brain
+        run: |
+          kubectl port-forward svc/brain 3000:3000 -n bakerst &
+          sleep 3
+          curl -sf http://localhost:3000/ping || (echo "Brain ping failed"; exit 1)
+          echo "Acceptance test passed"
+
+  # ─── Stage 8: Publish GitHub Release ─────────────────────────────────
+  publish-release:
+    needs: [prepare, acceptance-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ needs.prepare.outputs.version }}
           generate_release_notes: true
           files: |
-            release-manifest.json
-            sbom-*.spdx.json
+            manifest.json
+            install-template.tar.gz
+            bakerst-install-linux-amd64
+            bakerst-install-linux-amd64.sha256
+            bakerst-install-darwin-arm64
+            bakerst-install-darwin-arm64.sha256

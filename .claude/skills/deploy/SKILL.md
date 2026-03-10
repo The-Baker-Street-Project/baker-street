@@ -22,11 +22,11 @@ kubectl config current-context
 
 | What changed | Action |
 |---|---|
-| **TypeScript code only** (no new deps, no Dockerfile changes) | Quick rebuild: `pnpm -r build && scripts/build.sh && scripts/deploy.sh` |
+| **TypeScript code only** (no new deps, no Dockerfile changes) | Quick rebuild: `pnpm -r build && scripts/build.sh && kubectl rollout restart deploy/brain-blue deploy/worker -n bakerst` |
 | **Dependencies** (package.json / pnpm-lock.yaml) | Full rebuild: `scripts/deploy-all.sh --skip-secrets` |
 | **Secrets** (.env-secrets) | Secrets only: `scripts/deploy-all.sh --skip-build` |
 | **K8s manifests** (k8s/*.yaml) | Apply only: `kubectl apply -k k8s/` (or `k8s/overlays/dev/` for dev) |
-| **Dockerfiles** | Rebuild images: `scripts/build.sh && scripts/deploy.sh` |
+| **Dockerfiles** | Rebuild images: `scripts/build.sh && kubectl rollout restart deploy/brain-blue deploy/worker -n bakerst` |
 | **Everything / first time** | Full deploy: `scripts/deploy-all.sh` |
 | **Operating system personality** | ConfigMap only: see "Update personality" below |
 

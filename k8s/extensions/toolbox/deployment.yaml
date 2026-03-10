@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ext-toolbox
-  namespace: {{NAMESPACE}}
+  namespace: bakerst
   labels:
     app: bakerst-extension
     extension: toolbox
@@ -27,8 +27,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: toolbox
-          image: {{IMAGE_TOOLBOX}}
-          imagePullPolicy: IfNotPresent
+          image: bakerst-ext-toolbox:latest
+          imagePullPolicy: Never
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -52,7 +52,7 @@ spec:
             failureThreshold: 3
           env:
             - name: NATS_URL
-              value: "nats://nats.{{NAMESPACE}}.svc.cluster.local:4222"
+              value: "nats://nats.bakerst.svc.cluster.local:4222"
             - name: EXTENSION_ID
               value: "toolbox"
           envFrom:
@@ -69,12 +69,18 @@ spec:
             limits:
               memory: "256Mi"
               cpu: "200m"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ext-toolbox
-  namespace: {{NAMESPACE}}
+  namespace: bakerst
   labels:
     app: bakerst-extension
     extension: toolbox

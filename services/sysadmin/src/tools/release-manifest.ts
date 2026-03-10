@@ -45,10 +45,11 @@ export function createReleaseManifestTools(): RegisteredTool[] {
 
           const release = await releaseResp.json() as { assets: Array<{ name: string; browser_download_url: string }> };
 
-          // Find the release-manifest.json asset
-          const manifestAsset = release.assets.find((a: { name: string }) => a.name === 'release-manifest.json');
+          // Find the manifest.json asset (CI-generated release manifest)
+          const manifestAsset = release.assets.find((a: { name: string }) =>
+            a.name === 'manifest.json' || a.name === 'release-manifest.json');
           if (!manifestAsset) {
-            return { result: 'No release-manifest.json found in the release assets.' };
+            return { result: 'No manifest.json found in the release assets.' };
           }
 
           const manifestResp = await fetch(manifestAsset.browser_download_url);

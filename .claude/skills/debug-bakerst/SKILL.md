@@ -93,7 +93,7 @@ kubectl get secret bakerst-gateway-secrets -n bakerst -o json | jq '.data | keys
 ```
 - Missing `ANTHROPIC_API_KEY` → brain/worker can't call Claude
 - Missing `AUTH_TOKEN` → gateway can't authenticate to brain
-- Fix: re-run `scripts/deploy-all.sh` or `scripts/secrets.sh`
+- Fix: re-run `scripts/deploy-all.sh`
 
 ### NATS Connection Refused
 ```bash

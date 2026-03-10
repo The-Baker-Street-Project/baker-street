@@ -1,140 +1,180 @@
-use anyhow::Result;
+//! Status command — displays current deployment state.
+//!
+//! Reads saved config from ~/.bakerst/config.json, queries K8s for pod/deployment
+//! status, and prints a summary. Supports --json and --watch modes.
+
+use anyhow::{Context, Result};
+use serde::Serialize;
 
 use crate::cli::{Cli, StatusArgs};
 use crate::k8s;
-use crate::meta;
+
+#[derive(Serialize)]
+struct StatusOutput {
+    namespace: String,
+    version: Option<String>,
+    enabled_features: Vec<String>,
+    agent_name: Option<String>,
+    deployments: Vec<DeploymentInfo>,
+    secrets: Vec<SecretInfo>,
+}
+
+#[derive(Serialize)]
+struct DeploymentInfo {
+    name: String,
+    ready: i32,
+    desired: i32,
+    image: String,
+}
+
+#[derive(Serialize)]
+struct SecretInfo {
+    name: String,
+    keys: Vec<String>,
+}
 
 /// Entry point for the `status` subcommand.
-pub async fn run(cli: &Cli, args: &StatusArgs) -> Result<()> {
+pub async fn run(cli: &Cli, args: StatusArgs) -> Result<()> {
     if args.watch {
         loop {
             // Clear screen for watch mode
-            print!("\x1b[2J\x1b[H");
-            print_status(cli, args).await?;
+            print!("\x1B[2J\x1B[1;1H");
+            if let Err(e) = print_status(cli, &args).await {
+                eprintln!("Error: {}", e);
+            }
+            println!("\n(watching — refresh every 5s, Ctrl+C to stop)");
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     } else {
-        print_status(cli, args).await
+        print_status(cli, &args).await
     }
 }
 
 async fn print_status(cli: &Cli, args: &StatusArgs) -> Result<()> {
-    let client = kube::Client::try_default().await?;
-    let ns = &cli.namespace;
+    // Load saved config (non-secret)
+    let config_path = dirs::home_dir()
+        .context("Cannot determine home directory")?
+        .join(".bakerst/config.json");
 
-    // Read deploy metadata
-    let deploy_meta = meta::read_meta(&client, ns).await?;
-    let statuses = k8s::get_deployments_status(&client, ns).await?;
-    let secrets_info = k8s::get_secrets_info(&client, ns).await?;
+    let saved_config: Option<serde_json::Value> = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)?;
+        Some(serde_json::from_str(&content)?)
+    } else {
+        None
+    };
+
+    let namespace = saved_config
+        .as_ref()
+        .and_then(|c| c["namespace"].as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| cli.namespace.clone());
+
+    let enabled_features: Vec<String> = saved_config
+        .as_ref()
+        .and_then(|c| c["enabledFeatures"].as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let agent_name = saved_config
+        .as_ref()
+        .and_then(|c| c["agentName"].as_str())
+        .map(String::from);
+
+    let version = saved_config
+        .as_ref()
+        .and_then(|c| c["version"].as_str())
+        .map(String::from);
+
+    // Query K8s
+    let client = kube::Client::try_default()
+        .await
+        .context("Cannot connect to Kubernetes cluster")?;
+
+    let deploy_statuses = k8s::get_deployments_status(&client, &namespace)
+        .await
+        .context("Failed to list deployments")?;
+
+    let secrets_info = k8s::get_secrets_info(&client, &namespace)
+        .await
+        .context("Failed to list secrets")?;
+
+    let deployments: Vec<DeploymentInfo> = deploy_statuses
+        .into_iter()
+        .map(|d| DeploymentInfo {
+            name: d.name,
+            ready: d.ready,
+            desired: d.desired,
+            image: d.image,
+        })
+        .collect();
+
+    let secrets: Vec<SecretInfo> = secrets_info
+        .into_iter()
+        .map(|(name, keys)| SecretInfo { name, keys })
+        .collect();
+
+    let output = StatusOutput {
+        namespace: namespace.clone(),
+        version,
+        enabled_features,
+        agent_name,
+        deployments,
+        secrets,
+    };
 
     if args.json {
-        print_json(&deploy_meta, &statuses, &secrets_info)?;
+        println!("{}", serde_json::to_string_pretty(&output)?);
     } else {
-        print_table(ns, &deploy_meta, &statuses, &secrets_info);
+        print_human(&output);
     }
 
     Ok(())
 }
 
-fn print_json(
-    deploy_meta: &Option<meta::DeployMeta>,
-    statuses: &[k8s::DeploymentStatus],
-    secrets_info: &[(String, Vec<String>)],
-) -> Result<()> {
-    let meta_json = match deploy_meta {
-        Some(m) => serde_json::json!({
-            "version": m.version,
-            "activeSlot": m.active_slot,
-            "deployTimestamp": m.deploy_timestamp,
-            "features": m.features,
-            "components": m.components,
-        }),
-        None => serde_json::json!(null),
-    };
-
-    let deployments: Vec<_> = statuses
-        .iter()
-        .map(|s| {
-            serde_json::json!({
-                "name": s.name,
-                "desired": s.desired,
-                "ready": s.ready,
-                "image": s.image,
-            })
-        })
-        .collect();
-
-    let secrets: Vec<_> = secrets_info
-        .iter()
-        .map(|(name, keys)| {
-            serde_json::json!({
-                "name": name,
-                "keys": keys,
-            })
-        })
-        .collect();
-
-    let output = serde_json::json!({
-        "meta": meta_json,
-        "deployments": deployments,
-        "secrets": secrets,
-    });
-
-    println!("{}", serde_json::to_string_pretty(&output)?);
-    Ok(())
-}
-
-fn print_table(
-    namespace: &str,
-    deploy_meta: &Option<meta::DeployMeta>,
-    statuses: &[k8s::DeploymentStatus],
-    secrets_info: &[(String, Vec<String>)],
-) {
+fn print_human(output: &StatusOutput) {
     println!("Baker Street Status");
+    println!("===================");
+    println!("Namespace:  {}", output.namespace);
+    if let Some(ref v) = output.version {
+        println!("Version:    {}", v);
+    }
+    if let Some(ref name) = output.agent_name {
+        println!("Agent:      {}", name);
+    }
 
-    if let Some(ref m) = deploy_meta {
-        println!("  Namespace:  {}", namespace);
-        println!("  Version:    {}", if m.version.is_empty() { "unknown" } else { &m.version });
-        println!("  Deployed:   {}", if m.deploy_timestamp.is_empty() { "unknown" } else { &m.deploy_timestamp });
-        println!("  Brain Slot: {} (active)", m.active_slot);
-        if !m.features.is_empty() {
-            println!("  Features:   {}", m.features);
-        }
-    } else {
-        println!("  Namespace:  {}", namespace);
-        println!("  Meta:       not found (pre-meta install or no deployment)");
+    if !output.enabled_features.is_empty() {
+        println!("Features:   {}", output.enabled_features.join(", "));
     }
 
     println!();
-    println!(
-        "{:<20} {:>7} {:>7} {}",
-        "DEPLOYMENT", "DESIRED", "READY", "IMAGE"
-    );
-    println!("{}", "\u{2500}".repeat(80));
-
-    if statuses.is_empty() {
-        println!("  No deployments found in namespace '{}'", namespace);
+    println!("Deployments:");
+    if output.deployments.is_empty() {
+        println!("  (none found)");
     } else {
-        for s in statuses {
-            let status_icon = if s.desired > 0 && s.ready >= s.desired {
+        for d in &output.deployments {
+            let status_icon = if d.ready >= d.desired && d.desired > 0 {
                 "\u{2713}"
-            } else if s.desired == 0 {
-                " "
             } else {
                 "\u{2717}"
             };
             println!(
-                "{} {:<18} {:>7} {:>7} {}",
-                status_icon, s.name, s.desired, s.ready, s.image
+                "  {} {:<20} {}/{} ready   {}",
+                status_icon, d.name, d.ready, d.desired, d.image
             );
         }
     }
 
-    if !secrets_info.is_empty() {
-        println!();
-        println!("Secrets:");
-        for (name, keys) in secrets_info {
-            println!("  {:<30} [{}]", name, keys.join(", "));
+    println!();
+    println!("Secrets:");
+    if output.secrets.is_empty() {
+        println!("  (none found)");
+    } else {
+        for s in &output.secrets {
+            println!("  {}: {} keys", s.name, s.keys.len());
         }
     }
 }

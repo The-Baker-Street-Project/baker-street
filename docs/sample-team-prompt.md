@@ -16,7 +16,7 @@ Here is the current project state:
 - Monorepo structure: [list packages/services]
 - Build command: [e.g., pnpm -r build]
 - Test command: [e.g., pnpm -r test -- --run]
-- Deploy command: [e.g., scripts/build.sh && scripts/deploy.sh]
+- Deploy command: [e.g., scripts/deploy-all.sh --skip-secrets]
 - Current test count: [N] tests passing
 - Main branch: main
 

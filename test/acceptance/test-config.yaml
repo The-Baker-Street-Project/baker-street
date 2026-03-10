@@ -1,0 +1,28 @@
+# test/acceptance/test-config.yaml
+# Used by CI acceptance test and local validation.
+# Secrets reference env vars that CI provides via GitHub Actions secrets.
+namespace: bakerst
+agentName: Baker
+
+secrets:
+  ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+  AUTH_TOKEN: auto
+  AGENT_NAME: Baker
+
+features:
+  telegram: false
+  discord: false
+  github: false
+  obsidian: false
+  voice: false
+  google-workspace: false
+
+verify:
+  expectedPods:
+    - brain-blue
+    - worker
+    - ui
+    - nats
+    - qdrant
+  chatPrompt: "Respond with exactly: ACCEPTANCE_TEST_PASSED"
+  timeoutSeconds: 180

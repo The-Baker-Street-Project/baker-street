@@ -340,7 +340,7 @@ graph TB
 
 ### 4. Secret Management
 
-The consumer deployment stores secrets in Kubernetes Secrets created by `secrets.sh`. The enterprise distribution replaces this with External Secrets Operator, syncing from a real secrets vault:
+The consumer deployment stores secrets in Kubernetes Secrets created by `deploy-all.sh`. The enterprise distribution replaces this with External Secrets Operator, syncing from a real secrets vault:
 
 ```mermaid
 graph TB
@@ -463,7 +463,7 @@ The ModelRouter already tracks token usage and cost per request via its `onApiCa
 |---------|----------------------|----------------------|
 | **Network isolation** | Default-deny ingress, per-service allow | + Cross-namespace deny, task namespace isolation |
 | **Pod security** | Non-root, read-only FS, drop caps, seccomp | + Pod Security Standards enforced cluster-wide |
-| **Secret management** | K8s Secrets via `secrets.sh` | External Secrets Operator (Vault/AWS/Azure) |
+| **Secret management** | K8s Secrets via `deploy-all.sh` | External Secrets Operator (Vault/AWS/Azure) |
 | **Tool execution** | Direct execution | Guardrail middleware (injection detection, HITL) |
 | **Audit logging** | SQLite API audit table | Tamper-evident SIEM integration (Loki/Splunk) |
 | **Output sanitization** | Regex-based token redaction | Guardrail post-processing (PII, secrets, sensitive data) |
