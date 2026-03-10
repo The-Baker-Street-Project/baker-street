@@ -27,9 +27,26 @@ spec:
             - |
               cp /secret-creds/*.json /creds/ 2>/dev/null || true
               # Restore original filenames (K8s secret keys cannot contain @)
-              [ -f /creds/google-token.json ] && mv /creds/google-token.json "/creds/gary.davidson@gmail.com.json"
-              [ -f /creds/client-secret.json ] && mv /creds/client-secret.json "/creds/client_secret_99682898604-tfrikqri3sikdgdqt1tvkeunktiv0k1l.apps.googleusercontent.com.json"
+              if [ -n "$GOOGLE_USER_EMAIL" ] && [ -f /creds/google-token.json ]; then
+                mv /creds/google-token.json "/creds/${GOOGLE_USER_EMAIL}.json"
+              fi
+              if [ -n "$GOOGLE_OAUTH_CLIENT_ID" ] && [ -f /creds/client-secret.json ]; then
+                mv /creds/client-secret.json "/creds/client_secret_${GOOGLE_OAUTH_CLIENT_ID}.apps.googleusercontent.com.json"
+              fi
               ls -la /creds/
+          env:
+            - name: GOOGLE_USER_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: bakerst-google-secrets
+                  key: GOOGLE_USER_EMAIL
+                  optional: true
+            - name: GOOGLE_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: bakerst-google-secrets
+                  key: GOOGLE_OAUTH_CLIENT_ID
+                  optional: true
           volumeMounts:
             - name: google-cred-secret
               mountPath: /secret-creds
