@@ -193,7 +193,7 @@ Secrets are segmented into three scoped Kubernetes secrets, each containing only
 
 ```mermaid
 graph TB
-    ENV[".env-secrets<br/><i>(gitignored)</i>"] --> SEC["secrets.sh"]
+    ENV[".env-secrets<br/><i>(gitignored)</i>"] --> SEC["deploy-all.sh"]
 
     SEC --> BS["bakerst-brain-secrets"]
     SEC --> WS["bakerst-worker-secrets"]
@@ -674,7 +674,5 @@ bakerst/
 └── scripts/
     ├── deploy-all.sh       # Interactive full deploy
     ├── build.sh            # Docker image builds
-    ├── secrets.sh          # K8s secret management
-    ├── deploy.sh           # K8s manifest apply
     └── upgrade.sh          # Zero-downtime blue-green upgrade
 ```

@@ -21,7 +21,7 @@
 
 #### Secrets Management (complete)
 - `.env-secrets` file (gitignored) holds all secrets locally
-- `scripts/secrets.sh` auto-sources `.env-secrets` — no manual exports needed
+- `scripts/deploy-all.sh` auto-sources `.env-secrets` — no manual exports needed
 
 #### Observational Memory Phase 1: Schema + Context Builder (complete)
 - 4 new SQLite tables: `observations`, `observation_log`, `reflections`, `memory_state`
@@ -64,7 +64,7 @@
 
 | File | Purpose |
 |------|---------|
-| `.env-secrets` | All secrets (gitignored) — auto-loaded by secrets.sh |
+| `.env-secrets` | All secrets (gitignored) — auto-loaded by deploy-all.sh |
 | `services/brain/entrypoint.sh` | Container startup entrypoint |
 | `services/brain/src/context-builder.ts` | Prompt construction (stable prefix + tail) |
 | `services/brain/src/observer.ts` | Observer worker (Haiku extraction) |
@@ -78,13 +78,12 @@
 1. **Phase 3** — create `reflector.ts` following the plan doc, replace the placeholder log in `triggerMemoryWorkers()`
 2. **Phase 4** — add cache_control + monitoring
 3. **Tests** — `pnpm add -Dw vitest`, create `services/brain/src/__tests__/`
-4. **Deploy & verify** — `scripts/secrets.sh && scripts/build.sh && scripts/deploy.sh`
+4. **Deploy & verify** — `scripts/deploy-all.sh`
 
 ## Quick Deploy
 
 ```bash
-scripts/secrets.sh              # auto-loads .env-secrets, creates K8s secret
 scripts/build.sh                # docker build all images
-scripts/deploy.sh               # kubectl apply + rollout wait
+scripts/deploy-all.sh           # auto-loads .env-secrets, creates K8s secrets, deploys
 ```
 

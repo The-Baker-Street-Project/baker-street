@@ -129,7 +129,7 @@ Files in `operating_system/` are mounted as a ConfigMap at `/etc/bakerst`:
 
 ## Authentication & Secrets
 
-All secrets are stored in `.env-secrets` (gitignored) and loaded into scoped Kubernetes Secrets via `scripts/secrets.sh`, which auto-sources the file.
+All secrets are stored in `.env-secrets` (gitignored) and loaded into scoped Kubernetes Secrets via `scripts/deploy-all.sh`, which auto-sources the file.
 
 ```
 ANTHROPIC_API_KEY (required)     → Standard API key auth
@@ -171,8 +171,7 @@ All custom images use `imagePullPolicy: Never` (built locally via Docker Desktop
 pnpm install                 # install all workspace deps
 pnpm -r build                # compile TypeScript in all workspaces
 scripts/build.sh             # docker build brain, worker, ui, gateway images
-scripts/secrets.sh           # create k8s secrets (auto-loads .env-secrets)
-scripts/deploy.sh            # kubectl apply manifests, wait for rollout
+scripts/deploy-all.sh        # create k8s secrets, apply manifests, wait for rollout
 ```
 
 ### Local access

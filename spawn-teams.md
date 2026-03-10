@@ -57,4 +57,4 @@ After each wave merge:
 1. pnpm install && pnpm -r build — full workspace build
 2. pnpm -r test (Wave 2+) — run all tests
 3. scripts/build.sh — Docker images build
-4. scripts/deploy.sh — K8s deploy
+4. scripts/deploy-all.sh --skip-secrets — K8s deploy

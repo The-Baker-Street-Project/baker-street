@@ -307,8 +307,7 @@ If integration tests fail (usually import conflicts from parallel type additions
 ### Deploy
 
 ```bash
-scripts/build.sh    # Docker images
-scripts/deploy.sh   # K8s apply + rollout wait
+scripts/deploy-all.sh --skip-secrets   # build + deploy
 ```
 
 After deploy, verify key endpoints respond:
@@ -379,6 +378,6 @@ Above 4 teams, merge conflicts and coordination overhead start to dominate. Spli
 7. Dispatch fix agents       Task tool, one per branch, all in one message
 8. Push + PR + merge         Sequential: push, gh pr create, gh pr merge
 9. Integration test          pnpm -r build && pnpm -r test on main
-10. Build + deploy           scripts/build.sh && scripts/deploy.sh
+10. Build + deploy           scripts/deploy-all.sh --skip-secrets
 11. Cleanup                  git worktree remove, git branch -d
 ```

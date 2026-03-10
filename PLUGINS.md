@@ -367,7 +367,7 @@ The plugin directory is already included in the pnpm workspace (`pnpm-workspace.
 pnpm install                    # link new plugin workspace
 pnpm -r build                   # compile everything
 scripts/build.sh                # rebuild Docker images
-scripts/deploy.sh               # apply K8s manifests (picks up PLUGINS.json via ConfigMap)
+scripts/deploy-all.sh --skip-build  # apply K8s manifests (picks up PLUGINS.json via ConfigMap)
 kubectl rollout restart deploy/brain -n bakerst   # restart to load new images
 ```
 
