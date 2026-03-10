@@ -47,12 +47,6 @@
       "required": false
     },
     {
-      "component": "voice",
-      "image": "bakerst-voice:latest",
-      "version": "0.5.0",
-      "required": false
-    },
-    {
       "component": "nats-sidecar",
       "image": "bakerst-nats-sidecar:latest",
       "version": "0.5.0",
@@ -140,8 +134,7 @@
       "inputType": "secret",
       "targetSecrets": [
         "bakerst-brain-secrets",
-        "bakerst-gateway-secrets",
-        "bakerst-voice-secrets"
+        "bakerst-gateway-secrets"
       ],
       "prompt": "Got a specific auth token you'd like to use? (leave blank and I'll generate a secure one for you)",
       "autoGenerate": "hex:32",
@@ -328,7 +321,7 @@
           "description": "Speech-to-text provider API key",
           "inputType": "secret",
           "targetSecrets": [
-            "bakerst-voice-secrets"
+            "bakerst-gateway-secrets"
           ],
           "prompt": "Paste your Speech-to-Text API key (for understanding you)"
         },
@@ -337,7 +330,7 @@
           "description": "Text-to-speech provider API key",
           "inputType": "secret",
           "targetSecrets": [
-            "bakerst-voice-secrets"
+            "bakerst-gateway-secrets"
           ],
           "prompt": "Paste your Text-to-Speech API key (for speaking back)"
         },
@@ -346,11 +339,16 @@
           "description": "Picovoice access key for wake word detection",
           "inputType": "secret",
           "targetSecrets": [
-            "bakerst-voice-secrets"
+            "bakerst-gateway-secrets"
           ],
           "prompt": "Paste your Picovoice key (this powers the wake word — like saying 'Hey Baker')"
         }
-      ]
+      ],
+      "featureFlags": {
+        "gateway": {
+          "FEATURE_VOICE": "true"
+        }
+      }
     },
     {
       "id": "google-workspace",

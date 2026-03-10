@@ -55,6 +55,7 @@ spec:
               value: "nats://nats.{{NAMESPACE}}.svc.cluster.local:4222"
             - name: EXTENSION_ID
               value: "toolbox"
+{{TOOLBOX_EXTRA_ENV}}
           envFrom:
             - secretRef:
                 name: bakerst-github-secrets
@@ -62,6 +63,7 @@ spec:
             - secretRef:
                 name: bakerst-perplexity-secrets
                 optional: true
+{{TOOLBOX_EXTRA_VOLUME_MOUNTS}}
           resources:
             requests:
               memory: "64Mi"
@@ -69,6 +71,7 @@ spec:
             limits:
               memory: "256Mi"
               cpu: "200m"
+{{TOOLBOX_EXTRA_VOLUMES}}
 ---
 apiVersion: v1
 kind: Service

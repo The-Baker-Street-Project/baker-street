@@ -1244,7 +1244,6 @@ async fn start_deploy_phase(
         for img in &manifest.images {
             if !img.required {
                 match img.component.as_str() {
-                    "voice" => steps.push(("Voice", "Voice service".into())),
                     "sysadmin" => steps.push(("SysAdmin", "SysAdmin service".into())),
                     "ext-toolbox" => steps.push(("Toolbox", "Extension: Toolbox".into())),
                     "ext-browser" => steps.push(("Browser", "Extension: Browser".into())),
@@ -1380,11 +1379,6 @@ async fn run_deploy_sequence(
                 continue;
             }
             match img.component.as_str() {
-                "voice" => {
-                    let yaml = render_template(templates::VOICE_YAML, &vars);
-                    let r = k8s::apply_yaml(&client, &namespace, &yaml).await.map(|_| ());
-                    report_step!("Voice", r.map_err(|e| anyhow::anyhow!("{}", e)));
-                }
                 "sysadmin" => {
                     let yaml = render_template(templates::SYSADMIN_YAML, &vars);
                     let r = k8s::apply_yaml(&client, &namespace, &yaml).await.map(|_| ());
@@ -1484,11 +1478,6 @@ pub(crate) fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, c
         .as_secs();
     vars.insert("DEPLOY_VERSION".into(), format!("{}-{}", manifest.version, deploy_ts));
     vars.insert("DOOR_POLICY".into(), "open".into());
-    vars.insert("WHISPER_URL".into(), "".into());
-    vars.insert("TTS_PROVIDER".into(), "openai".into());
-    vars.insert("TTS_BASE_URL".into(), "".into());
-    vars.insert("TTS_MODEL".into(), "".into());
-    vars.insert("TTS_VOICE".into(), "bf_emma".into());
 
     for img in &manifest.images {
         let key = match img.component.as_str() {
@@ -1496,7 +1485,6 @@ pub(crate) fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, c
             "worker" => "IMAGE_WORKER",
             "ui" => "IMAGE_UI",
             "gateway" => "IMAGE_GATEWAY",
-            "voice" => "IMAGE_VOICE",
             "sysadmin" => "IMAGE_SYSADMIN",
             "ext-toolbox" => "IMAGE_TOOLBOX",
             "ext-browser" => "IMAGE_BROWSER",
@@ -1545,6 +1533,29 @@ pub(crate) fn build_template_vars(namespace: &str, manifest: &ReleaseManifest, c
     vars.insert("FEATURE_VARS".into(), brain_lines.join("\n"));
     vars.insert("GATEWAY_FEATURE_VARS".into(), gateway_lines.join("\n"));
 
+    // Toolbox: conditionally add obsidian vault volume mount
+    let obsidian_path = config.features.iter()
+        .find(|f| f.id == "obsidian" && f.enabled)
+        .and_then(|f| f.secrets.iter().find(|(k, _)| k == "OBSIDIAN_VAULT_PATH"))
+        .and_then(|(_, v)| v.clone());
+
+    if let Some(ref vault_path) = obsidian_path {
+        vars.insert("TOOLBOX_EXTRA_ENV".into(), format!(
+            "            - name: OBSIDIAN_VAULT_PATH\n              value: \"/vault\""
+        ));
+        vars.insert("TOOLBOX_EXTRA_VOLUME_MOUNTS".into(), format!(
+            "          volumeMounts:\n            - name: obsidian-vault\n              mountPath: /vault"
+        ));
+        vars.insert("TOOLBOX_EXTRA_VOLUMES".into(), format!(
+            "      volumes:\n        - name: obsidian-vault\n          hostPath:\n            path: {}\n            type: Directory",
+            vault_path
+        ));
+    } else {
+        vars.insert("TOOLBOX_EXTRA_ENV".into(), String::new());
+        vars.insert("TOOLBOX_EXTRA_VOLUME_MOUNTS".into(), String::new());
+        vars.insert("TOOLBOX_EXTRA_VOLUMES".into(), String::new());
+    }
+
     vars
 }
 
@@ -1565,7 +1576,7 @@ fn start_health_phase(app: &mut App, async_tx: &mpsc::UnboundedSender<AsyncMsg>)
         for img in &m.images {
             if !img.required {
                 match img.component.as_str() {
-                    "voice" | "sysadmin" => {
+                    "sysadmin" => {
                         deploy_names.push(img.component.clone());
                     }
                     "ext-toolbox" => {

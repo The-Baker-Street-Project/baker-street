@@ -4,12 +4,18 @@ import { createBrainClient } from './brain-client.js';
 import { initMappingDb, getDb, getConversationId, setConversationId, closeMappingDb } from './mapping-db.js';
 import { DoorPolicyManager } from './door-policy.js';
 import { startAdminApi } from './admin-api.js';
+import { startVoiceServer } from './voice/index.js';
 import type { ChannelAdapter, InboundMessage } from './types.js';
 
 const log = logger.child({ module: 'gateway' });
 
 async function main() {
   log.info('starting gateway service');
+
+  // Start voice server if configured (non-blocking — runs on its own port)
+  startVoiceServer().catch((err) => {
+    log.error({ err }, 'voice server failed to start');
+  });
 
   const config = loadConfig();
 

@@ -374,7 +374,6 @@ async fn apply_extensions(
             continue;
         }
         let (name, template) = match img.component.as_str() {
-            "voice" => ("Voice", templates::VOICE_YAML),
             "sysadmin" => ("SysAdmin", templates::SYSADMIN_YAML),
             "ext-toolbox" => ("Toolbox", templates::TOOLBOX_YAML),
             "ext-browser" => ("Browser", templates::BROWSER_YAML),
