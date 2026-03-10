@@ -1,20 +1,47 @@
 //! Application state for the TUI installer.
-//!
-//! This module will be rewritten in Task 15 to match the new flow.
-//! For now, a minimal stub to satisfy compilation.
 
-/// Top-level app state (placeholder — will be redesigned).
+use crate::manifest::Manifest;
+use crate::interview::InterviewResult;
+use std::path::PathBuf;
+
 #[derive(Debug, Default)]
+pub enum Phase {
+    #[default]
+    Preflight,
+    FetchManifest,
+    DownloadTemplate,
+    Configure,
+    PullImages,
+    Apply,
+    Verify,
+    Complete,
+    Failed,
+}
+
 pub struct App {
+    pub phase: Phase,
+    pub manifest: Option<Manifest>,
+    pub config: Option<InterviewResult>,
+    pub template_dir: Option<PathBuf>,
+    pub k8s_context: Option<String>,
     pub namespace: String,
-    pub should_quit: bool,
+    pub log_entries: Vec<String>,
+    pub errors: Vec<String>,
+    pub dry_run: bool,
 }
 
 impl App {
-    pub fn new(namespace: String) -> Self {
+    pub fn new(namespace: &str) -> Self {
         Self {
-            namespace,
-            should_quit: false,
+            phase: Phase::Preflight,
+            manifest: None,
+            config: None,
+            template_dir: None,
+            k8s_context: None,
+            namespace: namespace.to_string(),
+            log_entries: Vec::new(),
+            errors: Vec::new(),
+            dry_run: false,
         }
     }
 }
