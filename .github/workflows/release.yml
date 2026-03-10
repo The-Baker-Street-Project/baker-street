@@ -90,6 +90,7 @@ jobs:
           context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
           push: true
+          provenance: false
           platforms: linux/amd64
           tags: ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}:${{ needs.prepare.outputs.version }}-amd64
           cache-from: type=gha,scope=${{ matrix.service.name }}-amd64
@@ -143,6 +144,7 @@ jobs:
           context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
           push: true
+          provenance: false
           platforms: linux/arm64
           tags: ${{ env.IMAGE_PREFIX }}-${{ matrix.service.name }}:${{ needs.prepare.outputs.version }}-arm64
           cache-from: type=gha,scope=${{ matrix.service.name }}-arm64
