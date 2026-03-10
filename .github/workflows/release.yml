@@ -331,7 +331,7 @@ jobs:
 
       - name: Run installer with test config
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'sk-ant-test-dummy-key-for-ci' }}
         run: |
           ./bakerst-install-linux-amd64 install \
             --config test/acceptance/test-config.yaml \
