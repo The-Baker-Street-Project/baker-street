@@ -103,6 +103,13 @@ pub async fn fetch_template(
     Ok(template_path)
 }
 
+/// Extract a local install template tarball (for --template flag).
+pub fn extract_template(tarball: &Path, dest: &Path) -> Result<PathBuf> {
+    let template_path = dest.join("install-template");
+    extract_tarball(tarball, dest)?;
+    Ok(template_path)
+}
+
 /// Return the cache directory for downloaded assets (~/.bakerst/cache/).
 pub fn cache_dir() -> Result<PathBuf> {
     let dir = dirs::home_dir()

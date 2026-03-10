@@ -38,6 +38,10 @@ pub struct InstallArgs {
     #[arg(long)]
     pub manifest: Option<PathBuf>,
 
+    /// Path to local install template tarball (skip download)
+    #[arg(long)]
+    pub template: Option<PathBuf>,
+
     /// Install specific version (default: latest)
     #[arg(long)]
     pub version: Option<String>,
