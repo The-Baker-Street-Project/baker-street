@@ -6,9 +6,15 @@
 
 **Architecture:** Three release artifacts (manifest.json, install-template.tar.gz, installer binaries) produced by a linear CI pipeline with an acceptance test gate. The installer has zero embedded knowledge — it fetches the manifest at runtime, downloads the template, walks the user through config, applies K8s manifests, and verifies the deployment. Dev workflow uses a simplified `deploy-all.sh` that shares the same K8s manifests but builds from source.
 
-**Tech Stack:** Rust (installer binary), GitHub Actions (CI/CD), Kustomize (K8s manifests), kind (acceptance testing), Telegram Bot API (notifications)
+**Tech Stack:** Rust (installer binary), GitHub Actions (CI/CD), Kustomize (K8s manifests), kind (acceptance testing)
 
 **Design Doc:** `docs/plans/2026-03-10-build-release-installer-redesign.md`
+
+**Linear:** BAK-55 (parent), BAK-54 (cosign/SBOM deferred), BAK-56 (symlink hardening), BAK-57 (kubectl secret args), BAK-58 (Telegram notifications), BAK-59 (Windows scripts)
+
+**Supersedes:** BAK-37 (update mechanism), BAK-38 (secrets prompt), BAK-39 (build caching), BAK-44 (K8s detection) — clean-slate reimplementation
+
+<!-- Validated: 2026-03-10 | Design ✅ | Dev ✅ | Security ✅ | Backlog ✅ -->
 
 ---
 
@@ -114,16 +120,19 @@ git commit -m "feat(k8s): add remote overlay for GHCR image pull"
 
 **Files:**
 - Create: `k8s/extensions/toolbox/kustomization.yaml`
+- Create: `k8s/extensions/toolbox/deployment.yaml`
 - Create: `k8s/extensions/browser/kustomization.yaml`
+- Create: `k8s/extensions/browser/deployment.yaml`
 - Create: `k8s/extensions/google-workspace/kustomization.yaml`
 - Create: `k8s/extensions/github/kustomization.yaml`
-- Move/copy deployment manifests from `examples/extension-*/k8s/` to `k8s/extensions/*/`
+- Copy: `examples/extension-google-workspace/k8s/deployment.yaml` → `k8s/extensions/google-workspace/`
+- Copy: `examples/extension-github/k8s/deployment.yaml` → `k8s/extensions/github/`
 
 **Step 1: Create extension kustomizations**
 
-Move each extension's K8s manifests into the `k8s/extensions/` directory with proper kustomization files. Each extension gets its own kustomization so the installer can selectively include them.
+Organize all extension K8s manifests into `k8s/extensions/`. Some extensions already have `k8s/` directories (google-workspace, github), others don't (toolbox, browser).
 
-For each extension (toolbox, browser, google-workspace, github), create a kustomization.yaml:
+For each extension, create a kustomization.yaml:
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -134,7 +143,8 @@ resources:
   - deployment.yaml
 ```
 
-Copy the deployment.yaml from `examples/extension-<name>/k8s/deployment.yaml` to `k8s/extensions/<name>/deployment.yaml`.
+- **google-workspace, github**: Copy `deployment.yaml` from `examples/extension-<name>/k8s/deployment.yaml`.
+- **toolbox, browser**: These have NO existing `k8s/` directory. Their manifests currently exist only as embedded templates in `tools/installer/src/templates/`. Extract and convert these embedded templates into proper K8s deployment YAML files BEFORE Task 8 deletes them. Use the existing `examples/extension-utilities/k8s/deployment.yaml` and `examples/extension-obsidian/k8s/deployment.yaml` as reference patterns for the Deployment + Service + NetworkPolicy structure.
 
 **Step 2: Verify each extension builds independently**
 
@@ -240,6 +250,7 @@ The script:
    - `version: $VERSION`
    - `releaseDate: $(date -u +%Y-%m-%dT%H:%M:%SZ)`
    - `templateUrl: https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/install-template.tar.gz`
+   - `templateSha256: $(sha256sum install-template.tar.gz | cut -d' ' -f1)` — integrity checksum for the template tarball (must run AFTER bundle-template.sh)
    - `images[]`: one entry per service with name, image, tag, required flag, architectures
    - `installers[]`: one entry per binary with os, arch, url, sha256
 3. Write to `manifest.json`
@@ -343,6 +354,8 @@ Bump version to `0.3.0`. Add new dependencies:
 - `tar` — for tarball extraction
 - `sha2` — for checksum verification
 - `indicatif` — for download progress bars (simpler than ratatui for non-TUI progress)
+- `dirs = "5"` — for `home_dir()` (used in main.rs and config save)
+- `regex = "1"` — for env var resolution in config files
 
 Remove:
 - `rand` (no longer generating tokens in binary — config schema handles autoGenerate)
@@ -350,6 +363,8 @@ Remove:
 Keep all existing deps (kube, tokio, ratatui, crossterm, clap, serde, etc.)
 
 **Step 2: Rewrite lib.rs**
+
+All modules are declared here (the crate root for library use). `main.rs` imports from `bakerst_install::*` — it does NOT redeclare modules with `mod`.
 
 ```rust
 pub mod cli;
@@ -364,6 +379,10 @@ pub mod interview;
 pub mod app;
 pub mod tui;
 pub mod verify;
+pub mod cmd_install;
+pub mod cmd_status;
+pub mod cmd_update;
+pub mod cmd_uninstall;
 ```
 
 **Step 3: Rewrite cli.rs**
@@ -459,28 +478,18 @@ pub struct UninstallArgs {
 
 **Step 4: Rewrite main.rs**
 
-```rust
-mod cli;
-mod manifest;
-mod config_schema;
-mod config_file;
-mod fetcher;
-mod k8s;
-mod health;
-mod images;
-mod interview;
-mod app;
-mod tui;
-mod verify;
+**Important:** Do NOT redeclare modules in main.rs — they are all declared in lib.rs. main.rs imports from the library crate. Also, extract `command` from `cli` before matching to avoid partial move of `cli`.
 
+```rust
+use bakerst_install::{cli, cmd_install, cmd_status, cmd_update, cmd_uninstall};
 use clap::Parser;
 use anyhow::Result;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::EnvFilter;
 use std::fs;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = cli::Cli::parse();
+    let mut cli = cli::Cli::parse();
 
     // Ensure ~/.bakerst/ exists
     let bakerst_dir = dirs::home_dir()
@@ -521,7 +530,11 @@ async fn main() -> Result<()> {
         original_hook(panic_info);
     }));
 
-    match cli.command.unwrap_or(cli::Commands::Install(cli::InstallArgs::default())) {
+    // Extract command BEFORE matching to avoid partial move of cli
+    let command = cli.command.take()
+        .unwrap_or(cli::Commands::Install(cli::InstallArgs::default()));
+
+    match command {
         cli::Commands::Install(args) => cmd_install::run(&cli, args).await,
         cli::Commands::Status(args) => cmd_status::run(&cli, args).await,
         cli::Commands::Update(args) => cmd_update::run(&cli, args).await,
@@ -640,6 +653,7 @@ pub struct Manifest {
     pub version: String,
     pub release_date: Option<String>,
     pub template_url: String,
+    pub template_sha256: String,  // Checksum for template tarball integrity verification
     pub images: Vec<ManifestImage>,
     #[serde(default)]
     pub installers: Vec<ManifestInstaller>,
@@ -793,11 +807,28 @@ pub async fn fetch_template(
     }
 
     let bytes = response.bytes().await?;
+
+    // Verify checksum before extraction
+    verify_sha256(&bytes, &manifest.template_sha256)?;
+
     let tarball_path = dest.join("install-template.tar.gz");
     std::fs::write(&tarball_path, &bytes)?;
 
     extract_tarball(&tarball_path, dest)?;
     Ok(template_path)
+}
+
+fn verify_sha256(data: &[u8], expected: &str) -> Result<()> {
+    use sha2::{Sha256, Digest};
+    let hash = hex::encode(Sha256::digest(data));
+    if hash != expected {
+        bail!(
+            "Template checksum mismatch! Expected: {}, got: {}. \
+             The download may be corrupted or tampered with.",
+            expected, hash
+        );
+    }
+    Ok(())
 }
 
 fn extract_tarball(tarball: &Path, dest: &Path) -> Result<()> {
@@ -1080,9 +1111,19 @@ pub async fn run(cli: &Cli, args: InstallArgs) -> Result<()> {
         interview::run_interactive(&schema).await?
     };
 
-    // 6. Save config for future updates
+    // 6. Save config for future updates (NON-SECRET data only)
+    // SECURITY: Only persist namespace, enabled features, installed version,
+    // and agent name. Do NOT persist API keys or tokens. The update command
+    // will re-read secrets from env, .env-secrets, or K8s at update time.
     let config_save_path = dirs::home_dir().unwrap().join(".bakerst/config.json");
-    config.save(&config_save_path)?;
+    config.save_non_secret(&config_save_path)?;
+    // Set restrictive permissions (0600) on the config file
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&config_save_path,
+            std::fs::Permissions::from_mode(0o600))?;
+    }
 
     if args.dry_run {
         println!("Dry run complete. Would apply manifests from: {}", template_dir.display());
@@ -1350,7 +1391,7 @@ git commit -m "feat(installer): update TUI for new install flow"
 
 **Step 1: Implement status command**
 
-Reads `~/.bakerst/config.json`, queries K8s for pod status, compares installed version with latest available:
+Reads `~/.bakerst/config.json` (non-secret config only: namespace, features, version), queries K8s for pod status, compares installed version with latest available:
 - Pod names, status, image versions
 - Current version vs latest release
 - Feature flags enabled
@@ -1358,11 +1399,12 @@ Reads `~/.bakerst/config.json`, queries K8s for pod status, compares installed v
 
 **Step 2: Implement update command**
 
-1. Load saved config from `~/.bakerst/config.json`
-2. Fetch latest manifest
-3. Compare versions
-4. If newer: pull new images, re-apply manifests, verify
-5. If `--reconfigure`: re-run interview with existing values as defaults
+1. Load saved config from `~/.bakerst/config.json` (non-secret: namespace, features, version)
+2. Re-read secrets from environment or `.env-secrets` (prompt user for source)
+3. Fetch latest manifest
+4. Compare versions
+5. If newer: pull new images, re-apply manifests, verify
+6. If `--reconfigure`: re-run full interview
 
 **Step 3: Implement uninstall command**
 
@@ -1440,9 +1482,28 @@ permissions:
   contents: write
   packages: write
 
+env:
+  # Extract version from git tag (v0.6.0 → 0.6.0) or workflow_dispatch input
+  VERSION: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}
+
 jobs:
+  # Stage 0: Extract version (shared across all jobs)
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Extract version
+        id: version
+        run: |
+          RAW="${{ env.VERSION }}"
+          VERSION="${RAW#v}"  # Strip leading 'v' if present
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
   # Stage 1: Build Docker images (native, per-arch)
   build-image-amd64:
+    needs: [prepare]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -1501,13 +1562,7 @@ jobs:
               ghcr.io/the-baker-street-project/bakerst-${service}:${VERSION}-arm64
             docker manifest push ghcr.io/the-baker-street-project/bakerst-${service}:latest
           done
-      - name: Telegram notification
-        if: always()
-        run: |
-          STATUS=${{ job.status == 'success' && '✅ Images built' || '❌ Image build failed' }}
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
-            -d text="${STATUS} for v${VERSION}"
+      # NOTE: Telegram notifications deferred to BAK-58
 
   # Stage 2: Build installer binaries
   build-installer:
@@ -1594,17 +1649,7 @@ jobs:
         with:
           name: acceptance-test-log
           path: acceptance-test.log
-      - name: Telegram notification
-        if: always()
-        run: |
-          if [ "${{ job.status }}" = "success" ]; then
-            MSG="✅ Acceptance test PASSED for v${VERSION}"
-          else
-            MSG="❌ Acceptance test FAILED for v${VERSION} — check logs"
-          fi
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
-            -d text="${MSG}"
+      # NOTE: Telegram notifications deferred to BAK-58
 
   # Stage 5: Publish release (only if acceptance passes)
   publish-release:
@@ -1622,14 +1667,10 @@ jobs:
             release-artifacts/install-template.tar.gz
             bakerst-install-linux-amd64/*
             bakerst-install-darwin-arm64/*
-      - name: Telegram notification
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
-            -d text="🚀 Release v${VERSION} published! https://github.com/${{ github.repository }}/releases/tag/v${VERSION}"
+      # NOTE: Telegram notifications deferred to BAK-58
 ```
 
-Note: This is a structural outline. The actual workflow needs proper `env.VERSION` extraction from the tag, correct artifact paths, and proper matrix includes with Dockerfile paths for each service.
+Note: This is a structural outline. The version extraction is handled by the `prepare` job (Stage 0). Use `${{ needs.prepare.outputs.version }}` in downstream jobs. Correct artifact paths and proper matrix includes with Dockerfile paths needed for each service.
 
 **Step 2: Validate workflow syntax**
 
@@ -1668,21 +1709,29 @@ ok()    { printf '\033[0;32m[OK]\033[0m %s\n' "$1"; }
 warn()  { printf '\033[0;33m[WARN]\033[0m %s\n' "$1"; }
 fail()  { printf '\033[0;31m[FAIL]\033[0m %s\n' "$1"; exit 1; }
 
-# --- Parse flags ---
+# --- Parse flags (preserve documented interface) ---
 SKIP_BUILD=false
 SKIP_IMAGES=false
+SKIP_SECRETS=false
+SKIP_TELEMETRY=false
+SKIP_EXTENSIONS=false
 DEV_MODE=false
 NO_CACHE=""
+NON_INTERACTIVE=false
 VERSION=$(git rev-parse --short HEAD)
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --skip-build)   SKIP_BUILD=true ;;
-    --skip-images)  SKIP_IMAGES=true ;;
-    --dev)          DEV_MODE=true ;;
-    --no-cache)     NO_CACHE="--no-cache" ;;
-    --version)      VERSION="$2"; shift ;;
-    *)              fail "Unknown flag: $1" ;;
+    --skip-build)      SKIP_BUILD=true ;;
+    --skip-images)     SKIP_IMAGES=true ;;
+    --skip-secrets)    SKIP_SECRETS=true ;;
+    --skip-telemetry)  SKIP_TELEMETRY=true ;;
+    --skip-extensions) SKIP_EXTENSIONS=true ;;
+    --dev)             DEV_MODE=true ;;
+    --no-cache)        NO_CACHE="--no-cache" ;;
+    --version)         VERSION="$2"; shift ;;
+    -y|--yes)          NON_INTERACTIVE=true ;;
+    *)                 fail "Unknown flag: $1" ;;
   esac
   shift
 done
@@ -1739,35 +1788,73 @@ fi
 info "Creating namespace and secrets..."
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
-# Create scoped secrets (reuse secrets.sh logic but inline)
-# Brain secrets
-kubectl create secret generic bakerst-brain-secrets -n "$NAMESPACE" \
-  --from-literal=ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
-  --from-literal=DEFAULT_MODEL="${DEFAULT_MODEL:-}" \
-  --from-literal=WORKER_MODEL="${WORKER_MODEL:-}" \
-  --from-literal=OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
-  --from-literal=OLLAMA_ENDPOINTS="${OLLAMA_ENDPOINTS:-}" \
-  --from-literal=VOYAGE_API_KEY="${VOYAGE_API_KEY:-}" \
-  --from-literal=AUTH_TOKEN="${AUTH_TOKEN:-}" \
-  --from-literal=AGENT_NAME="${AGENT_NAME:-Baker}" \
-  --dry-run=client -o yaml | kubectl apply -f -
+# Auto-generate AUTH_TOKEN if not set (preserve secrets.sh behavior)
+if [[ -z "${AUTH_TOKEN:-}" ]]; then
+  AUTH_TOKEN=$(openssl rand -hex 32)
+  warn "Generated AUTH_TOKEN (save to .env-secrets for persistence)"
+  # Persist to .env-secrets if it exists
+  if [[ -f "$REPO_ROOT/.env-secrets" ]]; then
+    echo "AUTH_TOKEN=$AUTH_TOKEN" >> "$REPO_ROOT/.env-secrets"
+  fi
+fi
 
-# Worker secrets
-kubectl create secret generic bakerst-worker-secrets -n "$NAMESPACE" \
-  --from-literal=ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
-  --from-literal=DEFAULT_MODEL="${DEFAULT_MODEL:-}" \
-  --from-literal=WORKER_MODEL="${WORKER_MODEL:-}" \
-  --from-literal=OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
-  --from-literal=OLLAMA_ENDPOINTS="${OLLAMA_ENDPOINTS:-}" \
-  --from-literal=AGENT_NAME="${AGENT_NAME:-Baker}" \
-  --dry-run=client -o yaml | kubectl apply -f -
+if [[ "$SKIP_SECRETS" == "false" ]]; then
+  # Create ALL scoped secrets (matching secrets.sh parity)
+  # Brain secrets
+  kubectl create secret generic bakerst-brain-secrets -n "$NAMESPACE" \
+    --from-literal=ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
+    --from-literal=DEFAULT_MODEL="${DEFAULT_MODEL:-}" \
+    --from-literal=WORKER_MODEL="${WORKER_MODEL:-}" \
+    --from-literal=OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
+    --from-literal=OLLAMA_ENDPOINTS="${OLLAMA_ENDPOINTS:-}" \
+    --from-literal=VOYAGE_API_KEY="${VOYAGE_API_KEY:-}" \
+    --from-literal=AUTH_TOKEN="${AUTH_TOKEN}" \
+    --from-literal=AGENT_NAME="${AGENT_NAME:-Baker}" \
+    --dry-run=client -o yaml | kubectl apply -f -
 
-# Gateway secrets
-kubectl create secret generic bakerst-gateway-secrets -n "$NAMESPACE" \
-  --from-literal=TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}" \
-  --from-literal=DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN:-}" \
-  --from-literal=AUTH_TOKEN="${AUTH_TOKEN:-}" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  # Worker secrets
+  kubectl create secret generic bakerst-worker-secrets -n "$NAMESPACE" \
+    --from-literal=ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
+    --from-literal=DEFAULT_MODEL="${DEFAULT_MODEL:-}" \
+    --from-literal=WORKER_MODEL="${WORKER_MODEL:-}" \
+    --from-literal=OPENAI_API_KEY="${OPENAI_API_KEY:-}" \
+    --from-literal=OLLAMA_ENDPOINTS="${OLLAMA_ENDPOINTS:-}" \
+    --from-literal=AGENT_NAME="${AGENT_NAME:-Baker}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  # Gateway secrets
+  kubectl create secret generic bakerst-gateway-secrets -n "$NAMESPACE" \
+    --from-literal=TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}" \
+    --from-literal=DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN:-}" \
+    --from-literal=AUTH_TOKEN="${AUTH_TOKEN}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
+  # GitHub extension secrets (conditional)
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    kubectl create secret generic bakerst-github-secrets -n "$NAMESPACE" \
+      --from-literal=GITHUB_TOKEN="${GITHUB_TOKEN}" \
+      --dry-run=client -o yaml | kubectl apply -f -
+  fi
+
+  # Google Workspace secrets (conditional)
+  if [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" ]]; then
+    kubectl create secret generic bakerst-google-secrets -n "$NAMESPACE" \
+      --from-literal=GOOGLE_OAUTH_CLIENT_ID="${GOOGLE_OAUTH_CLIENT_ID}" \
+      --from-literal=GOOGLE_OAUTH_CLIENT_SECRET="${GOOGLE_OAUTH_CLIENT_SECRET:-}" \
+      --dry-run=client -o yaml | kubectl apply -f -
+  fi
+
+  # Voice secrets (conditional)
+  if [[ -n "${STT_API_KEY:-}${TTS_API_KEY:-}" ]]; then
+    kubectl create secret generic bakerst-voice-secrets -n "$NAMESPACE" \
+      --from-literal=AUTH_TOKEN="${AUTH_TOKEN}" \
+      --from-literal=STT_API_KEY="${STT_API_KEY:-${OPENAI_API_KEY:-}}" \
+      --from-literal=TTS_API_KEY="${TTS_API_KEY:-${OPENAI_API_KEY:-}}" \
+      --dry-run=client -o yaml | kubectl apply -f -
+  fi
+
+  ok "Secrets created"
+fi
 
 # ConfigMap from operating_system/
 kubectl create configmap bakerst-os -n "$NAMESPACE" \
@@ -1780,6 +1867,21 @@ if [[ "$DEV_MODE" == "true" ]]; then
 else
   kubectl apply -k "$REPO_ROOT/k8s/"
 fi
+
+# Apply extensions (unless skipped)
+if [[ "$SKIP_EXTENSIONS" == "false" ]]; then
+  for ext_dir in "$REPO_ROOT/k8s/extensions"/*/; do
+    if [[ -f "$ext_dir/kustomization.yaml" ]]; then
+      kubectl apply -k "$ext_dir" || warn "Extension $(basename "$ext_dir") failed"
+    fi
+  done
+fi
+
+# Apply telemetry (unless skipped)
+if [[ "$SKIP_TELEMETRY" == "false" && -d "$REPO_ROOT/k8s/telemetry" ]]; then
+  kubectl apply -k "$REPO_ROOT/k8s/telemetry/" || warn "Telemetry stack failed"
+fi
+
 ok "Manifests applied"
 
 # --- Step 6: Verify ---
@@ -1856,9 +1958,17 @@ git rm -r tools/installer/src/templates/ tools/installer/src/os_files/ || true
 git rm tools/installer/release-manifest.json || true
 ```
 
-**Step 2: Update any references**
+**Step 2: Update all references to deleted files**
 
-Search for references to deleted files in CLAUDE.md, other scripts, README, etc. Update or remove them.
+Run `grep -r "secrets\.sh\|deploy\.sh" docs/ CLAUDE.md scripts/ .claude/` to find all references. Known files that reference deleted scripts (update or remove references in each):
+- `CLAUDE.md` — Build & Deploy section, Secret Scoping section
+- `docs/architecture.md`
+- `docs/handoff.md`
+- `docs/enterprise-overview.md` (if exists)
+- `.claude/skills/debug-bakerst/` (debug skill may reference secrets.sh)
+- Any other docs found by grep
+
+Also update references to `release-manifest.json` (now CI-generated `manifest.json`).
 
 **Step 3: Commit**
 ```bash
@@ -2032,10 +2142,10 @@ Before the first release, these secrets must be configured in the GitHub repo:
 | Secret | Purpose |
 |--------|---------|
 | `ANTHROPIC_API_KEY` | Acceptance test — sends real prompt to verify working system |
-| `TELEGRAM_BOT_TOKEN` | Release notifications |
-| `TELEGRAM_CHAT_ID` | Release notifications — your chat/group ID |
 
 `GITHUB_TOKEN` is auto-provided by GitHub Actions for GHCR access.
+
+Telegram secrets (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) are needed later for BAK-58.
 
 ---
 
