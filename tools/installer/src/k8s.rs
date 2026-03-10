@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{
     ConfigMap, Namespace, PersistentVolumeClaim, Secret, Service, ServiceAccount,
@@ -384,5 +384,151 @@ pub async fn read_secret(
             Ok(Some(decoded))
         }
         None => Ok(None),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Context detection and selection
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct K8sContext {
+    pub name: String,
+    pub cluster_type: ClusterType,
+}
+
+#[derive(Debug, Clone)]
+pub enum ClusterType {
+    DockerDesktop,
+    OrbStack,
+    Minikube,
+    Kind,
+    RancherDesktop,
+    Other,
+}
+
+impl std::fmt::Display for ClusterType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DockerDesktop => write!(f, "Docker Desktop"),
+            Self::OrbStack => write!(f, "OrbStack"),
+            Self::Minikube => write!(f, "Minikube"),
+            Self::Kind => write!(f, "kind"),
+            Self::RancherDesktop => write!(f, "Rancher Desktop"),
+            Self::Other => write!(f, "Other"),
+        }
+    }
+}
+
+/// Detect all available kubectl contexts and classify their cluster type.
+pub async fn detect_contexts() -> Result<Vec<K8sContext>> {
+    let output = tokio::process::Command::new("kubectl")
+        .args(["config", "get-contexts", "-o", "name"])
+        .output()
+        .await?;
+
+    if !output.status.success() {
+        bail!("kubectl not found or not configured. Install kubectl and configure a Kubernetes cluster.");
+    }
+
+    let contexts: Vec<K8sContext> = String::from_utf8(output.stdout)?
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|name| K8sContext {
+            name: name.to_string(),
+            cluster_type: classify_context(name),
+        })
+        .collect();
+
+    Ok(contexts)
+}
+
+fn classify_context(name: &str) -> ClusterType {
+    let lower = name.to_lowercase();
+    if lower.contains("docker-desktop") {
+        ClusterType::DockerDesktop
+    } else if lower.contains("orbstack") || lower.contains("orb") {
+        ClusterType::OrbStack
+    } else if lower.contains("minikube") {
+        ClusterType::Minikube
+    } else if lower.contains("kind") {
+        ClusterType::Kind
+    } else if lower.contains("rancher") {
+        ClusterType::RancherDesktop
+    } else {
+        ClusterType::Other
+    }
+}
+
+/// Switch the active kubectl context.
+pub async fn use_context(name: &str) -> Result<()> {
+    let status = tokio::process::Command::new("kubectl")
+        .args(["config", "use-context", name])
+        .status()
+        .await?;
+    if !status.success() {
+        bail!("Failed to switch to context: {}", name);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_docker_desktop() {
+        assert!(matches!(
+            classify_context("docker-desktop"),
+            ClusterType::DockerDesktop
+        ));
+    }
+
+    #[test]
+    fn classify_orbstack() {
+        assert!(matches!(
+            classify_context("orbstack"),
+            ClusterType::OrbStack
+        ));
+    }
+
+    #[test]
+    fn classify_minikube() {
+        assert!(matches!(
+            classify_context("minikube"),
+            ClusterType::Minikube
+        ));
+    }
+
+    #[test]
+    fn classify_kind() {
+        assert!(matches!(
+            classify_context("kind-kind"),
+            ClusterType::Kind
+        ));
+    }
+
+    #[test]
+    fn classify_rancher() {
+        assert!(matches!(
+            classify_context("rancher-desktop"),
+            ClusterType::RancherDesktop
+        ));
+    }
+
+    #[test]
+    fn classify_unknown() {
+        assert!(matches!(
+            classify_context("my-prod-cluster"),
+            ClusterType::Other
+        ));
+    }
+
+    #[test]
+    fn cluster_type_display() {
+        assert_eq!(format!("{}", ClusterType::DockerDesktop), "Docker Desktop");
+        assert_eq!(format!("{}", ClusterType::OrbStack), "OrbStack");
+        assert_eq!(format!("{}", ClusterType::Kind), "kind");
+        assert_eq!(format!("{}", ClusterType::Other), "Other");
     }
 }
