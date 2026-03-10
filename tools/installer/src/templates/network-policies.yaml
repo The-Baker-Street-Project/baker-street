@@ -9,7 +9,7 @@ spec:
   policyTypes:
     - Ingress
 ---
-# Brain: accepts traffic from gateway, ui, worker, and voice
+# Brain: accepts traffic from gateway, ui, and worker
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -32,9 +32,6 @@ spec:
         - podSelector:
             matchLabels:
               app: worker
-        - podSelector:
-            matchLabels:
-              app: bakerst-voice
       ports:
         - protocol: TCP
           port: 3000
@@ -53,7 +50,7 @@ spec:
     - Ingress
   ingress: []
 ---
-# Gateway: accepts traffic from external (port-forward / ingress)
+# Gateway: accepts traffic from external (port-forward / ingress) on admin + voice ports
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -68,7 +65,57 @@ spec:
   ingress:
     - ports:
         - protocol: TCP
-          port: 3000
+          port: 3001
+        - protocol: TCP
+          port: 3002
+---
+# Gateway: allow egress to brain, DNS, external APIs (Telegram/Discord/STT/TTS)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-egress
+  namespace: {{NAMESPACE}}
+spec:
+  podSelector:
+    matchLabels:
+      app: gateway
+  policyTypes:
+    - Egress
+  egress:
+    # Brain API
+    - to:
+        - podSelector:
+            matchLabels:
+              app: brain
+      ports:
+        - port: 3000
+          protocol: TCP
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Local STT/TTS services (host.docker.internal range)
+    - to:
+        - ipBlock:
+            cidr: 192.168.0.0/16
+      ports:
+        - port: 8083
+          protocol: TCP
+        - port: 8084
+          protocol: TCP
+    # External APIs (Telegram, Discord, cloud STT/TTS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
 ---
 # UI: accepts traffic from external (port-forward / ingress)
 apiVersion: networking.k8s.io/v1
@@ -229,78 +276,6 @@ spec:
         - port: 53
           protocol: TCP
     # GitHub API (HTTPS)
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-      ports:
-        - port: 443
-          protocol: TCP
----
-# Voice: accepts traffic from brain and external (port-forward)
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: voice-ingress
-  namespace: {{NAMESPACE}}
-spec:
-  podSelector:
-    matchLabels:
-      app: bakerst-voice
-  policyTypes:
-    - Ingress
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app: brain
-      ports:
-        - protocol: TCP
-          port: 3001
-    - ports:
-        - protocol: TCP
-          port: 3001
----
-# Voice: allow egress to brain, local STT/TTS hosts, DNS, and cloud APIs
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: voice-egress
-  namespace: {{NAMESPACE}}
-spec:
-  podSelector:
-    matchLabels:
-      app: bakerst-voice
-  policyTypes:
-    - Egress
-  egress:
-    # Brain API
-    - to:
-        - podSelector:
-            matchLabels:
-              app: brain
-      ports:
-        - port: 3000
-          protocol: TCP
-    # DNS
-    - ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
-    # Local STT/TTS services (host.docker.internal range)
-    - to:
-        - ipBlock:
-            cidr: 192.168.0.0/16
-      ports:
-        - port: 8083
-          protocol: TCP
-        - port: 8084
-          protocol: TCP
-    # Cloud STT/TTS APIs (HTTPS)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

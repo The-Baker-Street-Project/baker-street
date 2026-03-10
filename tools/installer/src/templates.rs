@@ -34,7 +34,6 @@ pub const BRAIN_YAML: &str = include_str!("templates/brain.yaml");
 pub const WORKER_YAML: &str = include_str!("templates/worker.yaml");
 pub const GATEWAY_YAML: &str = include_str!("templates/gateway.yaml");
 pub const UI_YAML: &str = include_str!("templates/ui.yaml");
-pub const VOICE_YAML: &str = include_str!("templates/voice.yaml");
 pub const SYSADMIN_YAML: &str = include_str!("templates/sysadmin.yaml");
 pub const TOOLBOX_YAML: &str = include_str!("templates/toolbox.yaml");
 pub const BROWSER_YAML: &str = include_str!("templates/browser.yaml");

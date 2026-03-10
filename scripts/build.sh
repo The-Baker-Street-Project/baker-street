@@ -108,12 +108,6 @@ if should_build "sysadmin" "$REPO_ROOT/services/sysadmin" "$REPO_ROOT/services/s
     -f "$REPO_ROOT/services/sysadmin/Dockerfile" "$REPO_ROOT" && save_hash "sysadmin"
 fi
 
-if should_build "voice" "$REPO_ROOT/services/voice" "$REPO_ROOT/services/voice/Dockerfile"; then
-  echo "==> Building bakerst-voice..."
-  docker build --network host $NO_CACHE -t bakerst-voice:latest \
-    -f "$REPO_ROOT/services/voice/Dockerfile" "$REPO_ROOT" && save_hash "voice"
-fi
-
 if should_build "ext-toolbox" "$REPO_ROOT/examples/extension-toolbox" "$REPO_ROOT/examples/extension-toolbox/Dockerfile"; then
   echo "==> Building bakerst-ext-toolbox..."
   docker build --network host $NO_CACHE -t bakerst-ext-toolbox:latest \

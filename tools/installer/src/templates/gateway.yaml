@@ -43,6 +43,11 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+          ports:
+            - containerPort: 3001
+              name: admin
+            - containerPort: 3002
+              name: voice
           env:
             - name: BRAIN_URL
               value: "http://brain.{{NAMESPACE}}.svc.cluster.local:3000"
@@ -50,6 +55,8 @@ spec:
               value: "/data"
             - name: DOOR_POLICY
               value: "{{DOOR_POLICY}}"
+            - name: VOICE_PORT
+              value: "3002"
 {{GATEWAY_FEATURE_VARS}}
           envFrom:
             - secretRef:
@@ -65,11 +72,41 @@ spec:
               memory: "64Mi"
               cpu: "50m"
             limits:
-              memory: "128Mi"
+              memory: "256Mi"
               cpu: "250m"
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 3001
+            initialDelaySeconds: 3
+            periodSeconds: 10
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: gateway-data
         - name: tmp
           emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: {{NAMESPACE}}
+spec:
+  selector:
+    app: gateway
+  ports:
+    - port: 3001
+      targetPort: 3001
+      protocol: TCP
+      name: admin
+    - port: 3002
+      targetPort: 3002
+      protocol: TCP
+      name: voice

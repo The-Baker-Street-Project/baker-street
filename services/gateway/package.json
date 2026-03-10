@@ -11,12 +11,16 @@
   "dependencies": {
     "@bakerst/shared": "workspace:*",
     "better-sqlite3": "^11.8.0",
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1",
     "grammy": "^1.35.0",
     "discord.js": "^14.18.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
     "@types/better-sqlite3": "^7.6.12",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.12",
     "@types/node": "^22.0.0"
   }
 }
