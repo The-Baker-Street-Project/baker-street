@@ -28,6 +28,8 @@ pub struct App {
     pub log_entries: Vec<String>,
     pub errors: Vec<String>,
     pub dry_run: bool,
+    pub auth_token: Option<String>,
+    pub status_message: Option<String>,
 }
 
 impl App {
@@ -42,6 +44,8 @@ impl App {
             log_entries: Vec::new(),
             errors: Vec::new(),
             dry_run: false,
+            auth_token: None,
+            status_message: None,
         }
     }
 }

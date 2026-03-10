@@ -48,6 +48,7 @@ open = "5"
 dirs = "5"
 regex = "1"
 tempfile = "3"
+cli-clipboard = "0.4"
 
 [dev-dependencies]
 assert_cmd = "2"
