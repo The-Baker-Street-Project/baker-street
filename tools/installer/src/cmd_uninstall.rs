@@ -59,7 +59,8 @@ pub async fn run(cli: &Cli, args: UninstallArgs) -> Result<()> {
 
     if bakerst_dir.exists() {
         let should_delete = if args.non_interactive {
-            true
+            // Non-interactive: preserve local config by default (use separate --purge if needed)
+            false
         } else {
             print!("Also delete local config (~/.bakerst/)? [y/N] ");
             use std::io::Write;

@@ -10,6 +10,7 @@ pub mod interview;
 pub mod app;
 pub mod tui;
 pub mod verify;
+pub mod deploy;
 pub mod cmd_install;
 pub mod cmd_status;
 pub mod cmd_update;
