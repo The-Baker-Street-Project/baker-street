@@ -1,6 +1,6 @@
 [package]
 name = "bakerst-install"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Baker Street Kubernetes installer"
 license = "MIT"
@@ -29,15 +29,24 @@ serde_yaml = "0.9"
 # CLI
 clap = { version = "4", features = ["derive"] }
 
+# HTTP / Downloads
+reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
+flate2 = "1"
+tar = "0.4"
+sha2 = "0.10"
+indicatif = "0.17"
+
 # Utilities
 anyhow = "1"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
-rand = "0.8"
 hex = "0.4"
 base64 = "0.22"
 open = "5"
+dirs = "5"
+regex = "1"
+tempfile = "3"
 
 [dev-dependencies]
 assert_cmd = "2"

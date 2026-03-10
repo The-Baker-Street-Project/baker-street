@@ -1,2 +1,16 @@
+pub mod cli;
+pub mod manifest;
+pub mod config_schema;
 pub mod config_file;
-pub mod meta;
+pub mod fetcher;
+pub mod k8s;
+pub mod health;
+pub mod images;
+pub mod interview;
+pub mod app;
+pub mod tui;
+pub mod verify;
+pub mod cmd_install;
+pub mod cmd_status;
+pub mod cmd_update;
+pub mod cmd_uninstall;

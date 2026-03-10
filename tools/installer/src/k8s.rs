@@ -165,44 +165,19 @@ pub async fn create_secret(
 }
 
 /// Create the bakerst-os ConfigMap from operating system files.
-pub async fn create_os_configmap(client: &Client, namespace: &str) -> Result<()> {
-    let mut data = BTreeMap::new();
-    data.insert(
-        "BRAIN.md".into(),
-        include_str!("os_files/BRAIN.md").into(),
-    );
-    data.insert(
-        "WORKER.md".into(),
-        include_str!("os_files/WORKER.md").into(),
-    );
-    data.insert(
-        "SOUL.md".into(),
-        include_str!("os_files/SOUL.md").into(),
-    );
-    data.insert(
-        "PLUGINS.json".into(),
-        include_str!("os_files/PLUGINS.json").into(),
-    );
-    data.insert(
-        "CRONS.json".into(),
-        include_str!("os_files/CRONS.json").into(),
-    );
-    data.insert(
-        "TRIGGERS.json".into(),
-        include_str!("os_files/TRIGGERS.json").into(),
-    );
-    data.insert(
-        "prompts.json".into(),
-        include_str!("os_files/prompts.json").into(),
-    );
-
+/// Files are provided as key-value pairs (filename -> content), fetched at runtime.
+pub async fn create_os_configmap(
+    client: &Client,
+    namespace: &str,
+    files: &BTreeMap<String, String>,
+) -> Result<()> {
     let cm = ConfigMap {
         metadata: kube::api::ObjectMeta {
             name: Some("bakerst-os".into()),
             namespace: Some(namespace.into()),
             ..Default::default()
         },
-        data: Some(data),
+        data: Some(files.clone()),
         ..Default::default()
     };
 
