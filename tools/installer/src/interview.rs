@@ -1,5 +1,5 @@
 //! Interview engine — drives the TUI secret/feature prompts
-//! based on the manifest and config schema.
+//! based on the config schema.
 //!
 //! This module will be fully implemented in Task 10.
 
@@ -14,9 +14,9 @@ pub struct InterviewAnswers {
 }
 
 /// Run the interactive interview, returning collected answers.
-/// Uses the manifest to determine what to ask.
+/// Uses the config schema to determine what to ask.
 pub async fn run_interview(
-    _manifest: &crate::manifest::ReleaseManifest,
+    _schema: &crate::config_schema::ConfigSchema,
 ) -> Result<InterviewAnswers> {
     todo!("interview::run_interview")
 }
