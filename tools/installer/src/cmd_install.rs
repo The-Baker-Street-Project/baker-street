@@ -235,19 +235,21 @@ async fn apply_manifests_from_dir(
     namespace: &str,
     dir: &std::path::Path,
 ) -> Result<()> {
-    let mut yamls = Vec::new();
-    for entry in std::fs::read_dir(dir)
+    let mut paths: Vec<_> = std::fs::read_dir(dir)
         .with_context(|| format!("Cannot read manifest directory: {}", dir.display()))?
-    {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("yaml")
-            || path.extension().and_then(|e| e.to_str()) == Some("yml")
-        {
-            let content = std::fs::read_to_string(&path)
-                .with_context(|| format!("Failed to read manifest: {}", path.display()))?;
-            yamls.push(content);
-        }
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml"))
+        })
+        .collect();
+    paths.sort();
+
+    let mut yamls = Vec::new();
+    for path in &paths {
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read manifest: {}", path.display()))?;
+        yamls.push(content);
     }
     let combined = yamls.join("\n---\n");
     let applied = k8s::apply_yaml(client, namespace, &combined).await?;

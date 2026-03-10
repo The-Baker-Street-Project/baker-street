@@ -60,10 +60,11 @@ pub async fn run_checks(
     // Check 4: NATS connectivity
     checks.push(check_nats_health(namespace).await);
 
-    // Check 5: Send test prompt (if an AI provider key is configured)
-    if config.secrets.contains_key("ANTHROPIC_API_KEY")
-        || config.secrets.contains_key("OPENAI_API_KEY")
-        || config.secrets.contains_key("OLLAMA_ENDPOINTS")
+    // Check 5: Send test prompt (if an AI provider key is configured and non-empty)
+    let has_provider = |key: &str| config.secrets.get(key).map_or(false, |v| !v.is_empty());
+    if has_provider("ANTHROPIC_API_KEY")
+        || has_provider("OPENAI_API_KEY")
+        || has_provider("OLLAMA_ENDPOINTS")
     {
         checks.push(check_test_prompt(namespace, config).await);
     }
@@ -169,30 +170,33 @@ async fn k8s_check_deployments(client: &Client, namespace: &str) -> Result<Strin
 
 async fn check_brain_health(namespace: &str) -> Check {
     let start = std::time::Instant::now();
-    // Use kubectl exec to check brain health from inside the cluster
-    let result = tokio::process::Command::new("kubectl")
-        .args([
-            "exec",
-            "-n",
-            namespace,
-            "deploy/brain-blue",
-            "--",
-            "wget",
-            "-q",
-            "-O-",
-            "http://localhost:3000/ping",
-        ])
-        .output()
-        .await;
+    // Use kubectl exec to check brain health from inside the cluster (30s timeout)
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        tokio::process::Command::new("kubectl")
+            .args([
+                "exec",
+                "-n",
+                namespace,
+                "deploy/brain-blue",
+                "--",
+                "wget",
+                "-q",
+                "-O-",
+                "http://localhost:3000/ping",
+            ])
+            .output(),
+    )
+    .await;
 
     match result {
-        Ok(output) if output.status.success() => Check {
+        Ok(Ok(output)) if output.status.success() => Check {
             name: "brain_health".into(),
             passed: true,
             message: "Brain /ping responded OK".into(),
             duration_ms: start.elapsed().as_millis() as u64,
         },
-        Ok(output) => Check {
+        Ok(Ok(output)) => Check {
             name: "brain_health".into(),
             passed: false,
             message: format!(
@@ -201,10 +205,16 @@ async fn check_brain_health(namespace: &str) -> Check {
             ),
             duration_ms: start.elapsed().as_millis() as u64,
         },
-        Err(e) => Check {
+        Ok(Err(e)) => Check {
             name: "brain_health".into(),
             passed: false,
             message: format!("Failed to reach brain: {}", e),
+            duration_ms: start.elapsed().as_millis() as u64,
+        },
+        Err(_) => Check {
+            name: "brain_health".into(),
+            passed: false,
+            message: "Brain health check timed out (30s)".into(),
             duration_ms: start.elapsed().as_millis() as u64,
         },
     }
@@ -212,31 +222,42 @@ async fn check_brain_health(namespace: &str) -> Check {
 
 async fn check_nats_health(namespace: &str) -> Check {
     let start = std::time::Instant::now();
-    let result = tokio::process::Command::new("kubectl")
-        .args([
-            "exec",
-            "-n",
-            namespace,
-            "deploy/nats",
-            "--",
-            "nats-server",
-            "--help",
-        ])
-        .output()
-        .await;
+    // Check NATS monitoring endpoint (30s timeout)
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        tokio::process::Command::new("kubectl")
+            .args([
+                "exec",
+                "-n",
+                namespace,
+                "deploy/nats",
+                "--",
+                "wget",
+                "-q",
+                "-O-",
+                "http://localhost:8222/healthz",
+            ])
+            .output(),
+    )
+    .await;
 
-    // If we can exec into nats pod, it's running
     match result {
-        Ok(output) if output.status.success() || !output.stdout.is_empty() => Check {
+        Ok(Ok(output)) if output.status.success() => Check {
             name: "nats_health".into(),
             passed: true,
-            message: "NATS server running".into(),
+            message: "NATS server healthy".into(),
             duration_ms: start.elapsed().as_millis() as u64,
         },
-        _ => Check {
+        Ok(_) => Check {
             name: "nats_health".into(),
             passed: false,
-            message: "NATS server not reachable".into(),
+            message: "NATS health check failed".into(),
+            duration_ms: start.elapsed().as_millis() as u64,
+        },
+        Err(_) => Check {
+            name: "nats_health".into(),
+            passed: false,
+            message: "NATS health check timed out (30s)".into(),
             duration_ms: start.elapsed().as_millis() as u64,
         },
     }
@@ -250,14 +271,8 @@ async fn check_test_prompt(namespace: &str, config: &InterviewResult) -> Check {
         .cloned()
         .unwrap_or_default();
 
-    // Use kubectl exec to send a test prompt through the brain API
-    let curl_cmd = format!(
-        "wget -q -O- --header='Authorization: Bearer {}' --header='Content-Type: application/json' \
-         --post-data='{{\"message\":\"Say hello in exactly 3 words\",\"conversationId\":\"acceptance-test\"}}' \
-         http://localhost:3000/api/chat",
-        auth_token
-    );
-
+    // Use kubectl exec to send a test prompt through the brain API.
+    // Pass auth token via env var to avoid shell injection.
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
         tokio::process::Command::new("kubectl")
@@ -269,8 +284,11 @@ async fn check_test_prompt(namespace: &str, config: &InterviewResult) -> Check {
                 "--",
                 "sh",
                 "-c",
-                &curl_cmd,
+                "wget -q -O- --header=\"Authorization: Bearer $AUTH_TOKEN\" --header='Content-Type: application/json' \
+                 --post-data='{\"message\":\"Say hello in exactly 3 words\",\"conversationId\":\"acceptance-test\"}' \
+                 http://localhost:3000/api/chat",
             ])
+            .env("AUTH_TOKEN", &auth_token)
             .output(),
     )
     .await;

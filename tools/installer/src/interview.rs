@@ -19,6 +19,9 @@ pub struct InterviewResult {
 
 impl InterviewResult {
     pub fn save_non_secret(&self, path: &std::path::Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let non_secret = serde_json::json!({
             "namespace": self.namespace,
             "enabledFeatures": self.enabled_features,
