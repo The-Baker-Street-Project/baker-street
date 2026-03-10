@@ -1,154 +1,55 @@
+//! Config file tests — will be fully implemented in Task 14.
+//!
+//! The old tests referenced the v1 ConfigFile API (credentials, features with secrets map,
+//! provider validation). The new ConfigFile uses a flat secrets HashMap and feature toggles.
+//! Tests for the new format will be added when Task 14 implements the full config_file module.
+
 use std::io::Write;
 use tempfile::NamedTempFile;
 
 #[test]
 fn parse_minimal_config() {
     let yaml = r#"
-credentials:
-  anthropic_api_key: "sk-ant-test-key"
-
-features: {}
-
-verify:
-  expected_pods:
-    - brain
-    - worker
-    - gateway
-    - ui
-    - nats
-    - qdrant
-  chat_prompt: "What are your capabilities?"
-  expected_capabilities: []
-"#;
-    let mut f = NamedTempFile::new().unwrap();
-    write!(f, "{}", yaml).unwrap();
-    let path = f.path().to_str().unwrap();
-
-    let config = bakerst_install::config_file::load_config(path).unwrap();
-    assert_eq!(
-        config.credentials.anthropic_api_key,
-        Some("sk-ant-test-key".into())
-    );
-    assert_eq!(config.verify.expected_pods.len(), 6);
-}
-
-#[test]
-fn parse_full_config() {
-    let yaml = r#"
-credentials:
-  anthropic_api_key: "sk-ant-test-key"
-  voyage_api_key: "voyage-test-key"
-
+namespace: bakerst
+secrets:
+  ANTHROPIC_API_KEY: "sk-ant-test-key"
 features:
-  telegram:
-    enabled: true
-    secrets:
-      TELEGRAM_BOT_TOKEN: "123456:ABC"
-  github:
-    enabled: true
-    secrets:
-      GITHUB_TOKEN: "ghp_test123"
-  perplexity:
-    enabled: true
-    secrets:
-      PERPLEXITY_API_KEY: "pplx-test"
-  browser:
-    enabled: true
-
-verify:
-  expected_pods:
-    - brain
-    - worker
-    - gateway
-    - ui
-    - nats
-    - qdrant
-    - ext-toolbox
-    - ext-browser
-  chat_prompt: "What tools and capabilities do you have?"
-  expected_capabilities:
-    - github
-    - perplexity
-    - browser
+  telegram: false
 "#;
     let mut f = NamedTempFile::new().unwrap();
     write!(f, "{}", yaml).unwrap();
-    let config =
-        bakerst_install::config_file::load_config(f.path().to_str().unwrap()).unwrap();
-    assert!(config.features.get("telegram").unwrap().enabled);
-    assert_eq!(
-        config
-            .features
-            .get("github")
-            .unwrap()
-            .secrets
-            .get("GITHUB_TOKEN")
-            .unwrap(),
-        "ghp_test123"
-    );
-    assert_eq!(config.verify.expected_capabilities.len(), 3);
+
+    let config = bakerst_install::config_file::load_config(f.path()).unwrap();
+    assert_eq!(config.secrets.get("ANTHROPIC_API_KEY").unwrap(), "sk-ant-test-key");
+    assert_eq!(config.namespace, Some("bakerst".to_string()));
 }
 
 #[test]
-fn missing_credentials_section_errors() {
-    let yaml = "features: {}\nverify:\n  expected_pods: []\n";
-    let mut f = NamedTempFile::new().unwrap();
-    write!(f, "{}", yaml).unwrap();
-    let result =
-        bakerst_install::config_file::load_config(f.path().to_str().unwrap());
-    assert!(result.is_err());
-}
-
-#[test]
-fn openai_only_config_is_valid() {
+fn parse_config_with_features() {
     let yaml = r#"
-credentials:
-  openai_api_key: "sk-openai-test"
-  default_model: "gpt-4o"
-
-features: {}
-
-verify:
-  expected_pods: []
+secrets:
+  ANTHROPIC_API_KEY: "sk-ant-test-key"
+features:
+  telegram: true
+  github: false
+  voice: false
 "#;
     let mut f = NamedTempFile::new().unwrap();
     write!(f, "{}", yaml).unwrap();
-    let config = bakerst_install::config_file::load_config(f.path().to_str().unwrap()).unwrap();
-    assert_eq!(config.credentials.openai_api_key, Some("sk-openai-test".into()));
-    assert!(config.credentials.anthropic_api_key.is_none());
+
+    let config = bakerst_install::config_file::load_config(f.path()).unwrap();
+    assert_eq!(config.features.get("telegram"), Some(&true));
+    assert_eq!(config.features.get("github"), Some(&false));
 }
 
 #[test]
-fn ollama_only_config_is_valid() {
-    let yaml = r#"
-credentials:
-  ollama_endpoints: "localhost:11434"
-
-features: {}
-
-verify:
-  expected_pods: []
-"#;
+fn empty_config_parses_with_defaults() {
+    let yaml = "{}";
     let mut f = NamedTempFile::new().unwrap();
     write!(f, "{}", yaml).unwrap();
-    let config = bakerst_install::config_file::load_config(f.path().to_str().unwrap()).unwrap();
-    assert_eq!(config.credentials.ollama_endpoints, Some("localhost:11434".into()));
-}
 
-#[test]
-fn empty_credentials_requires_at_least_one_provider() {
-    let yaml = r#"
-credentials: {}
-
-features: {}
-
-verify:
-  expected_pods: []
-"#;
-    let mut f = NamedTempFile::new().unwrap();
-    write!(f, "{}", yaml).unwrap();
-    let result = bakerst_install::config_file::load_config(f.path().to_str().unwrap());
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
-    assert!(err.contains("at least one provider"), "Error was: {}", err);
+    let config = bakerst_install::config_file::load_config(f.path()).unwrap();
+    assert!(config.secrets.is_empty());
+    assert!(config.features.is_empty());
+    assert!(config.namespace.is_none());
 }
