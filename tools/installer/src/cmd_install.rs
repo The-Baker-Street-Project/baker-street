@@ -58,12 +58,17 @@ pub async fn run(_cli: &Cli, args: InstallArgs) -> Result<()> {
     // 3. Download and extract template
     println!("[3/8] Downloading install template...");
     let work_dir = tempfile::tempdir()?;
-    let template_dir = fetcher::fetch_template(
-        &manifest,
-        args.manifest.as_deref(),
-        work_dir.path(),
-    )
-    .await?;
+    let template_dir = if let Some(template_path) = &args.template {
+        // Local template tarball provided — extract it directly
+        fetcher::extract_template(template_path, work_dir.path())?
+    } else {
+        fetcher::fetch_template(
+            &manifest,
+            args.manifest.as_deref(),
+            work_dir.path(),
+        )
+        .await?
+    };
     println!("  Template extracted to: {}", template_dir.display());
 
     // 4. Load config schema from template
