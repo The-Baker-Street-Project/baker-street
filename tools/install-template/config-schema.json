@@ -1,0 +1,414 @@
+{
+  "schemaVersion": 1,
+  "defaults": {
+    "namespace": "bakerst",
+    "agentName": "Baker",
+    "resourceProfile": "standard"
+  },
+  "secrets": [
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "description": "Anthropic API key — powers Claude models for brain and worker",
+      "inputType": "secret",
+      "required": false,
+      "group": "providers",
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-worker-secrets"
+      ],
+      "prompt": "Let's get your AI connected! Paste your Anthropic API key"
+    },
+    {
+      "key": "DEFAULT_MODEL",
+      "description": "Default Claude model used by the agent",
+      "inputType": "choice",
+      "required": false,
+      "group": "providers",
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-worker-secrets"
+      ],
+      "prompt": "Which model should your agent think with?",
+      "choices": [
+        {
+          "value": "claude-sonnet-4-20250514",
+          "label": "Sonnet 4",
+          "description": "balanced"
+        },
+        {
+          "value": "claude-opus-4-20250514",
+          "label": "Opus 4",
+          "description": "most capable"
+        },
+        {
+          "value": "claude-haiku-4-5-20251001",
+          "label": "Haiku 4.5",
+          "description": "fastest"
+        }
+      ],
+      "dependsOn": "ANTHROPIC_API_KEY"
+    },
+    {
+      "key": "WORKER_MODEL",
+      "description": "Worker-specific model override (e.g. qwen3:8b for local Ollama)",
+      "inputType": "choice",
+      "required": false,
+      "group": "providers",
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-worker-secrets"
+      ],
+      "prompt": "Use a different model for workers? (or skip to use the default)",
+      "choices": [
+        {
+          "value": "claude-sonnet-4-20250514",
+          "label": "Sonnet 4",
+          "description": "balanced"
+        },
+        {
+          "value": "claude-opus-4-20250514",
+          "label": "Opus 4",
+          "description": "most capable"
+        },
+        {
+          "value": "claude-haiku-4-5-20251001",
+          "label": "Haiku 4.5",
+          "description": "fastest"
+        }
+      ],
+      "dependsOn": ["ANTHROPIC_API_KEY", "OLLAMA_ENDPOINTS"]
+    },
+    {
+      "key": "OPENAI_API_KEY",
+      "description": "OpenAI API key — enables GPT models as an alternative provider",
+      "inputType": "secret",
+      "required": false,
+      "group": "providers",
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-worker-secrets"
+      ],
+      "prompt": "If you'd also like GPT models available, paste your OpenAI key (or skip)"
+    },
+    {
+      "key": "OLLAMA_ENDPOINTS",
+      "description": "Ollama endpoint URLs — enables local/self-hosted models",
+      "inputType": "text",
+      "required": false,
+      "group": "providers",
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-worker-secrets"
+      ],
+      "prompt": "Got Ollama running locally? Drop the endpoint URL here (or skip)",
+      "placeholder": "localhost:11434"
+    },
+    {
+      "key": "AUTH_TOKEN",
+      "description": "Bearer token protecting the Brain API — auto-generated if not provided",
+      "inputType": "secret",
+      "required": false,
+      "group": "core",
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-gateway-secrets",
+        "bakerst-voice-secrets"
+      ],
+      "prompt": "Got a specific auth token you'd like to use? (leave blank and I'll generate a secure one for you)",
+      "autoGenerate": "hex:32"
+    },
+    {
+      "key": "AGENT_NAME",
+      "description": "The persona name your AI agent responds to",
+      "inputType": "text",
+      "required": false,
+      "group": "core",
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-worker-secrets"
+      ],
+      "prompt": "What would you like to call your agent?",
+      "default": "Baker"
+    },
+    {
+      "key": "BACKUP_PATH",
+      "description": "Host path for nightly backups (e.g. /backups/bakerst)",
+      "inputType": "text",
+      "required": false,
+      "group": "core",
+      "targetSecrets": [],
+      "prompt": "Where should nightly backups be stored? (or skip to disable)"
+    },
+    {
+      "key": "VOYAGE_API_KEY",
+      "description": "Voyage AI API key for semantic embeddings",
+      "inputType": "secret",
+      "required": false,
+      "group": "memory",
+      "targetSecrets": [
+        "bakerst-brain-secrets"
+      ],
+      "prompt": "Paste your Voyage AI key (or skip — memory still works, just less precise)"
+    }
+  ],
+  "features": [
+    {
+      "id": "telegram",
+      "name": "Telegram",
+      "description": "Chat with your agent through Telegram",
+      "defaultEnabled": false,
+      "secrets": [
+        {
+          "key": "TELEGRAM_BOT_TOKEN",
+          "description": "Telegram Bot API token from @BotFather",
+          "inputType": "secret",
+          "required": true,
+          "targetSecrets": [
+            "bakerst-gateway-secrets"
+          ],
+          "prompt": "Paste your Telegram bot token (from @BotFather)"
+        },
+        {
+          "key": "TELEGRAM_ALLOWED_CHAT_IDS",
+          "description": "Restrict bot to specific chat IDs",
+          "inputType": "text",
+          "required": false,
+          "targetSecrets": [
+            "bakerst-gateway-secrets"
+          ],
+          "prompt": "Which chat IDs should the bot respond to? (comma-separated, or leave blank for all)"
+        }
+      ],
+      "featureFlags": {
+        "brain": {
+          "FEATURE_TELEGRAM": "true"
+        },
+        "gateway": {
+          "FEATURE_TELEGRAM": "true"
+        }
+      }
+    },
+    {
+      "id": "discord",
+      "name": "Discord",
+      "description": "Chat with your agent on Discord",
+      "defaultEnabled": false,
+      "secrets": [
+        {
+          "key": "DISCORD_BOT_TOKEN",
+          "description": "Discord bot token from the Developer Portal",
+          "inputType": "secret",
+          "required": true,
+          "targetSecrets": [
+            "bakerst-gateway-secrets"
+          ],
+          "prompt": "Paste your Discord bot token"
+        },
+        {
+          "key": "DISCORD_ALLOWED_CHANNEL_IDS",
+          "description": "Restrict bot to specific channel IDs",
+          "inputType": "text",
+          "required": false,
+          "targetSecrets": [
+            "bakerst-gateway-secrets"
+          ],
+          "prompt": "Which channel IDs should the bot respond to? (comma-separated, or leave blank for all)"
+        }
+      ],
+      "featureFlags": {
+        "brain": {
+          "FEATURE_DISCORD": "true"
+        },
+        "gateway": {
+          "FEATURE_DISCORD": "true"
+        }
+      }
+    },
+    {
+      "id": "voyage",
+      "name": "Long-Term Memory",
+      "description": "Give your agent better recall with Voyage AI embeddings",
+      "defaultEnabled": true,
+      "dependsOn": ["VOYAGE_API_KEY"],
+      "featureFlags": {
+        "brain": {
+          "FEATURE_MEMORY": "true"
+        }
+      }
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "description": "Let your agent browse repos, issues, and PRs",
+      "defaultEnabled": false,
+      "secrets": [
+        {
+          "key": "GITHUB_TOKEN",
+          "description": "GitHub personal access token (classic or fine-grained)",
+          "inputType": "secret",
+          "required": true,
+          "targetSecrets": [
+            "bakerst-github-secrets"
+          ],
+          "prompt": "Paste your GitHub personal access token"
+        }
+      ],
+      "featureFlags": {
+        "brain": {
+          "FEATURE_EXTENSIONS": "true"
+        }
+      }
+    },
+    {
+      "id": "perplexity",
+      "name": "Web Search",
+      "description": "Give your agent the ability to search the web via Perplexity",
+      "defaultEnabled": false,
+      "secrets": [
+        {
+          "key": "PERPLEXITY_API_KEY",
+          "description": "Perplexity AI API key for web search",
+          "inputType": "secret",
+          "required": true,
+          "targetSecrets": [
+            "bakerst-perplexity-secrets"
+          ],
+          "prompt": "Paste your Perplexity API key"
+        }
+      ],
+      "featureFlags": {
+        "brain": {
+          "FEATURE_EXTENSIONS": "true"
+        }
+      }
+    },
+    {
+      "id": "obsidian",
+      "name": "Obsidian",
+      "description": "Connect your agent to your Obsidian knowledge vault",
+      "defaultEnabled": false,
+      "secrets": [
+        {
+          "key": "OBSIDIAN_VAULT_PATH",
+          "description": "Host filesystem path to the Obsidian vault directory",
+          "inputType": "path",
+          "required": true,
+          "prompt": "Where's your Obsidian vault? (full path to the folder)",
+          "validate": "directory_exists"
+        }
+      ],
+      "featureFlags": {
+        "brain": {
+          "FEATURE_EXTENSIONS": "true"
+        }
+      }
+    },
+    {
+      "id": "voice",
+      "name": "Voice Mode",
+      "description": "Talk to your agent out loud — with wake word detection",
+      "defaultEnabled": false,
+      "secrets": [
+        {
+          "key": "STT_API_KEY",
+          "description": "Speech-to-text provider API key",
+          "inputType": "secret",
+          "required": true,
+          "targetSecrets": [
+            "bakerst-voice-secrets"
+          ],
+          "prompt": "Paste your Speech-to-Text API key (for understanding you)"
+        },
+        {
+          "key": "TTS_API_KEY",
+          "description": "Text-to-speech provider API key",
+          "inputType": "secret",
+          "required": true,
+          "targetSecrets": [
+            "bakerst-voice-secrets"
+          ],
+          "prompt": "Paste your Text-to-Speech API key (for speaking back)"
+        },
+        {
+          "key": "PICOVOICE_ACCESS_KEY",
+          "description": "Picovoice access key for wake word detection",
+          "inputType": "secret",
+          "required": false,
+          "targetSecrets": [
+            "bakerst-voice-secrets"
+          ],
+          "prompt": "Paste your Picovoice key (this powers the wake word — like saying 'Hey Baker')"
+        }
+      ]
+    },
+    {
+      "id": "google-workspace",
+      "name": "Google Workspace",
+      "description": "Let your agent read your Gmail, check your Calendar, and browse Google Drive",
+      "defaultEnabled": false,
+      "secrets": [
+        {
+          "key": "GOOGLE_OAUTH_CLIENT_ID",
+          "description": "Google OAuth 2.0 client ID (Desktop type)",
+          "inputType": "text",
+          "required": true,
+          "targetSecrets": [
+            "bakerst-google-secrets"
+          ],
+          "prompt": "Paste your Google OAuth Client ID",
+          "instructions": "You'll need OAuth credentials from Google Cloud Console:\n1. Go to https://console.cloud.google.com/apis/credentials\n2. Create an OAuth 2.0 Client ID (choose 'Desktop app')\n3. Copy the Client ID and Secret from the confirmation screen"
+        },
+        {
+          "key": "GOOGLE_OAUTH_CLIENT_SECRET",
+          "description": "Google OAuth 2.0 client secret",
+          "inputType": "secret",
+          "required": true,
+          "targetSecrets": [
+            "bakerst-google-secrets"
+          ],
+          "prompt": "And the Client Secret that came with it",
+          "dependsOn": "GOOGLE_OAUTH_CLIENT_ID"
+        },
+        {
+          "key": "GOOGLE_USER_EMAIL",
+          "description": "Google account email for token file naming in the initContainer",
+          "inputType": "text",
+          "required": false,
+          "targetSecrets": [
+            "bakerst-google-secrets"
+          ],
+          "prompt": "Which Google account email should the extension use?",
+          "dependsOn": "GOOGLE_OAUTH_CLIENT_ID"
+        },
+        {
+          "key": "GOOGLE_CREDENTIAL_FILE",
+          "description": "Pre-authorized OAuth token JSON (contains refresh token)",
+          "inputType": "file_or_paste",
+          "required": false,
+          "targetSecrets": [
+            "bakerst-google-cred-file"
+          ],
+          "prompt": "If you already have an authorized token file, drop the path here or paste the JSON",
+          "dependsOn": "GOOGLE_OAUTH_CLIENT_SECRET",
+          "silent": true,
+          "secretKeyMapping": {
+            "fileBasename": "google-token.json"
+          }
+        }
+      ],
+      "featureFlags": {
+        "brain": {
+          "FEATURE_EXTENSIONS": "true"
+        }
+      }
+    }
+  ],
+  "providerValidation": {
+    "requireAtLeastOne": [
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY",
+      "OLLAMA_ENDPOINTS"
+    ],
+    "message": "At least one AI provider must be configured"
+  }
+}
