@@ -30,7 +30,27 @@ scripts/deploy-all.sh --version v1.2.3   # custom version tag
 pnpm install                    # install all workspace deps
 pnpm -r build                   # compile TypeScript in all workspaces
 scripts/build.sh                # docker build all images (brain, worker, ui, gateway)
+
+# CI-only scripts (called by release workflow):
+scripts/generate-manifest.sh    # query GHCR and produce manifest.json
+scripts/bundle-template.sh      # bundle K8s manifests + config schema into install-template.tar.gz
 ```
+
+### Installer CLI
+
+The Rust-based installer (`tools/installer/`) provides a TUI for end-user deployment:
+
+```bash
+bakerst-install install              # interactive install (default)
+bakerst-install install --config f   # non-interactive install from config file
+bakerst-install install --dry-run    # preview what would be applied
+bakerst-install status               # check pod health and versions
+bakerst-install status --json        # machine-readable status
+bakerst-install update               # update to latest release
+bakerst-install uninstall            # remove Baker Street from cluster
+```
+
+Build locally: `cd tools/installer && cargo build --release`
 
 Windows: See `scripts/Deploy-BakerStreet.ps1` (requires Docker Desktop with Kubernetes + WSL2).
 
@@ -97,6 +117,12 @@ GOOGLE_CREDENTIAL_FILE     # Path to pre-authorized Google credential JSON file
 ## Telemetry (Optional)
 
 Optional OTel stack (Collector, Tempo, Loki, Grafana, Prometheus) in `bakerst-telemetry` namespace. Manifests in `k8s/telemetry/`. Use `scripts/deploy-all.sh --skip-telemetry` to skip.
+
+## Acceptance Tests
+
+End-to-end validation lives in `test/acceptance/`. The release workflow spins up a kind cluster, runs the installer with `test-config.yaml`, and verifies core pods come up healthy. See `test/acceptance/README.md` for details.
+
+Run installer unit/integration tests locally: `cd tools/installer && cargo test`
 
 ## Terminology
 
