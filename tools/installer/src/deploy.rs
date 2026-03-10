@@ -72,7 +72,11 @@ pub async fn apply_manifests_from_dir(
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| {
-            matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml"))
+            let is_yaml = matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml"));
+            let is_kustomization = p.file_name()
+                .and_then(|n| n.to_str())
+                .map_or(false, |n| n.starts_with("kustomization"));
+            is_yaml && !is_kustomization
         })
         .collect();
     paths.sort();
