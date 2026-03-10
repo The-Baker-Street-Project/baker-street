@@ -18,8 +18,11 @@ set -euo pipefail
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 : "${SERVICES:?SERVICES is required (space-separated list of service names)}"
 
+# Strip leading 'v' if present (git tags use v0.5.0, we want 0.5.0)
+VERSION="${VERSION#v}"
+
 OUTPUT="${OUTPUT:-manifest.json}"
-REGISTRY="ghcr.io/the-baker-street-project"
+REGISTRY="ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
 INSTALLER_LINUX_AMD64_SHA256="${INSTALLER_LINUX_AMD64_SHA256:-}"
 INSTALLER_DARWIN_ARM64_SHA256="${INSTALLER_DARWIN_ARM64_SHA256:-}"
 

@@ -46,7 +46,7 @@
           "description": "fastest"
         }
       ],
-      "dependsOn": "ANTHROPIC_API_KEY"
+      "dependsOn": ["ANTHROPIC_API_KEY"]
     },
     {
       "key": "WORKER_MODEL",
@@ -367,7 +367,7 @@
             "bakerst-google-secrets"
           ],
           "prompt": "And the Client Secret that came with it",
-          "dependsOn": "GOOGLE_OAUTH_CLIENT_ID"
+          "dependsOn": ["GOOGLE_OAUTH_CLIENT_ID"]
         },
         {
           "key": "GOOGLE_USER_EMAIL",
@@ -378,7 +378,7 @@
             "bakerst-google-secrets"
           ],
           "prompt": "Which Google account email should the extension use?",
-          "dependsOn": "GOOGLE_OAUTH_CLIENT_ID"
+          "dependsOn": ["GOOGLE_OAUTH_CLIENT_ID"]
         },
         {
           "key": "GOOGLE_CREDENTIAL_FILE",
@@ -389,7 +389,7 @@
             "bakerst-google-cred-file"
           ],
           "prompt": "If you already have an authorized token file, drop the path here or paste the JSON",
-          "dependsOn": "GOOGLE_OAUTH_CLIENT_SECRET",
+          "dependsOn": ["GOOGLE_OAUTH_CLIENT_SECRET"],
           "silent": true,
           "secretKeyMapping": {
             "fileBasename": "google-token.json"
