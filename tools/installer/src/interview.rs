@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use crate::config_schema::ConfigSchema;
 use crate::config_file::ConfigFile;
 
+#[derive(Debug)]
 pub struct InterviewResult {
     pub secrets: HashMap<String, String>,
     pub enabled_features: Vec<String>,
