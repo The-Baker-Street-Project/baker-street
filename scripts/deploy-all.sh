@@ -24,43 +24,44 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NAMESPACE="bakerst"
 TELEMETRY_NAMESPACE="bakerst-telemetry"
 
-# ---------------------------------------------------------------------------
-# Deploy log — capture all output for debugging
-# ---------------------------------------------------------------------------
-DEPLOY_LOG="${REPO_ROOT}/deploy.log"
-: > "$DEPLOY_LOG"  # truncate previous log
-exec > >(tee "$DEPLOY_LOG") 2>&1
-echo "=== Deploy started: $(date '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null || date) ==="
-
 # Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
 # Defaults
-AUTO_YES=false
-SKIP_BUILD=false
-SKIP_IMAGES=false
-SKIP_SECRETS=false
-SKIP_TELEMETRY=false
-SKIP_EXTENSIONS=false
-NO_CACHE=false
-DEPLOY_TELEMETRY=false
-DEPLOY_EXTENSIONS=false
-USE_DEV=false
+AUTO_YES=false; SKIP_BUILD=false; SKIP_IMAGES=false; SKIP_SECRETS=false
+SKIP_TELEMETRY=false; SKIP_EXTENSIONS=false; NO_CACHE=false; USE_DEV=false
 VERSION=""
-PROMETHEUS_MODE=""  # "local" or "external"
-PROMETHEUS_EXTERNAL_URL=""
-PROMETHEUS_EXTERNAL_USER=""
-PROMETHEUS_EXTERNAL_PASS=""
 
-# ---------------------------------------------------------------------------
-# Parse arguments
-# ---------------------------------------------------------------------------
+# ── Helpers ──────────────────────────────────────────────────────────────
+banner() { echo -e "\n${BLUE}══════════════════════════════════════════════════════════${NC}\n${BOLD}  $1${NC}\n${BLUE}══════════════════════════════════════════════════════════${NC}"; }
+step()   { echo -e "\n${GREEN}==> $1${NC}"; }
+info()   { echo -e "${CYAN}    $1${NC}"; }
+warn()   { echo -e "${YELLOW}    WARNING: $1${NC}"; }
+fail()   { echo -e "${RED}ERROR: $1${NC}" >&2; exit 1; }
+
+ask_secret() {
+  local prompt="$1" default="${2:-}"
+  if [[ "$AUTO_YES" == true && -n "$default" ]]; then echo "$default"; return; fi
+  local suffix=""; [[ -n "$default" ]] && suffix=" [****${default: -4}]"
+  echo -en "${BOLD}    ${prompt}${suffix}: ${NC}" >&2; local answer; read -rs answer; echo "" >&2
+  if [[ -z "$answer" && -n "$default" ]]; then echo "$default"; else echo "$answer"; fi
+}
+
+ask() {
+  local prompt="$1" default="${2:-}"
+  if [[ "$AUTO_YES" == true && -n "$default" ]]; then echo "$default"; return; fi
+  local suffix=""; [[ -n "$default" ]] && suffix=" [${default}]"
+  echo -en "${BOLD}    ${prompt}${suffix}: ${NC}" >&2; local answer; read -r answer
+  if [[ -z "$answer" && -n "$default" ]]; then echo "$default"; else echo "$answer"; fi
+}
+
+confirm() {
+  [[ "$AUTO_YES" == true ]] && return 0
+  echo -en "${BOLD}    $1 [Y/n]: ${NC}" >&2; local a; read -r a; [[ -z "$a" || "$a" =~ ^[Yy] ]]
+}
+
+# ── Parse arguments ─────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --yes|-y)          AUTO_YES=true; shift ;;
@@ -72,870 +73,217 @@ while [[ $# -gt 0 ]]; do
     --no-cache)        NO_CACHE=true; shift ;;
     --dev)             USE_DEV=true; shift ;;
     --version)         VERSION="$2"; shift 2 ;;
-    --help|-h)
-      sed -n '3,15p' "$0" | sed 's/^# \?//'
-      exit 0
-      ;;
-    *)
-      echo -e "${RED}Unknown argument: $1${NC}" >&2
-      echo "Use --help for usage information." >&2
-      exit 1
-      ;;
+    --help|-h)         sed -n '3,15p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    *)                 fail "Unknown argument: $1. Use --help for usage." ;;
   esac
 done
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-banner() {
-  echo ""
-  echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
-  echo -e "${BOLD}  $1${NC}"
-  echo -e "${BLUE}══════════════════════════════════════════════════════════════${NC}"
-}
-
-step() {
-  echo -e "\n${GREEN}==> $1${NC}"
-}
-
-warn() {
-  echo -e "${YELLOW}    ⚠  $1${NC}"
-}
-
-info() {
-  echo -e "${CYAN}    $1${NC}"
-}
-
-fail() {
-  echo -e "${RED}ERROR: $1${NC}" >&2
-  exit 1
-}
-
-ask() {
-  # ask "prompt" "default"
-  local prompt="$1"
-  local default="${2:-}"
-  if [[ "$AUTO_YES" == true && -n "$default" ]]; then
-    echo "$default"
-    return
-  fi
-  local suffix=""
-  if [[ -n "$default" ]]; then
-    suffix=" [${default}]"
-  fi
-  echo -en "${BOLD}    ${prompt}${suffix}: ${NC}" >&2
-  local answer
-  read -r answer
-  if [[ -z "$answer" && -n "$default" ]]; then
-    echo "$default"
-  else
-    echo "$answer"
-  fi
-}
-
-ask_secret() {
-  # ask_secret "prompt" "default"
-  local prompt="$1"
-  local default="${2:-}"
-  if [[ "$AUTO_YES" == true && -n "$default" ]]; then
-    echo "$default"
-    return
-  fi
-  local suffix=""
-  if [[ -n "$default" ]]; then
-    suffix=" [****${default: -4}]"
-  fi
-  echo -en "${BOLD}    ${prompt}${suffix}: ${NC}" >&2
-  local answer
-  read -rs answer
-  echo "" >&2
-  if [[ -z "$answer" && -n "$default" ]]; then
-    echo "$default"
-  else
-    echo "$answer"
-  fi
-}
-
-confirm() {
-  # confirm "question" → returns 0 (yes) or 1 (no)
-  if [[ "$AUTO_YES" == true ]]; then
-    return 0
-  fi
-  echo -en "${BOLD}    $1 [Y/n]: ${NC}" >&2
-  local answer
-  read -r answer
-  [[ -z "$answer" || "$answer" =~ ^[Yy] ]]
-}
-
-confirm_no_default() {
-  # confirm_no_default "question" → returns 0 (yes) or 1 (no); defaults to no
-  if [[ "$AUTO_YES" == true ]]; then
-    return 1
-  fi
-  echo -en "${BOLD}    $1 [y/N]: ${NC}" >&2
-  local answer
-  read -r answer
-  [[ "$answer" =~ ^[Yy] ]]
-}
-
-# ---------------------------------------------------------------------------
-# Step 0: Banner & prerequisite checks
-# ---------------------------------------------------------------------------
+# ── 1. Preflight checks ─────────────────────────────────────────────────
 banner "Baker Street Deploy"
-
 step "Checking prerequisites..."
 
-MISSING=()
-for cmd in docker kubectl pnpm node openssl git; do
-  if ! command -v "$cmd" &>/dev/null; then
-    MISSING+=("$cmd")
-  fi
+for cmd in docker kubectl pnpm node; do
+  command -v "$cmd" &>/dev/null || fail "Missing required tool: $cmd"
 done
 
-if [[ ${#MISSING[@]} -gt 0 ]]; then
-  fail "Missing required tools: ${MISSING[*]}"
-fi
+NODE_MAJOR=$(node --version | sed 's/^v//' | cut -d. -f1)
+[[ "$NODE_MAJOR" -ge 22 ]] || fail "Node.js >= 22 required (found v$(node --version))"
 
-# Validate Node.js version (must be even/LTS >=22)
-NODE_VERSION=$(node --version | sed 's/^v//')
-NODE_MAJOR=$(echo "$NODE_VERSION" | cut -d. -f1)
-if [[ "$NODE_MAJOR" -lt 22 ]]; then
-  fail "Node.js >= 22 required (found v${NODE_VERSION}). Install Node 22 LTS: https://nodejs.org"
-fi
-if (( NODE_MAJOR % 2 != 0 )); then
-  warn "Node.js v${NODE_VERSION} is an odd-numbered (unstable) release."
-  warn "Baker Street requires an even-numbered LTS release (22, 24, etc.)."
-  warn "Odd versions may cause ELIFECYCLE build failures."
-  fail "Switch to Node $(( NODE_MAJOR - 1 )) or $(( NODE_MAJOR + 1 )): nvm install $(( NODE_MAJOR - 1 ))"
-fi
+docker info &>/dev/null || fail "Docker is not running. Start Docker Desktop first."
+kubectl cluster-info &>/dev/null 2>&1 || fail "Cannot reach Kubernetes cluster."
 
-# Validate pnpm version (must be >=9)
-PNPM_MAJOR=$(pnpm --version | cut -d. -f1)
-if [[ "$PNPM_MAJOR" -lt 9 ]]; then
-  fail "pnpm >= 9 required (found $(pnpm --version)). Run: corepack enable && corepack prepare pnpm@latest --activate"
-fi
-
-# Check Docker is running
-if ! docker info &>/dev/null; then
-  fail "Docker is not running. Start Docker Desktop first."
-fi
-
-# Check kubectl can reach a cluster
-if ! kubectl cluster-info &>/dev/null 2>&1; then
-  fail "Cannot reach Kubernetes cluster. Ensure Docker Desktop Kubernetes is enabled."
-fi
-
-CLUSTER=$(kubectl config current-context 2>/dev/null || echo "unknown")
 info "Docker: $(docker --version | cut -d' ' -f3 | tr -d ',')"
-info "Kubectl context: ${CLUSTER}"
-info "Node: v${NODE_VERSION} (LTS)"
-info "pnpm: $(pnpm --version)"
+info "Kubectl: $(kubectl config current-context 2>/dev/null || echo 'unknown')"
+info "Node: $(node --version)"
 
-# ---------------------------------------------------------------------------
-# Step 1: Determine version
-# ---------------------------------------------------------------------------
-step "Version"
+# ── 2. Secrets ───────────────────────────────────────────────────────────
+ENV_FILE="$REPO_ROOT/.env-secrets"
 
-if [[ -z "$VERSION" ]]; then
-  VERSION="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
-fi
-VERSION=$(ask "Image version tag" "$VERSION")
-
-if [[ ! "$VERSION" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-  fail "Invalid version: '$VERSION'. Use only alphanumeric, dash, dot, underscore."
-fi
-info "Version: ${VERSION}"
-
-# ---------------------------------------------------------------------------
-# Step 2: Environment mode
-# ---------------------------------------------------------------------------
-step "Environment"
-
-if [[ "$USE_DEV" == false && "$AUTO_YES" == false ]]; then
-  if confirm "Use dev overlay? (sets BAKERST_MODE=dev on all services)"; then
-    USE_DEV=true
-  fi
+# Always load existing secrets
+if [[ -f "$ENV_FILE" ]]; then
+  set -a; . "$ENV_FILE"; set +a
 fi
 
-if [[ "$USE_DEV" == true ]]; then
-  info "Mode: dev (BAKERST_MODE=dev)"
-else
-  info "Mode: production"
-fi
-
-# ---------------------------------------------------------------------------
-# Step 2b: Telemetry stack
-# ---------------------------------------------------------------------------
-if [[ "$SKIP_TELEMETRY" == false ]]; then
-  step "Telemetry"
-
-  # Check available memory
-  AVAIL_MEM_MB=0
-  if command -v free &>/dev/null; then
-    AVAIL_MEM_MB=$(free -m 2>/dev/null | awk '/^Mem:/ {print $7}' || echo "0")
-  fi
-
-  if [[ "$AVAIL_MEM_MB" -gt 0 && "$AVAIL_MEM_MB" -lt 4096 ]]; then
-    warn "Low available memory (${AVAIL_MEM_MB}MB). Telemetry adds ~1.5GB RAM."
-    warn "Skipping telemetry to preserve system resources."
-    DEPLOY_TELEMETRY=false
-  else
-    info "Telemetry adds 5-6 pods (~1.5GB RAM) for distributed tracing,"
-    info "log aggregation, and metrics. Recommended for debugging and"
-    info "performance monitoring."
-    if confirm_no_default "Install telemetry stack? (advanced)"; then
-      DEPLOY_TELEMETRY=true
-
-      # Ask about Prometheus mode
-      info "A local Prometheus instance will be deployed by default."
-      if confirm_no_default "Use an external Prometheus instead?"; then
-        PROMETHEUS_MODE="external"
-        PROMETHEUS_EXTERNAL_URL=$(ask "Prometheus remote-write URL" "${PROMETHEUS_EXTERNAL_URL:-}")
-        if [[ -z "$PROMETHEUS_EXTERNAL_URL" ]]; then
-          warn "No URL provided — using local Prometheus."
-          PROMETHEUS_MODE="local"
-        else
-          if confirm_no_default "Does the external Prometheus require authentication?"; then
-            PROMETHEUS_EXTERNAL_USER=$(ask "Username" "${PROMETHEUS_EXTERNAL_USER:-}")
-            PROMETHEUS_EXTERNAL_PASS=$(ask_secret "Password" "${PROMETHEUS_EXTERNAL_PASS:-}")
-          fi
-        fi
-      else
-        PROMETHEUS_MODE="local"
-      fi
-
-      info "Prometheus mode: ${PROMETHEUS_MODE}"
-    else
-      DEPLOY_TELEMETRY=false
-      info "Telemetry will not be deployed."
-    fi
-  fi
-else
-  step "Skipping telemetry (--skip-telemetry)"
-fi
-
-# ---------------------------------------------------------------------------
-# Step 2c: Extension pods
-# ---------------------------------------------------------------------------
-if [[ "$SKIP_EXTENSIONS" == false ]]; then
-  step "Extensions"
-
-  # Check if any extension examples exist
-  EXTENSIONS_DIR="$REPO_ROOT/examples"
-  if [[ -d "$EXTENSIONS_DIR" ]]; then
-    EXT_COUNT=$(find "$EXTENSIONS_DIR" -maxdepth 1 -mindepth 1 -type d | wc -l)
-    info "Found ${EXT_COUNT} extension(s) in examples/:"
-    for ext_dir in "$EXTENSIONS_DIR"/*/; do
-      ext_name=$(basename "$ext_dir")
-      info "  - ${ext_name}"
-    done
-    echo ""
-    info "Extensions add extra tool capabilities (time/date, DNS lookups,"
-    info "HTTP fetch, etc.) by deploying additional pods."
-    if confirm_no_default "Deploy extension pods?"; then
-      DEPLOY_EXTENSIONS=true
-    else
-      DEPLOY_EXTENSIONS=false
-      info "Extensions will not be deployed."
-    fi
-  else
-    info "No extensions found in examples/."
-    DEPLOY_EXTENSIONS=false
-  fi
-else
-  step "Skipping extensions (--skip-extensions)"
-fi
-
-# ---------------------------------------------------------------------------
-# Step 3: Secrets configuration
-# ---------------------------------------------------------------------------
 if [[ "$SKIP_SECRETS" == false ]]; then
   banner "Secrets Configuration"
 
-  ENV_FILE="$REPO_ROOT/.env-secrets"
+  # Core secrets
+  [[ -z "${ANTHROPIC_API_KEY:-}" ]] && ANTHROPIC_API_KEY=$(ask_secret "ANTHROPIC_API_KEY (optional if using Ollama)" "")
+  [[ -z "${VOYAGE_API_KEY:-}" ]]    && VOYAGE_API_KEY=$(ask_secret "VOYAGE_API_KEY (optional)" "")
 
-  # Load existing .env-secrets
-  if [[ -f "$ENV_FILE" ]]; then
-    step "Loading existing .env-secrets"
-    set -a
-    . "$ENV_FILE"
-    set +a
-    info "Loaded $(grep -c '=' "$ENV_FILE" 2>/dev/null || echo 0) variables"
-  else
-    step "No .env-secrets found — starting fresh"
+  # Model overrides
+  if [[ "$AUTO_YES" == false ]]; then
+    [[ -z "${DEFAULT_MODEL:-}" ]]  && DEFAULT_MODEL=$(ask "DEFAULT_MODEL (optional)" "")
+    [[ -z "${WORKER_MODEL:-}" ]]   && WORKER_MODEL=$(ask "WORKER_MODEL (optional)" "")
+    [[ -z "${OLLAMA_ENDPOINTS:-}" ]] && OLLAMA_ENDPOINTS=$(ask "OLLAMA_ENDPOINTS (optional, e.g. host.docker.internal:11434)" "")
   fi
 
-  # --- Anthropic auth ---
-  step "Anthropic authentication (optional if using local models)"
-
-  if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-    info "ANTHROPIC_API_KEY is set (****${ANTHROPIC_API_KEY: -4})"
-  else
-    ANTHROPIC_API_KEY=$(ask_secret "ANTHROPIC_API_KEY (optional if using Ollama/MLX)" "")
-    if [[ -z "$ANTHROPIC_API_KEY" ]]; then
-      warn "No Anthropic key — only local models will be available."
-    fi
-  fi
-
-  # --- Voyage API key ---
-  step "Voyage AI (embeddings)"
-
-  if [[ -n "${VOYAGE_API_KEY:-}" ]]; then
-    info "VOYAGE_API_KEY is set (****${VOYAGE_API_KEY: -4})"
-  else
-    VOYAGE_API_KEY=$(ask_secret "VOYAGE_API_KEY (optional, press Enter to skip)" "")
-    if [[ -z "$VOYAGE_API_KEY" ]]; then
-      warn "Skipped — embeddings will not be available."
-    fi
-  fi
-
-  # --- OpenAI ---
-  step "OpenAI (optional)"
-
-  if [[ -n "${OPENAI_API_KEY:-}" ]]; then
-    info "OPENAI_API_KEY is set (****${OPENAI_API_KEY: -4})"
-  else
-    if [[ "$AUTO_YES" == false ]] && confirm "Configure OpenAI API key?"; then
-      OPENAI_API_KEY=$(ask_secret "OPENAI_API_KEY (optional, press Enter to skip)" "")
-      if [[ -z "$OPENAI_API_KEY" ]]; then
-        warn "Skipped — OpenAI models will not be available."
-      fi
-    else
-      info "Skipped"
-    fi
-  fi
-
-  # --- Model overrides ---
-  step "Model configuration (optional)"
-
-  if [[ -n "${DEFAULT_MODEL:-}" ]]; then
-    info "DEFAULT_MODEL is set: ${DEFAULT_MODEL}"
-  else
-    if [[ "$AUTO_YES" == false ]] && confirm "Configure default model? (overrides agent model)"; then
-      DEFAULT_MODEL=$(ask "DEFAULT_MODEL (model name or id)" "")
-    fi
-  fi
-
-  if [[ -n "${WORKER_MODEL:-}" ]]; then
-    info "WORKER_MODEL is set: ${WORKER_MODEL}"
-  else
-    if [[ "$AUTO_YES" == false ]] && confirm "Configure worker model? (separate model for reasoning tasks)"; then
-      WORKER_MODEL=$(ask "WORKER_MODEL (model name or id)" "")
-    fi
-  fi
-
-  # --- Ollama ---
-  step "Ollama / OpenAI-compatible endpoints (optional)"
-
-  if [[ -n "${OLLAMA_ENDPOINTS:-}" ]]; then
-    info "OLLAMA_ENDPOINTS is set: ${OLLAMA_ENDPOINTS}"
-  else
-    if [[ "$AUTO_YES" == false ]] && confirm "Configure Ollama/MLX endpoints?"; then
-      OLLAMA_ENDPOINTS=$(ask "Comma-separated host:port (e.g. localhost:11434,192.168.4.42:8085)" "${OLLAMA_ENDPOINTS:-}")
-      if [[ -z "$OLLAMA_ENDPOINTS" ]]; then
-        warn "Skipped — local models will not be available."
-      fi
-    else
-      info "Skipped"
-    fi
-  fi
-
-  # --- Telegram ---
-  step "Telegram gateway (optional)"
-
-  if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
-    info "TELEGRAM_BOT_TOKEN is set (****${TELEGRAM_BOT_TOKEN: -4})"
-    if [[ -n "${TELEGRAM_ALLOWED_CHAT_IDS:-}" ]]; then
-      info "TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS}"
-    fi
-  else
-    if [[ "$AUTO_YES" == false ]] && confirm "Configure Telegram bot?"; then
-      TELEGRAM_BOT_TOKEN=$(ask_secret "TELEGRAM_BOT_TOKEN" "")
-      if [[ -n "$TELEGRAM_BOT_TOKEN" ]]; then
-        TELEGRAM_ALLOWED_CHAT_IDS=$(ask "TELEGRAM_ALLOWED_CHAT_IDS (comma-separated)" "${TELEGRAM_ALLOWED_CHAT_IDS:-}")
-      fi
-    else
-      info "Skipped"
-    fi
-  fi
-
-  # --- Discord ---
-  step "Discord gateway (optional)"
-
-  if [[ -n "${DISCORD_BOT_TOKEN:-}" ]]; then
-    info "DISCORD_BOT_TOKEN is set (****${DISCORD_BOT_TOKEN: -4})"
-    if [[ -n "${DISCORD_ALLOWED_CHANNEL_IDS:-}" ]]; then
-      info "DISCORD_ALLOWED_CHANNEL_IDS: ${DISCORD_ALLOWED_CHANNEL_IDS}"
-    fi
-  else
-    if [[ "$AUTO_YES" == false ]] && confirm "Configure Discord bot?"; then
-      DISCORD_BOT_TOKEN=$(ask_secret "DISCORD_BOT_TOKEN" "")
-      if [[ -n "$DISCORD_BOT_TOKEN" ]]; then
-        DISCORD_ALLOWED_CHANNEL_IDS=$(ask "DISCORD_ALLOWED_CHANNEL_IDS (comma-separated)" "${DISCORD_ALLOWED_CHANNEL_IDS:-}")
-      fi
-    else
-      info "Skipped"
-    fi
-  fi
-
-  # --- GitHub token (for GitHub extension) ---
-  step "GitHub extension (optional)"
-
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    info "GITHUB_TOKEN is set (****${GITHUB_TOKEN: -4})"
-    if [[ "$AUTO_YES" == false ]]; then
-      GITHUB_TOKEN_NEW=$(ask_secret "GITHUB_TOKEN (Enter to keep current, or paste new)" "")
-      if [[ -n "$GITHUB_TOKEN_NEW" ]]; then
-        GITHUB_TOKEN="$GITHUB_TOKEN_NEW"
-        info "Updated GITHUB_TOKEN"
-      fi
-    fi
-  else
-    if [[ "$AUTO_YES" == false ]] && confirm "Configure GitHub token? (needed for GitHub extension)"; then
-      GITHUB_TOKEN=$(ask_secret "GITHUB_TOKEN (personal access token)" "")
-      if [[ -z "$GITHUB_TOKEN" ]]; then
-        warn "Skipped — GitHub extension will not start without a token."
-      fi
-    else
-      info "Skipped"
-    fi
-  fi
-
-  # --- Obsidian vault path (for Obsidian extension) ---
-  step "Obsidian extension (optional)"
-
-  if [[ -n "${OBSIDIAN_VAULT_PATH:-}" ]]; then
-    info "OBSIDIAN_VAULT_PATH is set: ${OBSIDIAN_VAULT_PATH}"
-    if [[ "$AUTO_YES" == false ]]; then
-      OBSIDIAN_VAULT_NEW=$(ask "OBSIDIAN_VAULT_PATH (Enter to keep current, or type new path)" "")
-      if [[ -n "$OBSIDIAN_VAULT_NEW" ]]; then
-        OBSIDIAN_VAULT_PATH="$OBSIDIAN_VAULT_NEW"
-        info "Updated to: ${OBSIDIAN_VAULT_PATH}"
-      fi
-    fi
-  else
-    if [[ "$AUTO_YES" == false ]] && confirm "Configure Obsidian vault? (needed for Obsidian extension)"; then
-      OBSIDIAN_VAULT_PATH=$(ask "Obsidian vault path on this machine" "")
-      if [[ -z "$OBSIDIAN_VAULT_PATH" ]]; then
-        warn "Skipped — Obsidian extension will not be deployed."
-      elif [[ ! -d "$OBSIDIAN_VAULT_PATH" ]]; then
-        warn "Directory not found: ${OBSIDIAN_VAULT_PATH}"
-        warn "The Obsidian extension will fail until this directory exists."
-      fi
-    else
-      info "Skipped"
-    fi
-  fi
-
-  # --- Google Workspace ---
-  step "Google Workspace extension (optional)"
-
-  if [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" ]]; then
-    info "GOOGLE_OAUTH_CLIENT_ID is set"
-  else
-    if [[ "$AUTO_YES" == false ]] && confirm "Configure Google Workspace? (Gmail, Drive, Calendar, Docs)"; then
-      GOOGLE_OAUTH_CLIENT_ID=$(ask "GOOGLE_OAUTH_CLIENT_ID" "")
-      if [[ -n "$GOOGLE_OAUTH_CLIENT_ID" ]]; then
-        GOOGLE_OAUTH_CLIENT_SECRET=$(ask_secret "GOOGLE_OAUTH_CLIENT_SECRET" "")
-        GOOGLE_CREDENTIAL_FILE=$(ask "Path to Google credential JSON file" "")
-      fi
-    else
-      info "Skipped"
-    fi
-  fi
-
-  # --- AUTH_TOKEN ---
-  step "Auth token"
-
-  if [[ -z "${AUTH_TOKEN:-}" ]]; then
-    AUTH_TOKEN="$(openssl rand -hex 32)"
-    info "Generated new AUTH_TOKEN"
-  else
-    info "Using existing AUTH_TOKEN (****${AUTH_TOKEN: -4})"
-  fi
-
-  # --- AGENT_NAME ---
-  step "Agent persona name"
-
+  # Agent name
   AGENT_NAME=$(ask "Agent persona name" "${AGENT_NAME:-Baker}")
-  info "Agent name: ${AGENT_NAME}"
-
-  # --- Save .env-secrets ---
-  step "Saving secrets to .env-secrets"
-
-  {
-    [[ -n "${ANTHROPIC_API_KEY:-}" ]]     && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
-    [[ -n "${DEFAULT_MODEL:-}" ]]         && echo "DEFAULT_MODEL=$DEFAULT_MODEL"
-    [[ -n "${WORKER_MODEL:-}" ]]         && echo "WORKER_MODEL=$WORKER_MODEL"
-    [[ -n "${VOYAGE_API_KEY:-}" ]]        && echo "VOYAGE_API_KEY=$VOYAGE_API_KEY"
-    [[ -n "${OPENAI_API_KEY:-}" ]]       && echo "OPENAI_API_KEY=$OPENAI_API_KEY"
-    [[ -n "${OLLAMA_ENDPOINTS:-}" ]]     && echo "OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS"
-    [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]    && echo "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN"
-    [[ -n "${TELEGRAM_ALLOWED_CHAT_IDS:-}" ]] && echo "TELEGRAM_ALLOWED_CHAT_IDS=$TELEGRAM_ALLOWED_CHAT_IDS"
-    [[ -n "${DISCORD_BOT_TOKEN:-}" ]]     && echo "DISCORD_BOT_TOKEN=$DISCORD_BOT_TOKEN"
-    [[ -n "${DISCORD_ALLOWED_CHANNEL_IDS:-}" ]] && echo "DISCORD_ALLOWED_CHANNEL_IDS=$DISCORD_ALLOWED_CHANNEL_IDS"
-    echo "AUTH_TOKEN=$AUTH_TOKEN"
-    [[ -n "${AGENT_NAME:-}" ]]          && echo "AGENT_NAME=$AGENT_NAME"
-    [[ -n "${GITHUB_TOKEN:-}" ]]        && echo "GITHUB_TOKEN=$GITHUB_TOKEN"
-    [[ -n "${OBSIDIAN_VAULT_PATH:-}" ]] && echo "OBSIDIAN_VAULT_PATH=$OBSIDIAN_VAULT_PATH"
-    [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" ]]     && echo "GOOGLE_OAUTH_CLIENT_ID=$GOOGLE_OAUTH_CLIENT_ID"
-    [[ -n "${GOOGLE_OAUTH_CLIENT_SECRET:-}" ]]  && echo "GOOGLE_OAUTH_CLIENT_SECRET=$GOOGLE_OAUTH_CLIENT_SECRET"
-    [[ -n "${GOOGLE_CREDENTIAL_FILE:-}" ]]      && echo "GOOGLE_CREDENTIAL_FILE=$GOOGLE_CREDENTIAL_FILE"
-    [[ -n "${PROMETHEUS_EXTERNAL_URL:-}" ]]  && echo "PROMETHEUS_EXTERNAL_URL=$PROMETHEUS_EXTERNAL_URL"
-    [[ -n "${PROMETHEUS_EXTERNAL_USER:-}" ]] && echo "PROMETHEUS_EXTERNAL_USER=$PROMETHEUS_EXTERNAL_USER"
-    [[ -n "${PROMETHEUS_EXTERNAL_PASS:-}" ]] && echo "PROMETHEUS_EXTERNAL_PASS=$PROMETHEUS_EXTERNAL_PASS"
-  } > "$ENV_FILE"
-
-  info "Saved to .env-secrets"
-else
-  step "Skipping secrets configuration (--skip-secrets)"
-
-  # Still need to load them for the K8s secret creation
-  ENV_FILE="$REPO_ROOT/.env-secrets"
-  if [[ -f "$ENV_FILE" ]]; then
-    set -a
-    . "$ENV_FILE"
-    set +a
-  fi
-
-  if [[ -z "${AUTH_TOKEN:-}" ]]; then
-    AUTH_TOKEN="$(openssl rand -hex 32)"
-    echo "AUTH_TOKEN=$AUTH_TOKEN" >> "$ENV_FILE"
-  fi
 fi
 
-# ---------------------------------------------------------------------------
-# Step 4: Build application
-# ---------------------------------------------------------------------------
+# Auto-generate AUTH_TOKEN if not set
+if [[ -z "${AUTH_TOKEN:-}" ]]; then
+  AUTH_TOKEN="$(openssl rand -hex 32)"
+  info "Generated new AUTH_TOKEN"
+fi
+
+# Persist secrets
+{
+  [[ -n "${ANTHROPIC_API_KEY:-}" ]]   && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+  [[ -n "${DEFAULT_MODEL:-}" ]]       && echo "DEFAULT_MODEL=$DEFAULT_MODEL"
+  [[ -n "${WORKER_MODEL:-}" ]]        && echo "WORKER_MODEL=$WORKER_MODEL"
+  [[ -n "${VOYAGE_API_KEY:-}" ]]      && echo "VOYAGE_API_KEY=$VOYAGE_API_KEY"
+  [[ -n "${OPENAI_API_KEY:-}" ]]      && echo "OPENAI_API_KEY=$OPENAI_API_KEY"
+  [[ -n "${OLLAMA_ENDPOINTS:-}" ]]    && echo "OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS"
+  [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]  && echo "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN"
+  [[ -n "${TELEGRAM_ALLOWED_CHAT_IDS:-}" ]] && echo "TELEGRAM_ALLOWED_CHAT_IDS=$TELEGRAM_ALLOWED_CHAT_IDS"
+  [[ -n "${DISCORD_BOT_TOKEN:-}" ]]   && echo "DISCORD_BOT_TOKEN=$DISCORD_BOT_TOKEN"
+  [[ -n "${DISCORD_ALLOWED_CHANNEL_IDS:-}" ]] && echo "DISCORD_ALLOWED_CHANNEL_IDS=$DISCORD_ALLOWED_CHANNEL_IDS"
+  echo "AUTH_TOKEN=$AUTH_TOKEN"
+  [[ -n "${AGENT_NAME:-}" ]]          && echo "AGENT_NAME=$AGENT_NAME"
+  [[ -n "${GITHUB_TOKEN:-}" ]]        && echo "GITHUB_TOKEN=$GITHUB_TOKEN"
+  [[ -n "${OBSIDIAN_VAULT_PATH:-}" ]] && echo "OBSIDIAN_VAULT_PATH=$OBSIDIAN_VAULT_PATH"
+  [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" ]]     && echo "GOOGLE_OAUTH_CLIENT_ID=$GOOGLE_OAUTH_CLIENT_ID"
+  [[ -n "${GOOGLE_OAUTH_CLIENT_SECRET:-}" ]]  && echo "GOOGLE_OAUTH_CLIENT_SECRET=$GOOGLE_OAUTH_CLIENT_SECRET"
+  [[ -n "${GOOGLE_CREDENTIAL_FILE:-}" ]]      && echo "GOOGLE_CREDENTIAL_FILE=$GOOGLE_CREDENTIAL_FILE"
+} > "$ENV_FILE"
+
+# ── 3. Version ───────────────────────────────────────────────────────────
+[[ -z "$VERSION" ]] && VERSION="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+info "Version: ${VERSION}"
+
+# ── 4. Build TypeScript ──────────────────────────────────────────────────
 if [[ "$SKIP_BUILD" == false ]]; then
   banner "Build"
-
-  step "Installing dependencies (pnpm install)..."
+  step "Installing dependencies..."
   (cd "$REPO_ROOT" && pnpm install --frozen-lockfile 2>/dev/null || pnpm install)
-
-  step "Compiling TypeScript (pnpm -r build)..."
+  step "Compiling TypeScript..."
   (cd "$REPO_ROOT" && pnpm -r build)
-else
-  step "Skipping pnpm install/build (--skip-build)"
 fi
 
-# ---------------------------------------------------------------------------
-# Step 5: Build Docker images
-# ---------------------------------------------------------------------------
+# ── 5. Docker images ────────────────────────────────────────────────────
 if [[ "$SKIP_BUILD" == false && "$SKIP_IMAGES" == false ]]; then
   banner "Docker Images"
-
   BUILD_ARGS=("--version" "$VERSION")
-  if [[ "$NO_CACHE" == true ]]; then
-    BUILD_ARGS+=("--no-cache")
-  fi
-
-  step "Building all Docker images via scripts/build.sh..."
+  [[ "$NO_CACHE" == true ]] && BUILD_ARGS+=("--no-cache")
   SKIP_INSTALLER=true "$REPO_ROOT/scripts/build.sh" "${BUILD_ARGS[@]}"
-
-  step "Images built:"
-  docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" | grep bakerst
-else
-  if [[ "$SKIP_BUILD" == true ]]; then
-    step "Skipping Docker builds (--skip-build)"
-  else
-    step "Skipping Docker builds (--skip-images)"
-  fi
 fi
 
-# ---------------------------------------------------------------------------
-# Step 6: Create Kubernetes secrets
-# ---------------------------------------------------------------------------
+# ── 6. Apply Kubernetes ─────────────────────────────────────────────────
 banner "Kubernetes Deploy"
 
 step "Creating namespace..."
 kubectl apply -f "$REPO_ROOT/k8s/namespace.yaml"
 
+# --- Scoped secrets ---
 step "Creating Kubernetes secrets..."
 
-# --- Brain secrets ---
-BRAIN_ARGS=()
-[[ -n "${ANTHROPIC_API_KEY:-}" ]]     && BRAIN_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
-[[ -n "${DEFAULT_MODEL:-}" ]]         && BRAIN_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
-[[ -n "${WORKER_MODEL:-}" ]]         && BRAIN_ARGS+=(--from-literal="WORKER_MODEL=$WORKER_MODEL")
-[[ -n "${VOYAGE_API_KEY:-}" ]]        && BRAIN_ARGS+=(--from-literal="VOYAGE_API_KEY=$VOYAGE_API_KEY")
-[[ -n "${OPENAI_API_KEY:-}" ]]       && BRAIN_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
-[[ -n "${OLLAMA_ENDPOINTS:-}" ]]     && BRAIN_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
-BRAIN_ARGS+=(--from-literal="AUTH_TOKEN=$AUTH_TOKEN")
-[[ -n "${AGENT_NAME:-}" ]] && BRAIN_ARGS+=(--from-literal="AGENT_NAME=$AGENT_NAME")
-
-if [[ ${#BRAIN_ARGS[@]} -lt 2 ]]; then
-  if [[ -z "${OLLAMA_ENDPOINTS:-}" ]]; then
-    fail "No model provider configured. Set ANTHROPIC_API_KEY or OLLAMA_ENDPOINTS."
+create_secret() {
+  local name="$1"; shift
+  if [[ $# -gt 0 ]]; then
+    info "Creating $name"
+    kubectl create secret generic "$name" "$@" -n "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
   fi
-fi
+}
 
-info "Creating bakerst-brain-secrets"
-kubectl create secret generic bakerst-brain-secrets \
-  "${BRAIN_ARGS[@]}" \
-  -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+# Brain secrets
+BRAIN_ARGS=()
+[[ -n "${ANTHROPIC_API_KEY:-}" ]] && BRAIN_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+[[ -n "${DEFAULT_MODEL:-}" ]]     && BRAIN_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
+[[ -n "${WORKER_MODEL:-}" ]]      && BRAIN_ARGS+=(--from-literal="WORKER_MODEL=$WORKER_MODEL")
+[[ -n "${VOYAGE_API_KEY:-}" ]]    && BRAIN_ARGS+=(--from-literal="VOYAGE_API_KEY=$VOYAGE_API_KEY")
+[[ -n "${OPENAI_API_KEY:-}" ]]    && BRAIN_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
+[[ -n "${OLLAMA_ENDPOINTS:-}" ]]  && BRAIN_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
+BRAIN_ARGS+=(--from-literal="AUTH_TOKEN=$AUTH_TOKEN")
+[[ -n "${AGENT_NAME:-}" ]]        && BRAIN_ARGS+=(--from-literal="AGENT_NAME=$AGENT_NAME")
+create_secret bakerst-brain-secrets "${BRAIN_ARGS[@]}"
 
-# --- Worker secrets ---
+# Worker secrets
 WORKER_ARGS=()
-[[ -n "${ANTHROPIC_API_KEY:-}" ]]     && WORKER_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
-[[ -n "${DEFAULT_MODEL:-}" ]]         && WORKER_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
-[[ -n "${WORKER_MODEL:-}" ]]         && WORKER_ARGS+=(--from-literal="WORKER_MODEL=$WORKER_MODEL")
-[[ -n "${OPENAI_API_KEY:-}" ]]       && WORKER_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
-[[ -n "${OLLAMA_ENDPOINTS:-}" ]]     && WORKER_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
+[[ -n "${ANTHROPIC_API_KEY:-}" ]] && WORKER_ARGS+=(--from-literal="ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY")
+[[ -n "${DEFAULT_MODEL:-}" ]]     && WORKER_ARGS+=(--from-literal="DEFAULT_MODEL=$DEFAULT_MODEL")
+[[ -n "${WORKER_MODEL:-}" ]]      && WORKER_ARGS+=(--from-literal="WORKER_MODEL=$WORKER_MODEL")
+[[ -n "${OPENAI_API_KEY:-}" ]]    && WORKER_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
+[[ -n "${OLLAMA_ENDPOINTS:-}" ]]  && WORKER_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
+[[ -n "${AGENT_NAME:-}" ]]        && WORKER_ARGS+=(--from-literal="AGENT_NAME=$AGENT_NAME")
+create_secret bakerst-worker-secrets "${WORKER_ARGS[@]}"
 
-[[ -n "${AGENT_NAME:-}" ]] && WORKER_ARGS+=(--from-literal="AGENT_NAME=$AGENT_NAME")
-
-if [[ ${#WORKER_ARGS[@]} -eq 0 ]]; then
-  warn "No Anthropic keys for worker — skipping bakerst-worker-secrets"
-else
-  info "Creating bakerst-worker-secrets"
-  kubectl create secret generic bakerst-worker-secrets \
-    "${WORKER_ARGS[@]}" \
-    -n "$NAMESPACE" \
-    --dry-run=client -o yaml | kubectl apply -f -
-fi
-
-# --- Gateway secrets ---
-GATEWAY_ARGS=()
+# Gateway secrets
+GATEWAY_ARGS=(--from-literal="AUTH_TOKEN=$AUTH_TOKEN")
 [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]          && GATEWAY_ARGS+=(--from-literal="TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN")
 [[ -n "${TELEGRAM_ALLOWED_CHAT_IDS:-}" ]]   && GATEWAY_ARGS+=(--from-literal="TELEGRAM_ALLOWED_CHAT_IDS=$TELEGRAM_ALLOWED_CHAT_IDS")
 [[ -n "${DISCORD_BOT_TOKEN:-}" ]]           && GATEWAY_ARGS+=(--from-literal="DISCORD_BOT_TOKEN=$DISCORD_BOT_TOKEN")
 [[ -n "${DISCORD_ALLOWED_CHANNEL_IDS:-}" ]] && GATEWAY_ARGS+=(--from-literal="DISCORD_ALLOWED_CHANNEL_IDS=$DISCORD_ALLOWED_CHANNEL_IDS")
-GATEWAY_ARGS+=(--from-literal="AUTH_TOKEN=$AUTH_TOKEN")
+create_secret bakerst-gateway-secrets "${GATEWAY_ARGS[@]}"
 
-info "Creating bakerst-gateway-secrets"
-kubectl create secret generic bakerst-gateway-secrets \
-  "${GATEWAY_ARGS[@]}" \
-  -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+# Optional extension secrets
+[[ -n "${GITHUB_TOKEN:-}" ]] && \
+  create_secret bakerst-github-secrets --from-literal="GITHUB_TOKEN=$GITHUB_TOKEN"
 
-# --- GitHub extension secrets ---
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  info "Creating bakerst-github-secrets"
-  kubectl create secret generic bakerst-github-secrets \
-    --from-literal="GITHUB_TOKEN=$GITHUB_TOKEN" \
-    -n "$NAMESPACE" \
-    --dry-run=client -o yaml | kubectl apply -f -
-fi
-
-# --- Google Workspace secrets ---
 if [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" && -n "${GOOGLE_OAUTH_CLIENT_SECRET:-}" ]]; then
-  info "Creating bakerst-google-secrets"
-  kubectl create secret generic bakerst-google-secrets \
+  create_secret bakerst-google-secrets \
     --from-literal="GOOGLE_OAUTH_CLIENT_ID=$GOOGLE_OAUTH_CLIENT_ID" \
-    --from-literal="GOOGLE_OAUTH_CLIENT_SECRET=$GOOGLE_OAUTH_CLIENT_SECRET" \
-    -n "$NAMESPACE" \
-    --dry-run=client -o yaml | kubectl apply -f -
+    --from-literal="GOOGLE_OAUTH_CLIENT_SECRET=$GOOGLE_OAUTH_CLIENT_SECRET"
 fi
+
 if [[ -n "${GOOGLE_CREDENTIAL_FILE:-}" && -f "${GOOGLE_CREDENTIAL_FILE}" ]]; then
   info "Creating bakerst-google-cred-file"
   kubectl create secret generic bakerst-google-cred-file \
-    --from-file="${GOOGLE_CREDENTIAL_FILE}" \
-    -n "$NAMESPACE" \
-    --dry-run=client -o yaml | kubectl apply -f -
+    --from-file="${GOOGLE_CREDENTIAL_FILE}" -n "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 fi
 
-# --- Telemetry secrets (external Prometheus) ---
-if [[ "$DEPLOY_TELEMETRY" == true && "$PROMETHEUS_MODE" == "external" ]]; then
-  step "Creating telemetry namespace..."
-  kubectl apply -f "$REPO_ROOT/k8s/telemetry/namespace.yaml"
-
-  TELEM_ARGS=()
-  [[ -n "${PROMETHEUS_EXTERNAL_URL:-}" ]]  && TELEM_ARGS+=(--from-literal="PROMETHEUS_EXTERNAL_URL=$PROMETHEUS_EXTERNAL_URL")
-  [[ -n "${PROMETHEUS_EXTERNAL_USER:-}" ]] && TELEM_ARGS+=(--from-literal="PROMETHEUS_EXTERNAL_USER=$PROMETHEUS_EXTERNAL_USER")
-  [[ -n "${PROMETHEUS_EXTERNAL_PASS:-}" ]] && TELEM_ARGS+=(--from-literal="PROMETHEUS_EXTERNAL_PASS=$PROMETHEUS_EXTERNAL_PASS")
-
-  if [[ ${#TELEM_ARGS[@]} -gt 0 ]]; then
-    info "Creating bakerst-telemetry-secrets"
-    kubectl create secret generic bakerst-telemetry-secrets \
-      "${TELEM_ARGS[@]}" \
-      -n "$TELEMETRY_NAMESPACE" \
-      --dry-run=client -o yaml | kubectl apply -f -
-  fi
-fi
-
-# ---------------------------------------------------------------------------
-# Step 7: Create ConfigMap and apply manifests
-# ---------------------------------------------------------------------------
+# --- ConfigMap & manifests ---
 step "Creating configmap from operating_system/..."
 kubectl create configmap bakerst-os \
   --from-file="$REPO_ROOT/operating_system/" \
-  -n "$NAMESPACE" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  -n "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
 step "Applying Kubernetes manifests..."
 if [[ "$USE_DEV" == true ]]; then
   info "Using dev overlay"
-  # Dev overlay references component dirs only; apply standalone resources separately
   kubectl apply -f "$REPO_ROOT/k8s/network-policies.yaml" -n "$NAMESPACE"
   kubectl apply -k "$REPO_ROOT/k8s/overlays/dev/"
 else
   kubectl apply -k "$REPO_ROOT/k8s/"
 fi
 
-# Scale gateway to 0 if no adapters configured (prevents crash-loop)
+# Scale gateway to 0 if no adapters
 if [[ -z "${TELEGRAM_BOT_TOKEN:-}" && -z "${DISCORD_BOT_TOKEN:-}" ]]; then
-  info "No gateway adapters configured — scaling gateway to 0 replicas"
+  info "No gateway adapters configured -- scaling gateway to 0"
   kubectl scale deployment/gateway -n "$NAMESPACE" --replicas=0 2>/dev/null || true
 fi
 
-# ---------------------------------------------------------------------------
-# Step 7a: Deploy extensions (conditional)
-# ---------------------------------------------------------------------------
-if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
-  step "Deploying extension pods..."
+# --- Extensions ---
+if [[ "$SKIP_EXTENSIONS" == false && -d "$REPO_ROOT/examples" ]]; then
+  step "Deploying extensions..."
   for ext_dir in "$REPO_ROOT/examples"/*/; do
     ext_name=$(basename "$ext_dir")
     k8s_dir="${ext_dir}k8s"
 
-    # Skip deprecated standalone extensions (superseded by ext-toolbox)
-    if [[ "$ext_name" == "extension-utilities" || "$ext_name" == "extension-github" ]]; then
-      continue
-    fi
-
-    # Skip ext-obsidian if no vault path
-    if [[ "$ext_name" == "extension-obsidian" && -z "${OBSIDIAN_VAULT_PATH:-}" ]]; then
-      warn "Skipping ${ext_name} — no OBSIDIAN_VAULT_PATH configured"
-      continue
-    fi
-
-    # Skip Google Workspace if no credentials
-    if [[ "$ext_name" == "extension-google-workspace" && -z "${GOOGLE_OAUTH_CLIENT_ID:-}" ]]; then
-      warn "Skipping ${ext_name} — no GOOGLE_OAUTH_CLIENT_ID configured"
-      continue
-    fi
+    # Skip deprecated standalone extensions
+    [[ "$ext_name" == "extension-utilities" || "$ext_name" == "extension-github" ]] && continue
+    [[ "$ext_name" == "extension-obsidian" && -z "${OBSIDIAN_VAULT_PATH:-}" ]] && continue
+    [[ "$ext_name" == "extension-google-workspace" && -z "${GOOGLE_OAUTH_CLIENT_ID:-}" ]] && continue
 
     if [[ -d "$k8s_dir" ]]; then
-      info "Applying ${ext_name} manifests..."
+      info "Applying ${ext_name}..."
       kubectl apply -f "$k8s_dir/" -n "$NAMESPACE"
-
-      # Patch obsidian vault hostPath if configured
-      if [[ "$ext_name" == "extension-obsidian" && -n "${OBSIDIAN_VAULT_PATH:-}" ]]; then
-        info "Setting Obsidian vault path: ${OBSIDIAN_VAULT_PATH}"
-        kubectl patch deployment ext-obsidian -n "$NAMESPACE" --type=json \
-          -p="[{\"op\":\"replace\",\"path\":\"/spec/template/spec/volumes/0/hostPath/path\",\"value\":\"${OBSIDIAN_VAULT_PATH}\"}]"
-      fi
     fi
   done
 fi
 
-# ---------------------------------------------------------------------------
-# Step 7b: Deploy telemetry stack (conditional)
-# ---------------------------------------------------------------------------
-if [[ "$DEPLOY_TELEMETRY" == true ]]; then
-  step "Deploying telemetry stack to ${TELEMETRY_NAMESPACE}..."
-  kubectl apply -k "$REPO_ROOT/k8s/telemetry/"
-
-  # If external Prometheus: patch OTel Collector with remote-write and Grafana with external URL
-  if [[ "$PROMETHEUS_MODE" == "external" ]]; then
-    info "Configuring external Prometheus: ${PROMETHEUS_EXTERNAL_URL}"
-
-    # Build remote-write exporter config
-    RW_AUTH=""
-    if [[ -n "${PROMETHEUS_EXTERNAL_USER:-}" ]]; then
-      RW_AUTH="
-        headers:
-          Authorization: \"Basic $(echo -n "${PROMETHEUS_EXTERNAL_USER}:${PROMETHEUS_EXTERNAL_PASS}" | base64)\""
-    fi
-
-    # Patch OTel Collector configmap with remote-write exporter
-    kubectl create configmap otel-collector-config \
-      -n "$TELEMETRY_NAMESPACE" \
-      --from-literal="otel-collector-config.yaml=$(cat <<OTELEOF
-receivers:
-  otlp:
-    protocols:
-      grpc:
-        endpoint: 0.0.0.0:4317
-      http:
-        endpoint: 0.0.0.0:4318
-processors:
-  batch:
-    timeout: 5s
-    send_batch_size: 1024
-exporters:
-  otlp/tempo:
-    endpoint: tempo:4317
-    tls:
-      insecure: true
-  prometheus:
-    endpoint: 0.0.0.0:8889
-    resource_to_telemetry_conversion:
-      enabled: true
-  prometheusremotewrite:
-    endpoint: "${PROMETHEUS_EXTERNAL_URL}"
-    tls:
-      insecure: false${RW_AUTH}
-  debug:
-    verbosity: basic
-service:
-  pipelines:
-    traces:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [otlp/tempo, debug]
-    metrics:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [prometheus, prometheusremotewrite]
-OTELEOF
-)" \
-      --dry-run=client -o yaml | kubectl apply -f -
-
-    # Patch Grafana datasource to use external Prometheus URL
-    kubectl create configmap grafana-datasources \
-      -n "$TELEMETRY_NAMESPACE" \
-      --from-literal="datasources.yaml=$(cat <<GRAFEOF
-apiVersion: 1
-datasources:
-  - name: Prometheus
-    type: prometheus
-    access: proxy
-    uid: prometheus
-    url: ${PROMETHEUS_EXTERNAL_URL}
-    isDefault: true$(if [[ -n "${PROMETHEUS_EXTERNAL_USER:-}" ]]; then cat <<AUTHEOF
-
-    basicAuth: true
-    basicAuthUser: ${PROMETHEUS_EXTERNAL_USER}
-    secureJsonData:
-      basicAuthPassword: ${PROMETHEUS_EXTERNAL_PASS}
-AUTHEOF
-fi)
-  - name: Tempo
-    type: tempo
-    access: proxy
-    url: http://tempo:3200
-    jsonData:
-      tracesToLogsV2:
-        datasourceUid: loki
-        filterByTraceID: true
-      tracesToMetrics:
-        datasourceUid: prometheus
-  - name: Loki
-    type: loki
-    access: proxy
-    uid: loki
-    url: http://loki:3100
-GRAFEOF
-)" \
-      --dry-run=client -o yaml | kubectl apply -f -
-
-    # Restart otel-collector and grafana to pick up new configmaps
-    kubectl rollout restart deployment/otel-collector -n "$TELEMETRY_NAMESPACE"
-    kubectl rollout restart deployment/grafana -n "$TELEMETRY_NAMESPACE"
-  fi
+# --- Telemetry ---
+if [[ "$SKIP_TELEMETRY" == false ]]; then
+  step "Deploying telemetry stack..."
+  kubectl apply -k "$REPO_ROOT/k8s/telemetry/" 2>/dev/null || warn "Telemetry manifests not found, skipping."
 fi
 
-# ---------------------------------------------------------------------------
-# Step 8: Wait for rollout
-# ---------------------------------------------------------------------------
+# ── 7. Verify rollouts ──────────────────────────────────────────────────
 step "Waiting for rollouts..."
 
-APP_DEPLOYMENTS=(nats qdrant brain-blue worker ui gateway)
 FAILED=()
-
-for deploy in "${APP_DEPLOYMENTS[@]}"; do
+for deploy in nats qdrant brain-blue worker ui; do
   echo -n "    ${deploy}... "
   if kubectl rollout status "deployment/${deploy}" -n "$NAMESPACE" --timeout=120s &>/dev/null; then
     echo -e "${GREEN}ready${NC}"
@@ -945,99 +293,23 @@ for deploy in "${APP_DEPLOYMENTS[@]}"; do
   fi
 done
 
-if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
-  for ext_dir in "$REPO_ROOT/examples"/*/; do
-    ext_name=$(basename "$ext_dir")
-    k8s_dir="${ext_dir}k8s"
-    if [[ -d "$k8s_dir" ]]; then
-      # Extract deployment name from the K8s manifest
-      deploy_name=$(grep -m1 'name:' "$k8s_dir/deployment.yaml" 2>/dev/null | awk '{print $2}' || true)
-      if [[ -n "$deploy_name" ]]; then
-        echo -n "    ${deploy_name} (extension)... "
-        if kubectl rollout status "deployment/${deploy_name}" -n "$NAMESPACE" --timeout=120s &>/dev/null; then
-          echo -e "${GREEN}ready${NC}"
-        else
-          echo -e "${RED}failed${NC}"
-          FAILED+=("${deploy_name}(extension)")
-        fi
-      fi
-    fi
-  done
-fi
-
-if [[ "$DEPLOY_TELEMETRY" == true ]]; then
-  TELEMETRY_DEPLOYMENTS=(otel-collector tempo loki grafana)
-  if [[ "$PROMETHEUS_MODE" == "local" ]]; then
-    TELEMETRY_DEPLOYMENTS+=(prometheus kube-state-metrics)
-  fi
-
-  for deploy in "${TELEMETRY_DEPLOYMENTS[@]}"; do
-    echo -n "    ${deploy} (telemetry)... "
-    if kubectl rollout status "deployment/${deploy}" -n "$TELEMETRY_NAMESPACE" --timeout=120s &>/dev/null; then
-      echo -e "${GREEN}ready${NC}"
-    else
-      echo -e "${RED}failed${NC}"
-      FAILED+=("${deploy}(telemetry)")
-    fi
-  done
-fi
-
-# ---------------------------------------------------------------------------
-# Step 9: Summary
-# ---------------------------------------------------------------------------
+# ── 8. Summary ───────────────────────────────────────────────────────────
 banner "Deploy Complete"
 
-echo ""
-kubectl get pods -n "$NAMESPACE" -o wide --no-headers | while read -r line; do
-  info "$line"
-done
-
-if [[ "$DEPLOY_TELEMETRY" == true ]]; then
-  echo ""
-  info "--- Telemetry namespace ---"
-  kubectl get pods -n "$TELEMETRY_NAMESPACE" -o wide --no-headers | while read -r line; do
-    info "$line"
-  done
-fi
+kubectl get pods -n "$NAMESPACE" --no-headers | while read -r line; do info "$line"; done
 echo ""
 
-if [[ ${#FAILED[@]} -gt 0 ]]; then
-  warn "Some deployments did not become ready: ${FAILED[*]}"
-  warn "Check logs: kubectl logs -n <namespace> deployment/<name>"
-fi
+[[ ${#FAILED[@]} -gt 0 ]] && warn "Deployments not ready: ${FAILED[*]}"
 
-# Print configured features
 echo -e "${BOLD}  Configuration:${NC}"
-info "Version:     ${VERSION}"
-info "Mode:        $(if [[ "$USE_DEV" == true ]]; then echo "dev"; else echo "production"; fi)"
-info "Anthropic:   $(if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then echo "API key set"; else echo "not configured"; fi)"
-info "Voyage:      $(if [[ -n "${VOYAGE_API_KEY:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
-info "OpenAI:      $(if [[ -n "${OPENAI_API_KEY:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
-info "Ollama:      $(if [[ -n "${OLLAMA_ENDPOINTS:-}" ]]; then echo "${OLLAMA_ENDPOINTS}"; else echo "not configured"; fi)"
-info "Telegram:    $(if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured (gateway scaled to 0)"; fi)"
-info "Discord:     $(if [[ -n "${DISCORD_BOT_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
-info "GitHub:      $(if [[ -n "${GITHUB_TOKEN:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
-info "Obsidian:    $(if [[ -n "${OBSIDIAN_VAULT_PATH:-}" ]]; then echo "${OBSIDIAN_VAULT_PATH}"; else echo "not configured"; fi)"
-info "Google:      $(if [[ -n "${GOOGLE_OAUTH_CLIENT_ID:-}" ]]; then echo "configured"; else echo "not configured"; fi)"
-info "Agent name:  ${AGENT_NAME:-Baker}"
-info "Auth token:  ****${AUTH_TOKEN: -4}"
-if [[ "$DEPLOY_EXTENSIONS" == true ]]; then
-  info "Extensions:  deployed"
-else
-  info "Extensions:  not deployed"
-fi
-if [[ "$DEPLOY_TELEMETRY" == true ]]; then
-  info "Telemetry:   deployed (Prometheus: ${PROMETHEUS_MODE})"
-else
-  info "Telemetry:   not deployed"
-fi
-
+info "Version:    ${VERSION}"
+info "Mode:       $(if [[ "$USE_DEV" == true ]]; then echo "dev"; else echo "production"; fi)"
+info "Anthropic:  $(if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then echo "configured"; else echo "not set"; fi)"
+info "Ollama:     $(if [[ -n "${OLLAMA_ENDPOINTS:-}" ]]; then echo "${OLLAMA_ENDPOINTS}"; else echo "not set"; fi)"
+info "Agent:      ${AGENT_NAME:-Baker}"
+info "Auth token: ****${AUTH_TOKEN: -4}"
 echo ""
 echo -e "${BOLD}  Access:${NC}"
-info "UI:          http://localhost:30080"
-info "Brain API:   http://localhost:30000"
-if [[ "$DEPLOY_TELEMETRY" == true ]]; then
-  info "Grafana:     http://localhost:30001"
-fi
-info "Deploy log:  ${DEPLOY_LOG}"
+info "UI:         http://localhost:30080"
+info "Brain API:  http://localhost:30000"
 echo ""
