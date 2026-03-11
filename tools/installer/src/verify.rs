@@ -168,8 +168,27 @@ async fn k8s_check_deployments(client: &Client, namespace: &str) -> Result<Strin
     }
 }
 
+async fn find_brain_deploy(namespace: &str) -> &'static str {
+    // Try blue/green slots first, fall back to plain "brain"
+    for name in ["deploy/brain-blue", "deploy/brain-green", "deploy/brain"] {
+        let ok = tokio::process::Command::new("kubectl")
+            .args(["get", "-n", namespace, name])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            return name;
+        }
+    }
+    "deploy/brain-blue" // default; will fail with clear error
+}
+
 async fn check_brain_health(namespace: &str) -> Check {
     let start = std::time::Instant::now();
+    let brain_deploy = find_brain_deploy(namespace).await;
     // Use kubectl exec to check brain health from inside the cluster (30s timeout)
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(30),
@@ -178,7 +197,7 @@ async fn check_brain_health(namespace: &str) -> Check {
                 "exec",
                 "-n",
                 namespace,
-                "deploy/brain-blue",
+                brain_deploy,
                 "--",
                 "wget",
                 "-q",
@@ -271,6 +290,7 @@ async fn check_test_prompt(namespace: &str, config: &InterviewResult) -> Check {
         .cloned()
         .unwrap_or_default();
 
+    let brain_deploy = find_brain_deploy(namespace).await;
     // Use kubectl exec to send a test prompt through the brain API.
     // Pass auth token via env var to avoid shell injection.
     let result = tokio::time::timeout(
@@ -280,7 +300,7 @@ async fn check_test_prompt(namespace: &str, config: &InterviewResult) -> Check {
                 "exec",
                 "-n",
                 namespace,
-                "deploy/brain-blue",
+                brain_deploy,
                 "--",
                 "sh",
                 "-c",
