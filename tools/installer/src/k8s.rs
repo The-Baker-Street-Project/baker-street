@@ -389,17 +389,23 @@ pub async fn read_secret(
 
 /// Wait for all deployments in a namespace to have desired replicas ready.
 /// Polls every 5 seconds up to `timeout`. Skips deployments scaled to 0.
+/// Prints live feedback as each deployment becomes ready.
 pub async fn wait_for_deployments(
     client: &Client,
     namespace: &str,
     timeout: std::time::Duration,
 ) -> Result<()> {
     let deadline = std::time::Instant::now() + timeout;
+    let mut announced_ready: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut first_poll = true;
+
     loop {
         let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
         let deployments = api.list(&ListParams::default()).await?;
 
         let mut not_ready = Vec::new();
+        let mut total_tracked = 0;
+
         for deploy in &deployments.items {
             let name = deploy.metadata.name.clone().unwrap_or_default();
             let desired = deploy
@@ -410,9 +416,14 @@ pub async fn wait_for_deployments(
             if desired == 0 {
                 continue; // skip scaled-to-zero
             }
+            total_tracked += 1;
             let status = deploy.status.as_ref();
             let ready = status.and_then(|s| s.ready_replicas).unwrap_or(0);
-            if ready < desired {
+            if ready >= desired {
+                if announced_ready.insert(name.clone()) {
+                    println!("  ✓ {} ready", name);
+                }
+            } else {
                 not_ready.push(format!("{} ({}/{})", name, ready, desired));
             }
         }
@@ -421,7 +432,18 @@ pub async fn wait_for_deployments(
             return Ok(());
         }
 
+        if first_poll {
+            println!(
+                "  Waiting for {} deployment(s): {}",
+                not_ready.len(),
+                not_ready.join(", ")
+            );
+            first_poll = false;
+        }
+
         if std::time::Instant::now() > deadline {
+            // Print summary of what's still pending
+            println!("  {} of {} deployments ready", announced_ready.len(), total_tracked);
             bail!(
                 "Timed out waiting for deployments: {}",
                 not_ready.join(", ")
