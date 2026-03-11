@@ -146,10 +146,10 @@ pub async fn run(_cli: &Cli, args: InstallArgs) -> Result<()> {
     k8s::wait_for_deployments(
         &client,
         &config.namespace,
-        std::time::Duration::from_secs(180),
+        std::time::Duration::from_secs(300),
     )
     .await
-    .context("Pods did not become ready within 3 minutes")?;
+    .context("Pods did not become ready within 5 minutes")?;
     println!("  All deployments ready");
 
     // 10. Verify
