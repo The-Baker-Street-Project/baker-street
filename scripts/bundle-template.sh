@@ -64,7 +64,7 @@ images:
     newTag: "${VERSION}"
 KUSTEOF
 mkdir -p "$tmpdir/install-template/k8s/overlays/remote"
-kubectl kustomize "$wrapper" \
+kubectl kustomize --load-restrictor LoadRestrictionsNone "$wrapper" \
   > "$tmpdir/install-template/k8s/overlays/remote/all.yaml"
 rm -rf "$wrapper"
 
