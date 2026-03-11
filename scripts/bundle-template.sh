@@ -21,8 +21,24 @@ mkdir -p "$tmpdir/install-template"
 # Config schema
 cp "$REPO_ROOT/tools/install-template/config-schema.json" "$tmpdir/install-template/"
 
-# K8s manifests (full kustomize structure)
-cp -r "$REPO_ROOT/k8s" "$tmpdir/install-template/k8s"
+# K8s manifests — render kustomize overlays into flat YAML for the installer.
+# The installer applies YAML files directly (no kustomize dependency).
+mkdir -p "$tmpdir/install-template/k8s/overlays/remote"
+kubectl kustomize "$REPO_ROOT/k8s/overlays/remote" \
+  > "$tmpdir/install-template/k8s/overlays/remote/all.yaml"
+
+# Also bundle extension manifests (flat YAML, no kustomize needed)
+if [[ -d "$REPO_ROOT/k8s/extensions" ]]; then
+  mkdir -p "$tmpdir/install-template/k8s/extensions"
+  for ext_dir in "$REPO_ROOT"/k8s/extensions/*/; do
+    ext_name=$(basename "$ext_dir")
+    mkdir -p "$tmpdir/install-template/k8s/extensions/$ext_name"
+    kubectl kustomize "$ext_dir" \
+      > "$tmpdir/install-template/k8s/extensions/$ext_name/all.yaml" 2>/dev/null \
+      || cp "$ext_dir"/*.yaml "$tmpdir/install-template/k8s/extensions/$ext_name/" 2>/dev/null \
+      || true
+  done
+fi
 
 # Operating system files (for ConfigMap)
 cp -r "$REPO_ROOT/operating_system" "$tmpdir/install-template/operating_system"
