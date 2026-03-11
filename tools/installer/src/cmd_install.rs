@@ -15,7 +15,7 @@ pub async fn run(_cli: &Cli, args: InstallArgs) -> Result<()> {
     println!();
 
     // 1. Preflight: detect kubectl, K8s contexts
-    println!("[1/8] Preflight checks...");
+    println!("[1/9] Preflight checks...");
     let server_version = k8s::check_cluster()
         .await
         .context("Kubernetes cluster not reachable. Ensure kubectl is installed and a cluster is running.")?;
@@ -44,7 +44,7 @@ pub async fn run(_cli: &Cli, args: InstallArgs) -> Result<()> {
     }
 
     // 2. Fetch manifest
-    println!("[2/8] Fetching manifest...");
+    println!("[2/9] Fetching manifest...");
     let manifest = fetcher::fetch_manifest(
         args.manifest.as_deref(),
         args.version.as_deref(),
@@ -56,7 +56,7 @@ pub async fn run(_cli: &Cli, args: InstallArgs) -> Result<()> {
     );
 
     // 3. Download and extract template
-    println!("[3/8] Downloading install template...");
+    println!("[3/9] Downloading install template...");
     let work_dir = tempfile::tempdir()?;
     let template_dir = if let Some(template_path) = &args.template {
         // Local template tarball provided — extract it directly
@@ -76,7 +76,7 @@ pub async fn run(_cli: &Cli, args: InstallArgs) -> Result<()> {
     let schema = ConfigSchema::from_file(&schema_path)?;
 
     // 5. Configure (interview or config file)
-    println!("[4/8] Configuring...");
+    println!("[4/9] Configuring...");
     let config = if let Some(config_path) = &args.config {
         let file = config_file::load_config(config_path)?;
         interview::from_config_file(&schema, &file)?
@@ -114,7 +114,7 @@ pub async fn run(_cli: &Cli, args: InstallArgs) -> Result<()> {
     let client = kube::Client::try_default().await?;
 
     // 7. Create namespace and secrets
-    println!("[5/8] Creating namespace and secrets...");
+    println!("[5/9] Creating namespace and secrets...");
     k8s::create_namespace(&client, &config.namespace).await?;
     deploy::apply_secrets(&client, &schema, &config).await?;
 
@@ -126,7 +126,7 @@ pub async fn run(_cli: &Cli, args: InstallArgs) -> Result<()> {
     }
 
     // 8. Apply K8s manifests
-    println!("[6/8] Applying manifests...");
+    println!("[6/9] Applying manifests...");
     let k8s_dir = template_dir.join("k8s");
     // The template always bundles pre-rendered YAML in overlays/remote/
     let remote_overlay = k8s_dir.join("overlays/remote");
@@ -141,12 +141,23 @@ pub async fn run(_cli: &Cli, args: InstallArgs) -> Result<()> {
     let extensions_dir = k8s_dir.join("extensions");
     deploy::apply_extensions(&client, &config.namespace, &extensions_dir, &config.enabled_features).await?;
 
-    // 9. Verify
-    println!("[7/8] Verifying deployment...");
+    // 9. Wait for pods to start
+    println!("[7/9] Waiting for pods to start...");
+    k8s::wait_for_deployments(
+        &client,
+        &config.namespace,
+        std::time::Duration::from_secs(180),
+    )
+    .await
+    .context("Pods did not become ready within 3 minutes")?;
+    println!("  All deployments ready");
+
+    // 10. Verify
+    println!("[8/9] Verifying deployment...");
     let result = verify::run_checks(&client, &config.namespace, &config).await?;
 
-    // 10. Report
-    println!("[8/8] Writing log...");
+    // 11. Report
+    println!("[9/9] Writing log...");
     result.write_log(&args.log)?;
 
     if result.all_passed() {

@@ -387,6 +387,47 @@ pub async fn read_secret(
     }
 }
 
+/// Wait for all deployments in a namespace to have desired replicas ready.
+/// Polls every 5 seconds up to `timeout`. Skips deployments scaled to 0.
+pub async fn wait_for_deployments(
+    client: &Client,
+    namespace: &str,
+    timeout: std::time::Duration,
+) -> Result<()> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        let api: Api<Deployment> = Api::namespaced(client.clone(), namespace);
+        let deployments = api.list(&ListParams::default()).await?;
+
+        let mut not_ready = Vec::new();
+        for deploy in &deployments.items {
+            let name = deploy.metadata.name.clone().unwrap_or_default();
+            let status = deploy.status.as_ref();
+            let desired = status.and_then(|s| s.replicas).unwrap_or(1);
+            if desired == 0 {
+                continue; // skip scaled-to-zero
+            }
+            let ready = status.and_then(|s| s.ready_replicas).unwrap_or(0);
+            if ready < desired {
+                not_ready.push(format!("{} ({}/{})", name, ready, desired));
+            }
+        }
+
+        if not_ready.is_empty() {
+            return Ok(());
+        }
+
+        if std::time::Instant::now() > deadline {
+            bail!(
+                "Timed out waiting for deployments: {}",
+                not_ready.join(", ")
+            );
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Context detection and selection
 // ---------------------------------------------------------------------------
