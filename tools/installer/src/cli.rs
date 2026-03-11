@@ -57,6 +57,10 @@ pub struct InstallArgs {
     /// Show what would be applied without applying
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Apply manifests but skip waiting for pods and verification
+    #[arg(long)]
+    pub no_wait: bool,
 }
 
 #[derive(clap::Args)]
