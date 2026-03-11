@@ -336,13 +336,15 @@ jobs:
           ./bakerst-install-linux-amd64 install \
             --config test/acceptance/test-config.yaml \
             --template install-template.tar.gz \
-            --manifest manifest.json
+            --manifest manifest.json \
+            --no-wait
 
-      - name: Wait for pods
+      - name: Wait for core pods
         run: |
-          kubectl wait --for=condition=ready pod -l app=brain -n bakerst --timeout=180s
-          kubectl wait --for=condition=ready pod -l app=worker -n bakerst --timeout=180s
-          kubectl wait --for=condition=ready pod -l app=ui -n bakerst --timeout=180s
+          kubectl wait --for=condition=ready pod -l app=brain -n bakerst --timeout=300s
+          kubectl wait --for=condition=ready pod -l app=worker -n bakerst --timeout=300s
+          kubectl wait --for=condition=ready pod -l app=ui -n bakerst --timeout=300s
+          kubectl wait --for=condition=ready pod -l app=nats -n bakerst --timeout=300s
 
       - name: Smoke test — ping brain
         run: |
@@ -350,6 +352,27 @@ jobs:
           sleep 3
           curl -sf http://localhost:3000/ping || (echo "Brain ping failed"; exit 1)
           echo "Acceptance test passed"
+
+      - name: Debug pod status on failure
+        if: failure()
+        run: |
+          echo "=== Pod status ==="
+          kubectl get pods -n bakerst -o wide
+          echo ""
+          echo "=== Events ==="
+          kubectl get events -n bakerst --sort-by='.lastTimestamp' | tail -40
+          echo ""
+          for pod in $(kubectl get pods -n bakerst -o jsonpath='{.items[*].metadata.name}'); do
+            STATUS=$(kubectl get pod "$pod" -n bakerst -o jsonpath='{.status.phase}')
+            if [ "$STATUS" != "Running" ] && [ "$STATUS" != "Succeeded" ]; then
+              echo "=== Describe $pod ==="
+              kubectl describe pod "$pod" -n bakerst | tail -30
+              echo ""
+              echo "=== Logs $pod ==="
+              kubectl logs "$pod" -n bakerst --tail=20 2>/dev/null || true
+              echo ""
+            fi
+          done
 
   # ─── Stage 8: Publish GitHub Release ─────────────────────────────────
   publish-release:

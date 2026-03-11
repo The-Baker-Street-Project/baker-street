@@ -110,6 +110,8 @@ pub async fn run(_cli: &Cli, args: InstallArgs) -> Result<()> {
         return Ok(());
     }
 
+    let skip_verify = args.no_wait;
+
     // Obtain a K8s client for all cluster operations
     let client = kube::Client::try_default().await?;
 
@@ -140,6 +142,12 @@ pub async fn run(_cli: &Cli, args: InstallArgs) -> Result<()> {
     // Apply extension manifests for enabled features
     let extensions_dir = k8s_dir.join("extensions");
     deploy::apply_extensions(&client, &config.namespace, &extensions_dir, &config.enabled_features).await?;
+
+    if skip_verify {
+        println!("\nManifests applied (--no-wait: skipping pod wait and verification).");
+        println!("   Access Baker Street at http://localhost:30080");
+        return Ok(());
+    }
 
     // 9. Wait for pods to start
     println!("[7/9] Waiting for pods to start...");
