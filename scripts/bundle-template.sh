@@ -24,13 +24,15 @@ cp "$REPO_ROOT/tools/install-template/config-schema.json" "$tmpdir/install-templ
 # K8s manifests — render kustomize overlays into flat YAML for the installer.
 # The installer applies YAML files directly (no kustomize dependency).
 # Create a wrapper overlay that remaps local image names to GHCR with the release version.
+# Wrapper lives inside the repo tree so kustomize gets a relative resource path.
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/the-baker-street-project/bakerst}"
-wrapper=$(mktemp -d)
+wrapper="$REPO_ROOT/k8s/.bundle-wrapper-$$"
+mkdir -p "$wrapper"
 cat > "$wrapper/kustomization.yaml" <<KUSTEOF
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - $REPO_ROOT/k8s/overlays/remote
+  - ../overlays/remote
 images:
   - name: bakerst-brain
     newName: ${IMAGE_PREFIX}-brain
@@ -64,7 +66,7 @@ images:
     newTag: "${VERSION}"
 KUSTEOF
 mkdir -p "$tmpdir/install-template/k8s/overlays/remote"
-kubectl kustomize --load-restrictor LoadRestrictionsNone "$wrapper" \
+kubectl kustomize "$wrapper" \
   > "$tmpdir/install-template/k8s/overlays/remote/all.yaml"
 rm -rf "$wrapper"
 
