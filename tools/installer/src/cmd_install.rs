@@ -128,18 +128,12 @@ pub async fn run(_cli: &Cli, args: InstallArgs) -> Result<()> {
     // 8. Apply K8s manifests
     println!("[6/8] Applying manifests...");
     let k8s_dir = template_dir.join("k8s");
-    // Determine which manifests to load
-    let manifest_dir = if args.manifest.is_some() {
-        // Local manifest: use the k8s dir directly
-        k8s_dir.clone()
+    // The template always bundles pre-rendered YAML in overlays/remote/
+    let remote_overlay = k8s_dir.join("overlays/remote");
+    let manifest_dir = if remote_overlay.exists() {
+        remote_overlay
     } else {
-        // Remote install: prefer remote overlay with GHCR images
-        let remote_overlay = k8s_dir.join("overlays/remote");
-        if remote_overlay.exists() {
-            remote_overlay
-        } else {
-            k8s_dir.clone()
-        }
+        k8s_dir.clone()
     };
     deploy::apply_manifests_from_dir(&client, &config.namespace, &manifest_dir).await?;
 
