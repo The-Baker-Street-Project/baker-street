@@ -150,8 +150,15 @@ async fn k8s_check_deployments(client: &Client, namespace: &str) -> Result<Strin
 
     for deploy in &deployments.items {
         let name = deploy.metadata.name.clone().unwrap_or_default();
+        let desired = deploy
+            .spec
+            .as_ref()
+            .and_then(|s| s.replicas)
+            .unwrap_or(1);
+        if desired == 0 {
+            continue; // skip scaled-to-zero
+        }
         let status = deploy.status.as_ref();
-        let desired = status.and_then(|s| s.replicas).unwrap_or(1);
         let ready = status.and_then(|s| s.ready_replicas).unwrap_or(0);
         if ready < desired {
             not_ready.push(format!("{} ({}/{})", name, ready, desired));
