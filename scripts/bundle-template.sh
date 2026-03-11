@@ -23,9 +23,50 @@ cp "$REPO_ROOT/tools/install-template/config-schema.json" "$tmpdir/install-templ
 
 # K8s manifests — render kustomize overlays into flat YAML for the installer.
 # The installer applies YAML files directly (no kustomize dependency).
+# Create a wrapper overlay that remaps local image names to GHCR with the release version.
+IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/the-baker-street-project/bakerst}"
+wrapper=$(mktemp -d)
+cat > "$wrapper/kustomization.yaml" <<KUSTEOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - $REPO_ROOT/k8s/overlays/remote
+images:
+  - name: bakerst-brain
+    newName: ${IMAGE_PREFIX}-brain
+    newTag: "${VERSION}"
+  - name: bakerst-worker
+    newName: ${IMAGE_PREFIX}-worker
+    newTag: "${VERSION}"
+  - name: bakerst-ui
+    newName: ${IMAGE_PREFIX}-ui
+    newTag: "${VERSION}"
+  - name: bakerst-gateway
+    newName: ${IMAGE_PREFIX}-gateway
+    newTag: "${VERSION}"
+  - name: bakerst-sysadmin
+    newName: ${IMAGE_PREFIX}-brain
+    newTag: "${VERSION}"
+  - name: bakerst-nats-sidecar
+    newName: ${IMAGE_PREFIX}-nats-sidecar
+    newTag: "${VERSION}"
+  - name: bakerst-ext-toolbox
+    newName: ${IMAGE_PREFIX}-ext-toolbox
+    newTag: "${VERSION}"
+  - name: bakerst-ext-browser
+    newName: ${IMAGE_PREFIX}-ext-browser
+    newTag: "${VERSION}"
+  - name: bakerst-ext-github
+    newName: ${IMAGE_PREFIX}-ext-github
+    newTag: "${VERSION}"
+  - name: bakerst-ext-google-workspace
+    newName: ${IMAGE_PREFIX}-ext-google-workspace
+    newTag: "${VERSION}"
+KUSTEOF
 mkdir -p "$tmpdir/install-template/k8s/overlays/remote"
-kubectl kustomize "$REPO_ROOT/k8s/overlays/remote" \
+kubectl kustomize "$wrapper" \
   > "$tmpdir/install-template/k8s/overlays/remote/all.yaml"
+rm -rf "$wrapper"
 
 # Also bundle extension manifests (flat YAML, no kustomize needed)
 if [[ -d "$REPO_ROOT/k8s/extensions" ]]; then
