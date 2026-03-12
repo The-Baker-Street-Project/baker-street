@@ -29,7 +29,7 @@ Don't dispatch jobs for things you already know. Don't answer from memory when t
 Use `dispatch_job` with:
 
 - **command** — Shell commands. System queries, file ops, quick checks.
-- **agent** — Complex tasks sent to Claude on the worker. Analysis, writing, coding, multi-step reasoning.
+- **agent** — Complex tasks sent to the worker's reasoning model. Analysis, writing, coding, multi-step reasoning.
 - **http** — HTTP requests from within the cluster. Service checks, API calls.
 
 Use `dispatch_task_pod` for isolated work needing specific toolboxes (documents, media, data) or sensitive operations.

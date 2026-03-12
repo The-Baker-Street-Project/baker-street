@@ -119,7 +119,14 @@ export class McpClientManager {
     client.onerror = (err) => {
       const current = this.clients.get(skillId);
       if (current && current.client === client) {
-        log.warn({ err, skillId }, 'MCP client error (connection kept)');
+        const msg = err instanceof Error ? err.message : String(err);
+        // SSE stream disconnects and reconnection failures are noisy but harmless —
+        // tool calls use POST and auto-reconnect on session loss.
+        if (msg.includes('SSE stream') || msg.includes('reconnect') || msg.includes('reconnection')) {
+          log.debug({ err, skillId }, 'MCP SSE stream transient error (tool calls unaffected)');
+        } else {
+          log.warn({ err, skillId }, 'MCP client error (connection kept)');
+        }
       } else {
         log.debug({ err, skillId }, 'MCP client error on stale connection (ignoring)');
       }
@@ -213,8 +220,12 @@ export class McpClientManager {
   /** Check if an error indicates the MCP session was lost/expired */
   private isSessionLostError(err: unknown): boolean {
     if (!(err instanceof Error)) return false;
-    const msg = err.message;
-    return msg.includes('Session not found') || msg.includes('session expired');
+    const msg = err.message.toLowerCase();
+    return msg.includes('session not found') ||
+      msg.includes('session expired') ||
+      msg.includes('no active session') ||
+      msg.includes('404') ||
+      msg.includes('bad request');
   }
 
   /** Check if a skill is currently connected */

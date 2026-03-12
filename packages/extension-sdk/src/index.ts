@@ -49,6 +49,9 @@ export function createExtension(config: ExtensionConfig): Extension {
 
   // Track active sessions — each client gets its own transport + McpServer pair.
   const sessions = new Map<string, StreamableHTTPServerTransport>();
+  // Grace period timers — delay session deletion so reconnecting clients can resume.
+  const sessionGraceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const SESSION_GRACE_MS = 5 * 60_000; // 5 minutes
 
   let nc: NatsConnection | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
@@ -93,7 +96,14 @@ export function createExtension(config: ExtensionConfig): Extension {
 
       transport.onclose = () => {
         const sid = transport.sessionId;
-        if (sid) sessions.delete(sid);
+        if (!sid) return;
+        // Don't delete immediately — give the client time to reconnect.
+        // The SSE stream drops frequently but POST tool calls still work
+        // if the session is kept alive.
+        sessionGraceTimers.set(sid, setTimeout(() => {
+          sessions.delete(sid);
+          sessionGraceTimers.delete(sid);
+        }, SESSION_GRACE_MS));
       };
 
       const sessionServer = createSessionServer();
@@ -110,6 +120,25 @@ export function createExtension(config: ExtensionConfig): Extension {
     app.get('/mcp', async (req, res) => {
       const sessionId = req.headers['mcp-session-id'] as string | undefined;
       if (sessionId && sessions.has(sessionId)) {
+        // Cancel any pending grace-period cleanup — the client is reconnecting.
+        const graceTimer = sessionGraceTimers.get(sessionId);
+        if (graceTimer) {
+          clearTimeout(graceTimer);
+          sessionGraceTimers.delete(sessionId);
+        }
+
+        // Disable request timeout for SSE streams (default Node.js is 2min).
+        req.socket.setTimeout(0);
+
+        // Send SSE keepalive comments every 25s to prevent proxies/LBs
+        // from closing the connection due to inactivity.
+        const keepalive = setInterval(() => {
+          if (!res.writableEnded) {
+            res.write(':keepalive\n\n');
+          }
+        }, 25_000);
+        res.on('close', () => clearInterval(keepalive));
+
         await sessions.get(sessionId)!.handleRequest(req, res);
       } else {
         res.status(400).json({ error: 'No active session' });
@@ -179,6 +208,8 @@ export function createExtension(config: ExtensionConfig): Extension {
     console.log(`[${config.name}] Shutting down...`);
 
     if (heartbeatTimer) clearInterval(heartbeatTimer);
+    for (const timer of sessionGraceTimers.values()) clearTimeout(timer);
+    sessionGraceTimers.clear();
 
     if (nc && !nc.isClosed()) {
       await nc.drain();
