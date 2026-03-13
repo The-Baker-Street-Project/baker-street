@@ -160,6 +160,7 @@ pub async fn run_interactive(schema: &ConfigSchema) -> Result<InterviewResult> {
 }
 
 /// Print a prompt and read a line from stdin.
+/// If the user presses Enter (empty input) and a default is provided, the default is returned.
 fn prompt_text(
     reader: &mut impl BufRead,
     prompt: &str,
@@ -167,13 +168,18 @@ fn prompt_text(
     _required: bool,
 ) -> Result<String> {
     match default {
-        Some(d) => print!("  {} [{}]: ", prompt, d),
-        None => print!("  {}: ", prompt),
+        Some(d) if !d.is_empty() => print!("  {} [{}]: ", prompt, d),
+        _ => print!("  {}: ", prompt),
     }
     io::stdout().flush()?;
     let mut line = String::new();
     reader.read_line(&mut line)?;
-    Ok(line.trim().to_string())
+    let trimmed = line.trim().to_string();
+    if trimmed.is_empty() {
+        Ok(default.unwrap_or("").to_string())
+    } else {
+        Ok(trimmed)
+    }
 }
 
 /// Build an InterviewResult from environment variables (CI/headless mode).
@@ -232,14 +238,14 @@ fn section_basics(reader: &mut StdinReader, schema: &ConfigSchema) -> Result<(St
 
     let namespace = prompt_text(
         reader,
-        &format!("What is the name of the Kubernetes namespace? [{}]", schema.defaults.namespace),
+        "What is the name of the Kubernetes namespace?",
         Some(&schema.defaults.namespace),
         false,
     )?;
 
     let agent_name = prompt_text(
         reader,
-        &format!("What name would you like to give your AI assistant? [{}]", schema.defaults.agent_name),
+        "What name would you like to give your AI assistant?",
         Some(&schema.defaults.agent_name),
         false,
     )?;
@@ -263,7 +269,7 @@ async fn section_provider(
     println!("  3) Ollama (local models — OpenAI-compatible API)");
     println!();
 
-    let choice = prompt_text(reader, "Choice [1]", Some("1"), false)?;
+    let choice = prompt_text(reader, "Choice", Some("1"), false)?;
     let provider = match choice.trim() {
         "1" | "" => Provider::Anthropic,
         "2" => Provider::OpenAI,
@@ -347,7 +353,7 @@ async fn collect_anthropic(
 
     let agent_model = prompt_text(
         reader,
-        "What model for the Agent? [claude-sonnet-4-20250514]",
+        "What model for the Agent?",
         Some("claude-sonnet-4-20250514"),
         false,
     )?;
@@ -355,7 +361,7 @@ async fn collect_anthropic(
 
     let worker_model = prompt_text(
         reader,
-        "What model for the Worker? [claude-haiku-4-5-20251001]",
+        "What model for the Worker?",
         Some("claude-haiku-4-5-20251001"),
         false,
     )?;
@@ -396,7 +402,7 @@ async fn collect_openai(
 
     let agent_model = prompt_text(
         reader,
-        "What model for the Agent? [gpt-4o]",
+        "What model for the Agent?",
         Some("gpt-4o"),
         false,
     )?;
@@ -404,7 +410,7 @@ async fn collect_openai(
 
     let worker_model = prompt_text(
         reader,
-        "What model for the Worker? [gpt-4o-mini]",
+        "What model for the Worker?",
         Some("gpt-4o-mini"),
         false,
     )?;
@@ -422,7 +428,7 @@ async fn collect_ollama(
     // Collect endpoint(s)
     let raw_endpoints = prompt_text(
         reader,
-        "Enter your Ollama endpoint(s), comma-separated [localhost:11434]",
+        "Enter your Ollama endpoint(s), comma-separated",
         Some("localhost:11434"),
         false,
     )?;
@@ -494,7 +500,7 @@ async fn collect_ollama(
 
         let agent_model = prompt_text(
             reader,
-            &format!("What model for the Agent? [{}]", recs.agent),
+            "What model for the Agent?",
             Some(&recs.agent),
             false,
         )?;
@@ -502,7 +508,7 @@ async fn collect_ollama(
 
         let worker_model = prompt_text(
             reader,
-            &format!("What model for the Worker? [{}]", recs.worker),
+            "What model for the Worker?",
             Some(&recs.worker),
             false,
         )?;
@@ -523,7 +529,7 @@ fn collect_observer_reflector(
     println!();
     let configure = prompt_text(
         reader,
-        "Configure Observer and Reflector separately? [y/N]",
+        "Configure Observer and Reflector separately?",
         Some("N"),
         false,
     )?;
@@ -532,7 +538,7 @@ fn collect_observer_reflector(
         let observer_default = &worker_model;
         let observer = prompt_text(
             reader,
-            &format!("What model for the Observer? [{}]", observer_default),
+            "What model for the Observer?",
             Some(observer_default),
             false,
         )?;
@@ -541,7 +547,7 @@ fn collect_observer_reflector(
         let reflector_default = &agent_model;
         let reflector = prompt_text(
             reader,
-            &format!("What model for the Reflector? [{}]", reflector_default),
+            "What model for the Reflector?",
             Some(reflector_default),
             false,
         )?;
@@ -563,7 +569,7 @@ fn section_security(reader: &mut StdinReader) -> Result<String> {
 
     let token = prompt_text(
         reader,
-        "Enter an auth token, or press Enter to generate one automatically. [auto]",
+        "Enter an auth token, or press Enter to generate one automatically",
         Some("auto"),
         false,
     )?;
@@ -595,7 +601,7 @@ async fn section_memory(reader: &mut StdinReader) -> Result<Option<String>> {
             let masked = mask_value(&env_key);
             let use_it = prompt_text(
                 reader,
-                &format!("I found a Voyage AI key in your environment [{}]. Use this? [Y/n]", masked),
+                &format!("I found a Voyage AI key in your environment ({}). Use this?", masked),
                 Some("Y"),
                 false,
             )?;
@@ -615,7 +621,7 @@ async fn section_memory(reader: &mut StdinReader) -> Result<Option<String>> {
 
     let key = prompt_text(
         reader,
-        "Paste your Voyage AI API key, or press Enter to skip [skip]",
+        "Paste your Voyage AI API key, or press Enter to skip",
         Some(""),
         false,
     )?;
@@ -663,7 +669,7 @@ async fn section_features(
         println!();
         let enable = prompt_text(
             reader,
-            &format!("{}? [y/N]", feature.description),
+            &format!("{}?", feature.description),
             Some("N"),
             false,
         )?;
@@ -687,7 +693,7 @@ async fn section_features(
                 let use_it = prompt_text(
                     reader,
                     &format!(
-                        "I found {} in your environment [{}]. Use this? [Y/n]",
+                        "I found {} in your environment ({}). Use this?",
                         secret_def.key, masked
                     ),
                     Some("Y"),
@@ -803,7 +809,7 @@ fn section_confirm(
 
     println!();
 
-    let proceed = prompt_text(reader, "Proceed with installation? [Y/n]", Some("Y"), false)?;
+    let proceed = prompt_text(reader, "Proceed with installation?", Some("Y"), false)?;
     Ok(!proceed.trim().eq_ignore_ascii_case("n"))
 }
 
