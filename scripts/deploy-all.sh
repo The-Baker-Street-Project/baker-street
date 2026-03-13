@@ -133,6 +133,8 @@ fi
   [[ -n "${ANTHROPIC_API_KEY:-}" ]]   && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
   [[ -n "${DEFAULT_MODEL:-}" ]]       && echo "DEFAULT_MODEL=$DEFAULT_MODEL"
   [[ -n "${WORKER_MODEL:-}" ]]        && echo "WORKER_MODEL=$WORKER_MODEL"
+  [[ -n "${OBSERVER_MODEL:-}" ]]     && echo "OBSERVER_MODEL=$OBSERVER_MODEL"
+  [[ -n "${REFLECTOR_MODEL:-}" ]]    && echo "REFLECTOR_MODEL=$REFLECTOR_MODEL"
   [[ -n "${VOYAGE_API_KEY:-}" ]]      && echo "VOYAGE_API_KEY=$VOYAGE_API_KEY"
   [[ -n "${OPENAI_API_KEY:-}" ]]      && echo "OPENAI_API_KEY=$OPENAI_API_KEY"
   [[ -n "${OLLAMA_ENDPOINTS:-}" ]]    && echo "OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS"
@@ -195,6 +197,8 @@ BRAIN_ARGS=()
 [[ -n "${VOYAGE_API_KEY:-}" ]]    && BRAIN_ARGS+=(--from-literal="VOYAGE_API_KEY=$VOYAGE_API_KEY")
 [[ -n "${OPENAI_API_KEY:-}" ]]    && BRAIN_ARGS+=(--from-literal="OPENAI_API_KEY=$OPENAI_API_KEY")
 [[ -n "${OLLAMA_ENDPOINTS:-}" ]]  && BRAIN_ARGS+=(--from-literal="OLLAMA_ENDPOINTS=$OLLAMA_ENDPOINTS")
+[[ -n "${OBSERVER_MODEL:-}" ]]   && BRAIN_ARGS+=(--from-literal="OBSERVER_MODEL=$OBSERVER_MODEL")
+[[ -n "${REFLECTOR_MODEL:-}" ]]  && BRAIN_ARGS+=(--from-literal="REFLECTOR_MODEL=$REFLECTOR_MODEL")
 BRAIN_ARGS+=(--from-literal="AUTH_TOKEN=$AUTH_TOKEN")
 [[ -n "${AGENT_NAME:-}" ]]        && BRAIN_ARGS+=(--from-literal="AGENT_NAME=$AGENT_NAME")
 create_secret bakerst-brain-secrets "${BRAIN_ARGS[@]}"

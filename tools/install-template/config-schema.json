@@ -79,6 +79,32 @@
       "dependsOn": ["ANTHROPIC_API_KEY", "OLLAMA_ENDPOINTS"]
     },
     {
+      "key": "OBSERVER_MODEL",
+      "description": "Observer model — watches conversations for tone drift, errors, safety issues. Runs on every message, so speed matters.",
+      "inputType": "text",
+      "required": false,
+      "group": "providers",
+      "targetSecrets": [
+        "bakerst-brain-secrets"
+      ],
+      "prompt": "What model for the Observer?",
+      "dependsOn": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_ENDPOINTS"],
+      "silent": true
+    },
+    {
+      "key": "REFLECTOR_MODEL",
+      "description": "Reflector model — deep post-conversation analysis. Runs infrequently, so it can afford a stronger model.",
+      "inputType": "text",
+      "required": false,
+      "group": "providers",
+      "targetSecrets": [
+        "bakerst-brain-secrets"
+      ],
+      "prompt": "What model for the Reflector?",
+      "dependsOn": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_ENDPOINTS"],
+      "silent": true
+    },
+    {
       "key": "OPENAI_API_KEY",
       "description": "OpenAI API key — enables GPT models as an alternative provider",
       "inputType": "secret",
