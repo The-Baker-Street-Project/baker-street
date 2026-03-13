@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
 
 use crate::config_file::ConfigFile;
-use crate::config_schema::{ConfigSchema, SecretDef};
+use crate::config_schema::ConfigSchema;
 
 type StdinReader = BufReader<std::io::Stdin>;
 
@@ -116,153 +116,40 @@ pub fn from_config_file(schema: &ConfigSchema, config: &ConfigFile) -> Result<In
     })
 }
 
-/// Interactive interview — walks the user through prompts from the schema.
+/// Run the full interactive interview. Walks the user through provider selection,
+/// model role assignment, security, memory, and features.
 pub async fn run_interactive(schema: &ConfigSchema) -> Result<InterviewResult> {
     let stdin = io::stdin();
-    let mut reader = stdin.lock();
-    let mut secrets = HashMap::new();
+    let mut reader = BufReader::new(stdin);
 
     println!();
-    println!("  Let's set up Baker Street!");
-    println!("  Press Enter to skip optional fields. Env vars are used as defaults.");
-    println!();
+    println!("Let's set up Baker Street!");
+    println!("Press Enter to accept defaults shown in [brackets].");
+    println!("Environment variables are used as defaults when available.");
 
-    // Collect namespace
-    let namespace = prompt_text(
-        &mut reader,
-        "Kubernetes namespace",
-        Some(&schema.defaults.namespace),
-        false,
-    )?;
-    let namespace = if namespace.is_empty() {
-        schema.defaults.namespace.clone()
-    } else {
-        namespace
-    };
+    // Section 1: Basics
+    let (namespace, agent_name) = section_basics(&mut reader, schema)?;
 
-    // Collect agent name
-    let agent_name = prompt_text(
-        &mut reader,
-        "What would you like to call your agent?",
-        Some(&schema.defaults.agent_name),
-        false,
-    )?;
-    let agent_name = if agent_name.is_empty() {
-        schema.defaults.agent_name.clone()
-    } else {
-        agent_name
-    };
+    // Section 2: AI Provider + Model Roles
+    let (provider, mut secrets) = section_provider(&mut reader, schema).await?;
 
-    // Collect secrets by group
-    let groups = ["providers", "core", "memory"];
-    for group in &groups {
-        let group_secrets: Vec<&SecretDef> = schema
-            .secrets
-            .iter()
-            .filter(|s| s.group.as_deref() == Some(group))
-            .collect();
-        if group_secrets.is_empty() {
-            continue;
-        }
+    // Section 3: Security
+    let auth_token = section_security(&mut reader)?;
+    secrets.insert("AUTH_TOKEN".into(), auth_token);
+    secrets.insert("AGENT_NAME".into(), agent_name.clone());
 
-        println!();
-        let label = match *group {
-            "providers" => "AI Providers",
-            "core" => "Core Settings",
-            "memory" => "Memory & Embeddings",
-            _ => group,
-        };
-        println!("  --- {} ---", label);
-
-        for secret_def in &group_secrets {
-            // Check dependsOn: skip if none of the dependencies have values
-            if let Some(ref deps) = secret_def.depends_on {
-                let any_dep_set = deps
-                    .iter()
-                    .any(|d| secrets.get(d).map_or(false, |v: &String| !v.is_empty()));
-                if !any_dep_set {
-                    continue;
-                }
-            }
-
-            // Skip silent fields
-            if secret_def.silent {
-                continue;
-            }
-
-            let value = collect_secret(&mut reader, secret_def, &secrets)?;
-            if !value.is_empty() {
-                secrets.insert(secret_def.key.clone(), value);
-            } else if let Some(ref auto_gen) = secret_def.auto_generate {
-                secrets.insert(secret_def.key.clone(), generate_value(auto_gen)?);
-            }
-        }
+    // Section 4: Memory & Embeddings
+    if let Some(voyage_key) = section_memory(&mut reader).await? {
+        secrets.insert("VOYAGE_API_KEY".into(), voyage_key);
     }
 
-    // Validate provider requirement
-    let has_provider = schema
-        .provider_validation
-        .require_at_least_one
-        .iter()
-        .any(|key| secrets.get(key).map_or(false, |v: &String| !v.is_empty()));
-    if !has_provider {
-        println!();
-        bail!(
-            "{}. Set at least one of: {}",
-            schema.provider_validation.message,
-            schema.provider_validation.require_at_least_one.join(", ")
-        );
+    // Section 5: Features
+    let enabled_features = section_features(&mut reader, schema, &mut secrets).await?;
+
+    // Section 6: Confirmation
+    if !section_confirm(&mut reader, &namespace, &agent_name, provider, &secrets, &enabled_features)? {
+        anyhow::bail!("Installation cancelled by user.");
     }
-
-    // Collect features
-    println!();
-    println!("  --- Features ---");
-    let mut enabled_features = Vec::new();
-
-    for feature in &schema.features {
-        // Check dependsOn: skip features whose dependencies aren't met
-        if let Some(ref deps) = feature.depends_on {
-            let any_dep_set = deps
-                .iter()
-                .any(|d| secrets.get(d).map_or(false, |v: &String| !v.is_empty()));
-            if !any_dep_set {
-                continue;
-            }
-        }
-
-        let default_yn = if feature.default_enabled { "Y" } else { "n" };
-        let answer = prompt_text(
-            &mut reader,
-            &format!("Enable {}? ({})", feature.name, feature.description),
-            Some(default_yn),
-            false,
-        )?;
-
-        let enabled = if answer.is_empty() {
-            feature.default_enabled
-        } else {
-            matches!(answer.to_lowercase().as_str(), "y" | "yes" | "true" | "1")
-        };
-
-        if enabled {
-            // Collect feature-specific secrets
-            for secret_def in &feature.secrets {
-                if secret_def.silent {
-                    continue;
-                }
-                let value = collect_secret(&mut reader, secret_def, &secrets)?;
-                if !value.is_empty() {
-                    secrets.insert(secret_def.key.clone(), value);
-                } else if secret_def.required {
-                    println!("    Skipping {} (required secret not provided)", feature.name);
-                    continue;
-                }
-            }
-            enabled_features.push(feature.id.clone());
-        }
-    }
-
-    println!();
 
     Ok(InterviewResult {
         secrets,
@@ -270,103 +157,6 @@ pub async fn run_interactive(schema: &ConfigSchema) -> Result<InterviewResult> {
         namespace,
         agent_name,
     })
-}
-
-/// Collect a single secret value, checking env vars as fallback.
-fn collect_secret(
-    reader: &mut impl BufRead,
-    secret_def: &SecretDef,
-    _existing: &HashMap<String, String>,
-) -> Result<String> {
-    // Check env var first for default
-    let env_val = std::env::var(&secret_def.key).ok().filter(|v| !v.is_empty());
-
-    if let Some(ref choices) = secret_def.choices {
-        // Choice prompt
-        let prompt = secret_def
-            .prompt
-            .as_deref()
-            .unwrap_or(&secret_def.description);
-        println!();
-        println!("  {}", prompt);
-        for (i, choice) in choices.iter().enumerate() {
-            let desc = choice
-                .description
-                .as_deref()
-                .map(|d| format!(" ({})", d))
-                .unwrap_or_default();
-            println!("    {}) {}{}", i + 1, choice.label, desc);
-        }
-
-        let default_display = env_val
-            .as_ref()
-            .and_then(|v| {
-                choices
-                    .iter()
-                    .position(|c| c.value == *v)
-                    .map(|i| format!("{}", i + 1))
-            })
-            .unwrap_or_default();
-
-        let default_hint = if default_display.is_empty() {
-            "skip".to_string()
-        } else {
-            default_display.clone()
-        };
-
-        print!("  Choice [{}]: ", default_hint);
-        io::stdout().flush()?;
-        let mut line = String::new();
-        reader.read_line(&mut line)?;
-        let line = line.trim();
-
-        if line.is_empty() {
-            return Ok(env_val.unwrap_or_default());
-        }
-
-        if let Ok(idx) = line.parse::<usize>() {
-            if idx >= 1 && idx <= choices.len() {
-                return Ok(choices[idx - 1].value.clone());
-            }
-        }
-        // Try matching by value or label
-        for choice in choices {
-            if choice.value == line || choice.label.eq_ignore_ascii_case(line) {
-                return Ok(choice.value.clone());
-            }
-        }
-        Ok(line.to_string())
-    } else {
-        // Text/secret prompt
-        let prompt = secret_def
-            .prompt
-            .as_deref()
-            .unwrap_or(&secret_def.description);
-
-        let is_secret = secret_def.input_type == "secret";
-
-        if let Some(ref env) = env_val {
-            let display = if is_secret {
-                let masked: String = if env.len() > 8 {
-                    format!("{}...{}", &env[..4], &env[env.len() - 4..])
-                } else {
-                    "*".repeat(env.len())
-                };
-                masked
-            } else {
-                env.clone()
-            };
-            let value = prompt_text(reader, prompt, Some(&display), false)?;
-            if value.is_empty() {
-                return Ok(env.clone());
-            }
-            return Ok(value);
-        }
-
-        let placeholder = secret_def.placeholder.as_deref().unwrap_or("skip");
-        let value = prompt_text(reader, prompt, Some(placeholder), false)?;
-        Ok(value)
-    }
 }
 
 /// Print a prompt and read a line from stdin.
@@ -763,6 +553,267 @@ fn collect_observer_reflector(
     }
 
     Ok(())
+}
+
+/// Section 3: Security — auth token.
+fn section_security(reader: &mut StdinReader) -> Result<String> {
+    println!();
+    println!("--- Security ---");
+    println!();
+
+    let token = prompt_text(
+        reader,
+        "Enter an auth token, or press Enter to generate one automatically. [auto]",
+        Some("auto"),
+        false,
+    )?;
+
+    if token == "auto" {
+        let generated = generate_value("hex:32")?;
+        println!("  ✓ Auth token generated");
+        Ok(generated)
+    } else {
+        Ok(token)
+    }
+}
+
+/// Section 4: Memory & Embeddings — Voyage AI key.
+async fn section_memory(reader: &mut StdinReader) -> Result<Option<String>> {
+    use crate::validation;
+
+    println!();
+    println!("--- Memory & Embeddings ---");
+    println!();
+    println!("Baker Street stores conversation memories as vector embeddings.");
+    println!("Better embeddings = better recall. Voyage AI provides high-quality");
+    println!("embeddings, but memory still works without it (just less precise).");
+    println!();
+
+    // Check env var first
+    if let Ok(env_key) = std::env::var("VOYAGE_API_KEY") {
+        if !env_key.is_empty() {
+            let masked = mask_value(&env_key);
+            let use_it = prompt_text(
+                reader,
+                &format!("I found a Voyage AI key in your environment [{}]. Use this? [Y/n]", masked),
+                Some("Y"),
+                false,
+            )?;
+            if !use_it.trim().eq_ignore_ascii_case("n") {
+                print!("  Verifying... ");
+                std::io::stdout().flush()?;
+                match validation::validate_voyage_key(&env_key).await {
+                    Ok(()) => {
+                        println!("✓ Key verified");
+                        return Ok(Some(env_key));
+                    }
+                    Err(e) => println!("✗ {}", e),
+                }
+            }
+        }
+    }
+
+    let key = prompt_text(
+        reader,
+        "Paste your Voyage AI API key, or press Enter to skip [skip]",
+        Some(""),
+        false,
+    )?;
+
+    if key.is_empty() || key == "skip" {
+        Ok(None)
+    } else {
+        print!("  Verifying... ");
+        std::io::stdout().flush()?;
+        match validation::validate_voyage_key(&key).await {
+            Ok(()) => {
+                println!("✓ Key verified");
+                Ok(Some(key))
+            }
+            Err(e) => {
+                println!("✗ {} — skipping Voyage AI", e);
+                Ok(None)
+            }
+        }
+    }
+}
+
+/// Section 5: Features — optional integrations.
+async fn section_features(
+    reader: &mut StdinReader,
+    schema: &ConfigSchema,
+    secrets: &mut HashMap<String, String>,
+) -> Result<Vec<String>> {
+    use crate::validation;
+
+    println!();
+    println!("--- Features ---");
+
+    let mut enabled = Vec::new();
+
+    for feature in &schema.features {
+        // Skip voyage — handled in section_memory
+        if feature.id == "voyage" {
+            if secrets.contains_key("VOYAGE_API_KEY") {
+                enabled.push(feature.id.clone());
+            }
+            continue;
+        }
+
+        println!();
+        let enable = prompt_text(
+            reader,
+            &format!("{}? [y/N]", feature.description),
+            Some("N"),
+            false,
+        )?;
+
+        if !enable.trim().eq_ignore_ascii_case("y") && !enable.trim().eq_ignore_ascii_case("yes") {
+            continue;
+        }
+
+        enabled.push(feature.id.clone());
+
+        // Collect feature secrets
+        for secret_def in &feature.secrets {
+            if secret_def.silent {
+                continue;
+            }
+
+            // Check env var
+            let env_val = std::env::var(&secret_def.key).ok().filter(|v| !v.is_empty());
+            let value = if let Some(env_val) = &env_val {
+                let masked = mask_value(env_val);
+                let use_it = prompt_text(
+                    reader,
+                    &format!(
+                        "I found {} in your environment [{}]. Use this? [Y/n]",
+                        secret_def.key, masked
+                    ),
+                    Some("Y"),
+                    false,
+                )?;
+                if use_it.trim().eq_ignore_ascii_case("n") {
+                    let prompt = secret_def.prompt.as_deref().unwrap_or(&secret_def.description);
+                    prompt_text(reader, prompt, None, secret_def.required)?
+                } else {
+                    env_val.clone()
+                }
+            } else {
+                let prompt = secret_def.prompt.as_deref().unwrap_or(&secret_def.description);
+                if secret_def.required {
+                    prompt_text(reader, prompt, None, true)?
+                } else {
+                    prompt_text(reader, &format!("{} (or press Enter to skip)", prompt), Some(""), false)?
+                }
+            };
+
+            if !value.is_empty() {
+                // Validate where possible
+                match secret_def.key.as_str() {
+                    "TELEGRAM_BOT_TOKEN" => {
+                        print!("  Verifying... ");
+                        std::io::stdout().flush()?;
+                        match validation::validate_telegram_token(&value).await {
+                            Ok(username) => println!("✓ Bot verified: @{}", username),
+                            Err(e) => println!("✗ {} — continuing anyway", e),
+                        }
+                    }
+                    "GITHUB_TOKEN" => {
+                        print!("  Verifying... ");
+                        std::io::stdout().flush()?;
+                        match validation::validate_github_token(&value).await {
+                            Ok(username) => println!("✓ Authenticated as @{}", username),
+                            Err(e) => println!("✗ {} — continuing anyway", e),
+                        }
+                    }
+                    _ => {}
+                }
+
+                secrets.insert(secret_def.key.clone(), value);
+            }
+        }
+    }
+
+    Ok(enabled)
+}
+
+/// Section 6: Confirmation summary.
+fn section_confirm(
+    reader: &mut StdinReader,
+    namespace: &str,
+    agent_name: &str,
+    provider: Provider,
+    secrets: &HashMap<String, String>,
+    features: &[String],
+) -> Result<bool> {
+    println!();
+    println!("--- Review ---");
+    println!();
+    println!("  Namespace:    {}", namespace);
+    println!("  Agent name:   {}", agent_name);
+    println!();
+
+    let provider_str = match provider {
+        Provider::Anthropic => "Anthropic".to_string(),
+        Provider::OpenAI => "OpenAI".to_string(),
+        Provider::Ollama => format!(
+            "Ollama ({})",
+            secrets.get("OLLAMA_ENDPOINTS").map(|s| s.as_str()).unwrap_or("unknown")
+        ),
+    };
+    println!("  Provider:     {}", provider_str);
+    println!(
+        "  Agent model:  {}",
+        secrets.get("DEFAULT_MODEL").map(|s| s.as_str()).unwrap_or("(default)")
+    );
+    println!(
+        "  Worker model: {}",
+        secrets.get("WORKER_MODEL").map(|s| s.as_str()).unwrap_or("(default)")
+    );
+
+    let observer = secrets.get("OBSERVER_MODEL");
+    let worker = secrets.get("WORKER_MODEL");
+    let reflector = secrets.get("REFLECTOR_MODEL");
+    let agent = secrets.get("DEFAULT_MODEL");
+
+    if observer == worker {
+        println!("  Observer:     {} (same as Worker)", observer.map(|s| s.as_str()).unwrap_or("(default)"));
+    } else {
+        println!("  Observer:     {}", observer.map(|s| s.as_str()).unwrap_or("(default)"));
+    }
+
+    if reflector == agent {
+        println!("  Reflector:    {} (same as Agent)", reflector.map(|s| s.as_str()).unwrap_or("(default)"));
+    } else {
+        println!("  Reflector:    {}", reflector.map(|s| s.as_str()).unwrap_or("(default)"));
+    }
+
+    println!();
+
+    if features.is_empty() {
+        println!("  Features:     (none)");
+    } else {
+        println!("  Features:     {}", features.join(", "));
+    }
+
+    if secrets.contains_key("VOYAGE_API_KEY") {
+        println!("  Memory:       Voyage AI embeddings");
+    }
+
+    println!();
+
+    let proceed = prompt_text(reader, "Proceed with installation? [Y/n]", Some("Y"), false)?;
+    Ok(!proceed.trim().eq_ignore_ascii_case("n"))
+}
+
+/// Mask a secret value for display: show first 4 and last 4 chars.
+fn mask_value(value: &str) -> String {
+    if value.len() <= 8 {
+        "****".to_string()
+    } else {
+        format!("{}...{}", &value[..4], &value[value.len()-4..])
+    }
 }
 
 /// Prompt for a secret value (same as prompt_text but semantically distinct).
