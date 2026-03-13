@@ -1,0 +1,38 @@
+# Scenario: Ollama Multi-Endpoint
+# Tests: Two Ollama hosts (e.g., Sherlock + Irene).
+# Requires: Two Ollama instances running. Set OLLAMA_HOST and OLLAMA_HOST_2
+#           to override (defaults: host.docker.internal:11434, host.docker.internal:8085).
+# Validates that brain/worker can route to multiple inference hosts.
+
+namespace: bakerst-test
+agentName: TestAgent
+
+secrets:
+  OLLAMA_ENDPOINTS: "${OLLAMA_HOST:-host.docker.internal:11434},${OLLAMA_HOST_2:-host.docker.internal:8085}"
+  DEFAULT_MODEL: "qwen2.5-coder:32b"
+  WORKER_MODEL: "qwen3.5:9b"
+  OBSERVER_MODEL: "${OLLAMA_WORKER_MODEL:-qwen3.5:9b}"
+  REFLECTOR_MODEL: "${OLLAMA_AGENT_MODEL:-qwen2.5-coder:32b}"
+  AUTH_TOKEN: auto
+  AGENT_NAME: TestAgent
+
+features:
+  telegram: false
+  discord: false
+  github: false
+  perplexity: false
+  obsidian: false
+  voice: false
+  google-workspace: false
+  voyage: false
+
+verify:
+  expectedPods:
+    - brain-blue
+    - worker
+    - ui
+    - gateway
+    - nats
+    - qdrant
+  chatPrompt: "Respond with exactly: SCENARIO_TEST_PASSED"
+  timeoutSeconds: 300

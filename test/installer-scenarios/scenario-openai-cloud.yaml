@@ -1,0 +1,36 @@
+# Scenario: OpenAI Cloud
+# Tests: OpenAI as sole provider with GPT models.
+# Requires: OPENAI_API_KEY env var
+
+namespace: bakerst-test
+agentName: TestAgent
+
+secrets:
+  OPENAI_API_KEY: "${OPENAI_API_KEY}"
+  DEFAULT_MODEL: "gpt-4o"
+  WORKER_MODEL: "gpt-4o-mini"
+  OBSERVER_MODEL: "gpt-4o-mini"
+  REFLECTOR_MODEL: "gpt-4o"
+  AUTH_TOKEN: auto
+  AGENT_NAME: TestAgent
+
+features:
+  telegram: false
+  discord: false
+  github: false
+  perplexity: false
+  obsidian: false
+  voice: false
+  google-workspace: false
+  voyage: false
+
+verify:
+  expectedPods:
+    - brain-blue
+    - worker
+    - ui
+    - gateway
+    - nats
+    - qdrant
+  chatPrompt: "Respond with exactly: SCENARIO_TEST_PASSED"
+  timeoutSeconds: 300
