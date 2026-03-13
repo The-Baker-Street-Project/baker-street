@@ -7,10 +7,19 @@
 
 use anyhow::{bail, Result};
 use std::collections::HashMap;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, BufReader, Write};
 
 use crate::config_file::ConfigFile;
 use crate::config_schema::{ConfigSchema, SecretDef};
+
+type StdinReader = BufReader<std::io::Stdin>;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Provider {
+    Anthropic,
+    OpenAI,
+    Ollama,
+}
 
 #[derive(Debug)]
 pub struct InterviewResult {
@@ -423,6 +432,342 @@ fn generate_value(spec: &str) -> Result<String> {
     } else {
         bail!("Unknown autoGenerate format: {}", spec);
     }
+}
+
+/// Section 1: Basics — namespace and agent name.
+fn section_basics(reader: &mut StdinReader, schema: &ConfigSchema) -> Result<(String, String)> {
+    println!();
+    println!("--- Basics ---");
+    println!();
+
+    let namespace = prompt_text(
+        reader,
+        &format!("What is the name of the Kubernetes namespace? [{}]", schema.defaults.namespace),
+        Some(&schema.defaults.namespace),
+        false,
+    )?;
+
+    let agent_name = prompt_text(
+        reader,
+        &format!("What name would you like to give your AI assistant? [{}]", schema.defaults.agent_name),
+        Some(&schema.defaults.agent_name),
+        false,
+    )?;
+
+    Ok((namespace, agent_name))
+}
+
+/// Section 2: AI Provider — choose provider, validate key, select models for all 4 roles.
+async fn section_provider(
+    reader: &mut StdinReader,
+    _schema: &ConfigSchema,
+) -> Result<(Provider, HashMap<String, String>)> {
+
+    println!();
+    println!("--- AI Provider ---");
+    println!();
+    println!("Which AI provider would you like to use?");
+    println!();
+    println!("  1) Anthropic (Claude — Sonnet, Opus, Haiku)");
+    println!("  2) OpenAI (GPT-4o, o3-mini)");
+    println!("  3) Ollama (local models — OpenAI-compatible API)");
+    println!();
+
+    let choice = prompt_text(reader, "Choice [1]", Some("1"), false)?;
+    let provider = match choice.trim() {
+        "1" | "" => Provider::Anthropic,
+        "2" => Provider::OpenAI,
+        "3" => Provider::Ollama,
+        _ => {
+            println!("  Invalid choice, defaulting to Anthropic.");
+            Provider::Anthropic
+        }
+    };
+
+    // Show model role explanation
+    print_model_role_explanation();
+
+    let mut secrets = HashMap::new();
+
+    match provider {
+        Provider::Anthropic => collect_anthropic(reader, &mut secrets).await?,
+        Provider::OpenAI => collect_openai(reader, &mut secrets).await?,
+        Provider::Ollama => collect_ollama(reader, &mut secrets).await?,
+    }
+
+    // Collect Observer/Reflector overrides
+    collect_observer_reflector(reader, provider, &mut secrets)?;
+
+    Ok((provider, secrets))
+}
+
+fn print_model_role_explanation() {
+    println!();
+    println!("Baker Street uses four model roles:");
+    println!();
+    println!("  Agent     — your main conversational AI. Handles chat, tool calling,");
+    println!("              and complex reasoning. Needs the strongest model you have.");
+    println!();
+    println!("  Worker    — runs background tasks: summarization, extraction, research.");
+    println!("              Optimized for throughput. A fast model shines here.");
+    println!();
+    println!("  Observer  — watches every conversation in real-time. Flags tone drift,");
+    println!("              factual errors, and safety issues. Runs on every message,");
+    println!("              so speed matters more than depth.");
+    println!("              Default: same model as Worker.");
+    println!();
+    println!("  Reflector — deep post-conversation analysis. Reviews what went well,");
+    println!("              what didn't, and extracts learnings. Runs infrequently,");
+    println!("              so it can afford a stronger model.");
+    println!("              Default: same model as Agent.");
+    println!();
+}
+
+async fn collect_anthropic(
+    reader: &mut StdinReader,
+    secrets: &mut HashMap<String, String>,
+) -> Result<()> {
+    use crate::validation;
+
+    // Collect and validate API key
+    loop {
+        let key = prompt_secret(reader, "Paste your Anthropic API key")?;
+        print!("  Verifying... ");
+        std::io::stdout().flush()?;
+        match validation::validate_anthropic_key(&key).await {
+            Ok(()) => {
+                println!("✓ API key verified");
+                secrets.insert("ANTHROPIC_API_KEY".into(), key);
+                break;
+            }
+            Err(e) => {
+                println!("✗ {}", e);
+                println!("  Please check your key and try again.");
+            }
+        }
+    }
+
+    // Recommend and collect models
+    println!();
+    println!("Recommended models:");
+    println!();
+    println!("  Agent:     claude-sonnet-4-20250514 (best balance of speed and capability)");
+    println!("  Worker:    claude-haiku-4-5-20251001 (fast and cheap for background tasks)");
+    println!();
+
+    let agent_model = prompt_text(
+        reader,
+        "What model for the Agent? [claude-sonnet-4-20250514]",
+        Some("claude-sonnet-4-20250514"),
+        false,
+    )?;
+    secrets.insert("DEFAULT_MODEL".into(), agent_model);
+
+    let worker_model = prompt_text(
+        reader,
+        "What model for the Worker? [claude-haiku-4-5-20251001]",
+        Some("claude-haiku-4-5-20251001"),
+        false,
+    )?;
+    secrets.insert("WORKER_MODEL".into(), worker_model);
+
+    Ok(())
+}
+
+async fn collect_openai(
+    reader: &mut StdinReader,
+    secrets: &mut HashMap<String, String>,
+) -> Result<()> {
+    use crate::validation;
+
+    loop {
+        let key = prompt_secret(reader, "Paste your OpenAI API key")?;
+        print!("  Verifying... ");
+        std::io::stdout().flush()?;
+        match validation::validate_openai_key(&key).await {
+            Ok(()) => {
+                println!("✓ API key verified");
+                secrets.insert("OPENAI_API_KEY".into(), key);
+                break;
+            }
+            Err(e) => {
+                println!("✗ {}", e);
+                println!("  Please check your key and try again.");
+            }
+        }
+    }
+
+    println!();
+    println!("Recommended models:");
+    println!();
+    println!("  Agent:     gpt-4o (strong tool calling and reasoning)");
+    println!("  Worker:    gpt-4o-mini (fast and cost-effective)");
+    println!();
+
+    let agent_model = prompt_text(
+        reader,
+        "What model for the Agent? [gpt-4o]",
+        Some("gpt-4o"),
+        false,
+    )?;
+    secrets.insert("DEFAULT_MODEL".into(), agent_model);
+
+    let worker_model = prompt_text(
+        reader,
+        "What model for the Worker? [gpt-4o-mini]",
+        Some("gpt-4o-mini"),
+        false,
+    )?;
+    secrets.insert("WORKER_MODEL".into(), worker_model);
+
+    Ok(())
+}
+
+async fn collect_ollama(
+    reader: &mut StdinReader,
+    secrets: &mut HashMap<String, String>,
+) -> Result<()> {
+    use crate::validation;
+
+    // Collect endpoint(s)
+    let raw_endpoints = prompt_text(
+        reader,
+        "Enter your Ollama endpoint(s), comma-separated [localhost:11434]",
+        Some("localhost:11434"),
+        false,
+    )?;
+
+    // Rewrite localhost → host.docker.internal
+    let rewritten = validation::rewrite_endpoints(&raw_endpoints);
+    if validation::has_localhost(&raw_endpoints) {
+        println!("  (Rewriting localhost → host.docker.internal for Kubernetes)");
+    }
+
+    // Validate each endpoint and discover models
+    let endpoints: Vec<&str> = rewritten.split(',').map(|e| e.trim()).collect();
+    let mut all_models = Vec::new();
+    let mut reachable_endpoints = Vec::new();
+
+    for ep in &endpoints {
+        print!("  Checking {}... ", ep);
+        std::io::stdout().flush()?;
+        match validation::validate_ollama_endpoint(ep).await {
+            Ok(()) => {
+                println!("✓ Connected");
+                reachable_endpoints.push(*ep);
+                if let Ok(models) = validation::discover_ollama_models(ep).await {
+                    for m in models {
+                        if !all_models.iter().any(|existing: &validation::OllamaModel| existing.name == m.name) {
+                            all_models.push(m);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("✗ {}", e);
+                println!("    Is your Ollama server running?");
+            }
+        }
+    }
+
+    secrets.insert("OLLAMA_ENDPOINTS".into(), rewritten);
+
+    if all_models.is_empty() {
+        println!();
+        println!("  ✗ Could not discover models from endpoint(s).");
+        println!("    You can still enter model names manually.");
+        println!();
+
+        let agent_model = prompt_text(reader, "What model for the Agent?", None, true)?;
+        secrets.insert("DEFAULT_MODEL".into(), agent_model);
+
+        let worker_model = prompt_text(reader, "What model for the Worker?", None, true)?;
+        secrets.insert("WORKER_MODEL".into(), worker_model);
+    } else {
+        // Sort by size descending
+        all_models.sort_by(|a, b| b.size.cmp(&a.size));
+
+        println!();
+        println!("Found {} model(s):", all_models.len());
+        println!();
+        for (i, m) in all_models.iter().enumerate() {
+            let size_gb = m.size as f64 / 1_073_741_824.0;
+            println!("  {}) {} ({:.1} GB)", i + 1, m.name, size_gb);
+        }
+
+        let recs = validation::recommend_ollama_models(&all_models);
+        println!();
+        println!("Recommended:");
+        println!("  Agent:     {} (largest — best for reasoning and tool calling)", recs.agent);
+        println!("  Worker:    {} (good throughput for background tasks)", recs.worker);
+        println!();
+
+        let agent_model = prompt_text(
+            reader,
+            &format!("What model for the Agent? [{}]", recs.agent),
+            Some(&recs.agent),
+            false,
+        )?;
+        secrets.insert("DEFAULT_MODEL".into(), agent_model);
+
+        let worker_model = prompt_text(
+            reader,
+            &format!("What model for the Worker? [{}]", recs.worker),
+            Some(&recs.worker),
+            false,
+        )?;
+        secrets.insert("WORKER_MODEL".into(), worker_model);
+    }
+
+    Ok(())
+}
+
+fn collect_observer_reflector(
+    reader: &mut StdinReader,
+    _provider: Provider,
+    secrets: &mut HashMap<String, String>,
+) -> Result<()> {
+    let agent_model = secrets.get("DEFAULT_MODEL").cloned().unwrap_or_default();
+    let worker_model = secrets.get("WORKER_MODEL").cloned().unwrap_or_default();
+
+    println!();
+    let configure = prompt_text(
+        reader,
+        "Configure Observer and Reflector separately? [y/N]",
+        Some("N"),
+        false,
+    )?;
+
+    if configure.trim().eq_ignore_ascii_case("y") || configure.trim().eq_ignore_ascii_case("yes") {
+        let observer_default = &worker_model;
+        let observer = prompt_text(
+            reader,
+            &format!("What model for the Observer? [{}]", observer_default),
+            Some(observer_default),
+            false,
+        )?;
+        secrets.insert("OBSERVER_MODEL".into(), observer);
+
+        let reflector_default = &agent_model;
+        let reflector = prompt_text(
+            reader,
+            &format!("What model for the Reflector? [{}]", reflector_default),
+            Some(reflector_default),
+            false,
+        )?;
+        secrets.insert("REFLECTOR_MODEL".into(), reflector);
+    } else {
+        // Set explicit defaults: Observer = Worker, Reflector = Agent
+        secrets.insert("OBSERVER_MODEL".into(), worker_model);
+        secrets.insert("REFLECTOR_MODEL".into(), agent_model);
+    }
+
+    Ok(())
+}
+
+/// Prompt for a secret value (same as prompt_text but semantically distinct).
+fn prompt_secret(reader: &mut StdinReader, prompt: &str) -> Result<String> {
+    prompt_text(reader, prompt, None, true)
 }
 
 #[cfg(test)]
