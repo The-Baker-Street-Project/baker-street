@@ -70,6 +70,25 @@ pub async fn validate_openai_key(key: &str) -> Result<()> {
     }
 }
 
+/// Validate an OpenRouter API key by hitting the models endpoint.
+pub async fn validate_openrouter_key(key: &str) -> Result<()> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://openrouter.ai/api/v1/models")
+        .header("Authorization", format!("Bearer {}", key))
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await?;
+
+    if resp.status().is_success() {
+        Ok(())
+    } else if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        bail!("Invalid API key")
+    } else {
+        bail!("OpenRouter API returned HTTP {}", resp.status())
+    }
+}
+
 // ── Ollama endpoint validation & model discovery ─────────────────────
 
 #[derive(Debug, Clone, Deserialize)]

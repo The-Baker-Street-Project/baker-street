@@ -18,6 +18,7 @@ type StdinReader = BufReader<std::io::Stdin>;
 enum Provider {
     Anthropic,
     OpenAI,
+    OpenRouter,
     Ollama,
 }
 
@@ -260,20 +261,22 @@ async fn section_provider(
 ) -> Result<(Provider, HashMap<String, String>)> {
 
     println!();
-    println!("--- AI Provider ---");
+    println!("--- 🧠 AI Provider ---");
     println!();
     println!("Which AI provider would you like to use?");
     println!();
-    println!("  1) Anthropic (Claude — Sonnet, Opus, Haiku)");
-    println!("  2) OpenAI (GPT-4o, o3-mini)");
-    println!("  3) Ollama (local models — OpenAI-compatible API)");
+    println!("  1) 🟤 Anthropic (Claude — Sonnet, Opus, Haiku)");
+    println!("  2) 🟢 OpenAI (GPT-4o, o3-mini)");
+    println!("  3) 🔀 OpenRouter (access 200+ models via one API key)");
+    println!("  4) 🦙 Ollama (local models — OpenAI-compatible API)");
     println!();
 
     let choice = prompt_text(reader, "Choice", Some("1"), false)?;
     let provider = match choice.trim() {
         "1" | "" => Provider::Anthropic,
         "2" => Provider::OpenAI,
-        "3" => Provider::Ollama,
+        "3" => Provider::OpenRouter,
+        "4" => Provider::Ollama,
         _ => {
             println!("  Invalid choice, defaulting to Anthropic.");
             Provider::Anthropic
@@ -288,6 +291,7 @@ async fn section_provider(
     match provider {
         Provider::Anthropic => collect_anthropic(reader, &mut secrets).await?,
         Provider::OpenAI => collect_openai(reader, &mut secrets).await?,
+        Provider::OpenRouter => collect_openrouter(reader, &mut secrets).await?,
         Provider::Ollama => collect_ollama(reader, &mut secrets).await?,
     }
 
@@ -325,36 +329,59 @@ async fn collect_anthropic(
 ) -> Result<()> {
     use crate::validation;
 
+    // Check env var first
+    let env_key = resolve_env_key("ANTHROPIC_API_KEY");
+    let key = if let Some(ref env_val) = env_key {
+        let masked = mask_value(env_val);
+        let use_it = prompt_text(
+            reader,
+            &format!("Found ANTHROPIC_API_KEY in env ({}). Use this?", masked),
+            Some("Y"),
+            false,
+        )?;
+        if use_it.trim().eq_ignore_ascii_case("n") {
+            None
+        } else {
+            Some(env_val.clone())
+        }
+    } else {
+        None
+    };
+
     // Collect and validate API key
-    loop {
-        let key = prompt_secret(reader, "Paste your Anthropic API key")?;
+    let api_key = if let Some(k) = key {
         print!("  Verifying... ");
         std::io::stdout().flush()?;
-        match validation::validate_anthropic_key(&key).await {
+        match validation::validate_anthropic_key(&k).await {
             Ok(()) => {
                 println!("✓ API key verified");
-                secrets.insert("ANTHROPIC_API_KEY".into(), key);
-                break;
+                k
             }
             Err(e) => {
                 println!("✗ {}", e);
-                println!("  Please check your key and try again.");
+                prompt_and_validate_anthropic(reader).await?
             }
         }
-    }
+    } else {
+        prompt_and_validate_anthropic(reader).await?
+    };
+    secrets.insert("ANTHROPIC_API_KEY".into(), api_key);
 
     // Recommend and collect models
+    let agent_default = resolve_model_default("ANTHROPIC", "AGENT", "claude-sonnet-4-20250514");
+    let worker_default = resolve_model_default("ANTHROPIC", "WORKER", "claude-haiku-4-5-20251001");
+
     println!();
     println!("Recommended models:");
     println!();
-    println!("  Agent:     claude-sonnet-4-20250514 (best balance of speed and capability)");
-    println!("  Worker:    claude-haiku-4-5-20251001 (fast and cheap for background tasks)");
+    println!("  Agent:     🟤 claude-sonnet-4-20250514 (best balance of speed and capability)");
+    println!("  Worker:    🟤 claude-haiku-4-5-20251001 (fast and cheap for background tasks)");
     println!();
 
     let agent_model = prompt_text(
         reader,
         "What model for the Agent?",
-        Some("claude-sonnet-4-20250514"),
+        Some(&agent_default),
         false,
     )?;
     secrets.insert("DEFAULT_MODEL".into(), agent_model);
@@ -362,12 +389,31 @@ async fn collect_anthropic(
     let worker_model = prompt_text(
         reader,
         "What model for the Worker?",
-        Some("claude-haiku-4-5-20251001"),
+        Some(&worker_default),
         false,
     )?;
     secrets.insert("WORKER_MODEL".into(), worker_model);
 
     Ok(())
+}
+
+async fn prompt_and_validate_anthropic(reader: &mut StdinReader) -> Result<String> {
+    use crate::validation;
+    loop {
+        let key = prompt_secret(reader, "Paste your Anthropic API key")?;
+        print!("  Verifying... ");
+        std::io::stdout().flush()?;
+        match validation::validate_anthropic_key(&key).await {
+            Ok(()) => {
+                println!("✓ API key verified");
+                return Ok(key);
+            }
+            Err(e) => {
+                println!("✗ {}", e);
+                println!("  Please check your key and try again.");
+            }
+        }
+    }
 }
 
 async fn collect_openai(
@@ -376,34 +422,57 @@ async fn collect_openai(
 ) -> Result<()> {
     use crate::validation;
 
-    loop {
-        let key = prompt_secret(reader, "Paste your OpenAI API key")?;
+    // Check env var first
+    let env_key = resolve_env_key("OPENAI_API_KEY");
+    let key = if let Some(ref env_val) = env_key {
+        let masked = mask_value(env_val);
+        let use_it = prompt_text(
+            reader,
+            &format!("Found OPENAI_API_KEY in env ({}). Use this?", masked),
+            Some("Y"),
+            false,
+        )?;
+        if use_it.trim().eq_ignore_ascii_case("n") {
+            None
+        } else {
+            Some(env_val.clone())
+        }
+    } else {
+        None
+    };
+
+    let api_key = if let Some(k) = key {
         print!("  Verifying... ");
         std::io::stdout().flush()?;
-        match validation::validate_openai_key(&key).await {
+        match validation::validate_openai_key(&k).await {
             Ok(()) => {
                 println!("✓ API key verified");
-                secrets.insert("OPENAI_API_KEY".into(), key);
-                break;
+                k
             }
             Err(e) => {
                 println!("✗ {}", e);
-                println!("  Please check your key and try again.");
+                prompt_and_validate_openai(reader).await?
             }
         }
-    }
+    } else {
+        prompt_and_validate_openai(reader).await?
+    };
+    secrets.insert("OPENAI_API_KEY".into(), api_key);
+
+    let agent_default = resolve_model_default("OPENAI", "AGENT", "gpt-4o");
+    let worker_default = resolve_model_default("OPENAI", "WORKER", "gpt-4o-mini");
 
     println!();
     println!("Recommended models:");
     println!();
-    println!("  Agent:     gpt-4o (strong tool calling and reasoning)");
-    println!("  Worker:    gpt-4o-mini (fast and cost-effective)");
+    println!("  Agent:     🟢 gpt-4o (strong tool calling and reasoning)");
+    println!("  Worker:    🟢 gpt-4o-mini (fast and cost-effective)");
     println!();
 
     let agent_model = prompt_text(
         reader,
         "What model for the Agent?",
-        Some("gpt-4o"),
+        Some(&agent_default),
         false,
     )?;
     secrets.insert("DEFAULT_MODEL".into(), agent_model);
@@ -411,12 +480,122 @@ async fn collect_openai(
     let worker_model = prompt_text(
         reader,
         "What model for the Worker?",
-        Some("gpt-4o-mini"),
+        Some(&worker_default),
         false,
     )?;
     secrets.insert("WORKER_MODEL".into(), worker_model);
 
     Ok(())
+}
+
+async fn prompt_and_validate_openai(reader: &mut StdinReader) -> Result<String> {
+    use crate::validation;
+    loop {
+        let key = prompt_secret(reader, "Paste your OpenAI API key")?;
+        print!("  Verifying... ");
+        std::io::stdout().flush()?;
+        match validation::validate_openai_key(&key).await {
+            Ok(()) => {
+                println!("✓ API key verified");
+                return Ok(key);
+            }
+            Err(e) => {
+                println!("✗ {}", e);
+                println!("  Please check your key and try again.");
+            }
+        }
+    }
+}
+
+async fn collect_openrouter(
+    reader: &mut StdinReader,
+    secrets: &mut HashMap<String, String>,
+) -> Result<()> {
+    use crate::validation;
+
+    // Check env var first
+    let env_key = resolve_env_key("OPENROUTER_API_KEY");
+    let key = if let Some(ref env_val) = env_key {
+        let masked = mask_value(env_val);
+        let use_it = prompt_text(
+            reader,
+            &format!("Found OPENROUTER_API_KEY in env ({}). Use this?", masked),
+            Some("Y"),
+            false,
+        )?;
+        if use_it.trim().eq_ignore_ascii_case("n") {
+            None
+        } else {
+            Some(env_val.clone())
+        }
+    } else {
+        None
+    };
+
+    let api_key = if let Some(k) = key {
+        print!("  Verifying... ");
+        std::io::stdout().flush()?;
+        match validation::validate_openrouter_key(&k).await {
+            Ok(()) => {
+                println!("✓ API key verified");
+                k
+            }
+            Err(e) => {
+                println!("✗ {}", e);
+                prompt_and_validate_openrouter(reader).await?
+            }
+        }
+    } else {
+        prompt_and_validate_openrouter(reader).await?
+    };
+    secrets.insert("OPENROUTER_API_KEY".into(), api_key);
+
+    let agent_default = resolve_model_default("OPENROUTER", "AGENT", "google/gemini-2.5-flash");
+    let worker_default = resolve_model_default("OPENROUTER", "WORKER", "anthropic/claude-sonnet-4");
+
+    println!();
+    println!("Recommended models:");
+    println!();
+    println!("  Agent:     🔵 google/gemini-2.5-flash (fast, cheap, great for high-throughput chat)");
+    println!("  Worker:    🟤 anthropic/claude-sonnet-4 (strong reasoning for background tasks)");
+    println!();
+
+    let agent_model = prompt_text(
+        reader,
+        "What model for the Agent?",
+        Some(&agent_default),
+        false,
+    )?;
+    secrets.insert("DEFAULT_MODEL".into(), agent_model);
+
+    let worker_model = prompt_text(
+        reader,
+        "What model for the Worker?",
+        Some(&worker_default),
+        false,
+    )?;
+    secrets.insert("WORKER_MODEL".into(), worker_model);
+
+    Ok(())
+}
+
+async fn prompt_and_validate_openrouter(reader: &mut StdinReader) -> Result<String> {
+    use crate::validation;
+    loop {
+        let key = prompt_secret(reader, "Paste your OpenRouter API key")?;
+        print!("  Verifying... ");
+        std::io::stdout().flush()?;
+        match validation::validate_openrouter_key(&key).await {
+            Ok(()) => {
+                println!("✓ API key verified");
+                return Ok(key);
+            }
+            Err(e) => {
+                println!("✗ {}", e);
+                println!("  Please check your key and try again.");
+            }
+        }
+    }
 }
 
 async fn collect_ollama(
@@ -474,10 +653,23 @@ async fn collect_ollama(
         println!("    You can still enter model names manually.");
         println!();
 
-        let agent_model = prompt_text(reader, "What model for the Agent?", None, true)?;
+        let agent_env = resolve_env_key("OLLAMA_AGENT_MODEL");
+        let worker_env = resolve_env_key("OLLAMA_WORKER_MODEL");
+
+        let agent_model = prompt_text(
+            reader,
+            "What model for the Agent?",
+            agent_env.as_deref(),
+            true,
+        )?;
         secrets.insert("DEFAULT_MODEL".into(), agent_model);
 
-        let worker_model = prompt_text(reader, "What model for the Worker?", None, true)?;
+        let worker_model = prompt_text(
+            reader,
+            "What model for the Worker?",
+            worker_env.as_deref(),
+            true,
+        )?;
         secrets.insert("WORKER_MODEL".into(), worker_model);
     } else {
         // Sort by size descending
@@ -492,6 +684,11 @@ async fn collect_ollama(
         }
 
         let recs = validation::recommend_ollama_models(&all_models);
+
+        // Scoped env vars override discovered recommendations
+        let agent_default = resolve_model_default("OLLAMA", "AGENT", &recs.agent);
+        let worker_default = resolve_model_default("OLLAMA", "WORKER", &recs.worker);
+
         println!();
         println!("Recommended:");
         println!("  Agent:     {} (largest — best for reasoning and tool calling)", recs.agent);
@@ -501,7 +698,7 @@ async fn collect_ollama(
         let agent_model = prompt_text(
             reader,
             "What model for the Agent?",
-            Some(&recs.agent),
+            Some(&agent_default),
             false,
         )?;
         secrets.insert("DEFAULT_MODEL".into(), agent_model);
@@ -509,7 +706,7 @@ async fn collect_ollama(
         let worker_model = prompt_text(
             reader,
             "What model for the Worker?",
-            Some(&recs.worker),
+            Some(&worker_default),
             false,
         )?;
         secrets.insert("WORKER_MODEL".into(), worker_model);
@@ -564,7 +761,7 @@ fn collect_observer_reflector(
 /// Section 3: Security — auth token.
 fn section_security(reader: &mut StdinReader) -> Result<String> {
     println!();
-    println!("--- Security ---");
+    println!("--- 🔒 Security ---");
     println!();
 
     let token = prompt_text(
@@ -588,7 +785,7 @@ async fn section_memory(reader: &mut StdinReader) -> Result<Option<String>> {
     use crate::validation;
 
     println!();
-    println!("--- Memory & Embeddings ---");
+    println!("--- 💾 Memory & Embeddings ---");
     println!();
     println!("Baker Street stores conversation memories as vector embeddings.");
     println!("Better embeddings = better recall. Voyage AI provides high-quality");
@@ -653,7 +850,7 @@ async fn section_features(
     use crate::validation;
 
     println!();
-    println!("--- Features ---");
+    println!("--- ⚡ Features ---");
 
     let mut enabled = Vec::new();
 
@@ -754,15 +951,16 @@ fn section_confirm(
     features: &[String],
 ) -> Result<bool> {
     println!();
-    println!("--- Review ---");
+    println!("--- ✅ Review ---");
     println!();
     println!("  Namespace:    {}", namespace);
     println!("  Agent name:   {}", agent_name);
     println!();
 
     let provider_str = match provider {
-        Provider::Anthropic => "Anthropic".to_string(),
-        Provider::OpenAI => "OpenAI".to_string(),
+        Provider::Anthropic => "🟤 Anthropic".to_string(),
+        Provider::OpenAI => "🟢 OpenAI".to_string(),
+        Provider::OpenRouter => "🔀 OpenRouter".to_string(),
         Provider::Ollama => format!(
             "Ollama ({})",
             secrets.get("OLLAMA_ENDPOINTS").map(|s| s.as_str()).unwrap_or("unknown")
@@ -811,6 +1009,31 @@ fn section_confirm(
 
     let proceed = prompt_text(reader, "Proceed with installation?", Some("Y"), false)?;
     Ok(!proceed.trim().eq_ignore_ascii_case("n"))
+}
+
+/// Resolve a model default using provider-scoped env vars.
+/// Priority: {PROVIDER}_{ROLE}_MODEL env → {ROLE}_MODEL env → hardcoded default.
+/// e.g. for provider "OPENROUTER" and role "AGENT":
+///   OPENROUTER_AGENT_MODEL → DEFAULT_MODEL → hardcoded
+fn resolve_model_default(provider_prefix: &str, role: &str, hardcoded: &str) -> String {
+    let env_key = if role == "AGENT" {
+        "DEFAULT_MODEL".to_string()
+    } else {
+        format!("{}_MODEL", role)
+    };
+    let scoped_key = format!("{}_{}_MODEL", provider_prefix, role);
+
+    // Provider-scoped first, then generic, then hardcoded
+    std::env::var(&scoped_key)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| std::env::var(&env_key).ok().filter(|v| !v.is_empty()))
+        .unwrap_or_else(|| hardcoded.to_string())
+}
+
+/// Resolve the API key from a provider-scoped env var.
+fn resolve_env_key(env_var: &str) -> Option<String> {
+    std::env::var(env_var).ok().filter(|v| !v.is_empty())
 }
 
 /// Mask a secret value for display: show first 4 and last 4 chars.

@@ -135,6 +135,43 @@ function defaultModels(): ModelDefinition[] {
           },
         ]
       : []),
+    // OpenRouter models (only included when OPENROUTER_API_KEY is set)
+    ...(process.env.OPENROUTER_API_KEY
+      ? [
+          {
+            id: 'gemini-flash',
+            modelName: 'google/gemini-2.5-flash',
+            provider: 'openrouter' as const,
+            maxTokens: 8192,
+            costPer1MInput: 0.3,
+            costPer1MOutput: 2.5,
+          },
+          {
+            id: 'gemini-pro',
+            modelName: 'google/gemini-2.5-pro-preview',
+            provider: 'openrouter' as const,
+            maxTokens: 8192,
+            costPer1MInput: 1.25,
+            costPer1MOutput: 10,
+          },
+          {
+            id: 'or-sonnet-4',
+            modelName: 'anthropic/claude-sonnet-4',
+            provider: 'openrouter' as const,
+            maxTokens: 4096,
+            costPer1MInput: 3,
+            costPer1MOutput: 15,
+          },
+          {
+            id: 'or-haiku-4.5',
+            modelName: 'anthropic/claude-haiku-4-5',
+            provider: 'openrouter' as const,
+            maxTokens: 2048,
+            costPer1MInput: 0.8,
+            costPer1MOutput: 4,
+          },
+        ]
+      : []),
   ];
 }
 
@@ -316,10 +353,13 @@ function guessProvider(
 ): string {
   let guessed: string;
 
-  if (modelName.startsWith('claude')) {
+  if (modelName.startsWith('claude') && !modelName.includes('/')) {
     guessed = 'anthropic';
   } else if (modelName.startsWith('gpt-') || modelName.startsWith('o1') || modelName.startsWith('o3')) {
     guessed = 'openai';
+  } else if (modelName.includes('/') || modelName.startsWith('gemini') || modelName.startsWith('google/')) {
+    // Slash-prefixed model names (e.g. google/gemini-2.5-flash) or gemini-* → OpenRouter
+    guessed = 'openrouter';
   } else if (config.providers['openrouter']) {
     guessed = 'openrouter';
   } else if (Object.keys(config.providers).find(k => k.startsWith('ollama'))) {

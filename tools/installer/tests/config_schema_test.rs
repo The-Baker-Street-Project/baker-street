@@ -33,9 +33,10 @@ fn test_secrets_by_group() {
 #[test]
 fn test_provider_validation() {
     let schema = ConfigSchema::from_file(&schema_path()).unwrap();
-    assert_eq!(schema.provider_validation.require_at_least_one.len(), 3);
+    assert_eq!(schema.provider_validation.require_at_least_one.len(), 4);
     assert!(schema.provider_validation.require_at_least_one.contains(&"ANTHROPIC_API_KEY".to_string()));
     assert!(schema.provider_validation.require_at_least_one.contains(&"OPENAI_API_KEY".to_string()));
+    assert!(schema.provider_validation.require_at_least_one.contains(&"OPENROUTER_API_KEY".to_string()));
     assert!(schema.provider_validation.require_at_least_one.contains(&"OLLAMA_ENDPOINTS".to_string()));
 }
 

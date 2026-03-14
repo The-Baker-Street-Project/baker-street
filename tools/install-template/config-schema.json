@@ -33,20 +33,41 @@
         {
           "value": "claude-sonnet-4-20250514",
           "label": "Sonnet 4",
-          "description": "balanced"
+          "description": "balanced",
+          "dependsOn": ["ANTHROPIC_API_KEY"]
         },
         {
           "value": "claude-opus-4-20250514",
           "label": "Opus 4",
-          "description": "most capable"
+          "description": "most capable",
+          "dependsOn": ["ANTHROPIC_API_KEY"]
         },
         {
           "value": "claude-haiku-4-5-20251001",
           "label": "Haiku 4.5",
-          "description": "fastest"
+          "description": "fastest",
+          "dependsOn": ["ANTHROPIC_API_KEY"]
+        },
+        {
+          "value": "google/gemini-2.5-flash",
+          "label": "Gemini 2.5 Flash",
+          "description": "fast & cheap via OpenRouter",
+          "dependsOn": ["OPENROUTER_API_KEY"]
+        },
+        {
+          "value": "google/gemini-2.5-pro-preview",
+          "label": "Gemini 2.5 Pro",
+          "description": "capable via OpenRouter",
+          "dependsOn": ["OPENROUTER_API_KEY"]
+        },
+        {
+          "value": "anthropic/claude-sonnet-4",
+          "label": "Sonnet 4 (via OpenRouter)",
+          "description": "balanced, routed through OpenRouter",
+          "dependsOn": ["OPENROUTER_API_KEY"]
         }
       ],
-      "dependsOn": ["ANTHROPIC_API_KEY"]
+      "dependsOn": ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"]
     },
     {
       "key": "WORKER_MODEL",
@@ -63,20 +84,35 @@
         {
           "value": "claude-sonnet-4-20250514",
           "label": "Sonnet 4",
-          "description": "balanced"
+          "description": "balanced",
+          "dependsOn": ["ANTHROPIC_API_KEY"]
         },
         {
           "value": "claude-opus-4-20250514",
           "label": "Opus 4",
-          "description": "most capable"
+          "description": "most capable",
+          "dependsOn": ["ANTHROPIC_API_KEY"]
         },
         {
           "value": "claude-haiku-4-5-20251001",
           "label": "Haiku 4.5",
-          "description": "fastest"
+          "description": "fastest",
+          "dependsOn": ["ANTHROPIC_API_KEY"]
+        },
+        {
+          "value": "google/gemini-2.5-flash",
+          "label": "Gemini 2.5 Flash",
+          "description": "fast & cheap via OpenRouter",
+          "dependsOn": ["OPENROUTER_API_KEY"]
+        },
+        {
+          "value": "anthropic/claude-sonnet-4",
+          "label": "Sonnet 4 (via OpenRouter)",
+          "description": "balanced, routed through OpenRouter",
+          "dependsOn": ["OPENROUTER_API_KEY"]
         }
       ],
-      "dependsOn": ["ANTHROPIC_API_KEY", "OLLAMA_ENDPOINTS"]
+      "dependsOn": ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OLLAMA_ENDPOINTS"]
     },
     {
       "key": "OBSERVER_MODEL",
@@ -115,6 +151,18 @@
         "bakerst-worker-secrets"
       ],
       "prompt": "If you'd also like GPT models available, paste your OpenAI key (or skip)"
+    },
+    {
+      "key": "OPENROUTER_API_KEY",
+      "description": "OpenRouter API key — access 200+ models via one key",
+      "inputType": "secret",
+      "required": false,
+      "group": "providers",
+      "targetSecrets": [
+        "bakerst-brain-secrets",
+        "bakerst-worker-secrets"
+      ],
+      "prompt": "If you'd like to use OpenRouter, paste your API key (or skip)"
     },
     {
       "key": "OLLAMA_ENDPOINTS",
@@ -433,6 +481,7 @@
     "requireAtLeastOne": [
       "ANTHROPIC_API_KEY",
       "OPENAI_API_KEY",
+      "OPENROUTER_API_KEY",
       "OLLAMA_ENDPOINTS"
     ],
     "message": "At least one AI provider must be configured"
