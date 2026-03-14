@@ -212,76 +212,106 @@ function createAnthropicAdapter(providerCfg: AnthropicProviderConfig): ProviderA
 }
 
 // ---------------------------------------------------------------------------
-// OpenRouter adapter (uses Anthropic SDK with custom baseURL)
+// OpenRouter adapter (uses OpenAI SDK — OpenRouter is OpenAI-compatible)
 // ---------------------------------------------------------------------------
 
-function createOpenRouterAdapter(providerCfg: OpenRouterProviderConfig): ProviderAdapter {
+async function createOpenRouterAdapter(
+  providerCfg: OpenRouterProviderConfig,
+): Promise<ProviderAdapter> {
+  const { default: OpenAI } = await import('openai');
+
   const baseURL = providerCfg.baseURL ?? 'https://openrouter.ai/api/v1';
-  const client = new Anthropic({
+  const client = new OpenAI({
     apiKey: providerCfg.apiKey,
     baseURL,
   });
 
-  log.info({ baseURL }, 'openrouter adapter: initialized');
+  log.info({ baseURL }, 'openrouter adapter: initialized (OpenAI-compatible)');
 
   return {
     async chat(model: ModelDefinition, params: ChatParams): Promise<ChatResponse> {
-      const response = await client.messages.create({
+      const messages = convertToOpenAIMessagesWithTools(params);
+      const tools = params.tools ? convertToolsToOpenAI(params.tools) : undefined;
+
+      const response = await client.chat.completions.create({
         model: model.modelName,
         max_tokens: params.maxTokens ?? model.maxTokens,
-        system: params.system as Anthropic.Messages.TextBlockParam[] | undefined,
-        tools: params.tools as Anthropic.Messages.Tool[] | undefined,
-        messages: params.messages as Anthropic.Messages.MessageParam[],
+        messages: messages as unknown as Parameters<typeof client.chat.completions.create>[0]['messages'],
+        ...(tools && tools.length > 0 ? { tools: tools as Parameters<typeof client.chat.completions.create>[0]['tools'] } : {}),
       });
 
-      if (!isValidAnthropicResponse(response)) {
-        throw new Error('openrouter adapter: invalid response shape from API');
+      const choice = response.choices[0];
+      if (!choice) {
+        throw new Error('openrouter adapter: no choices in response');
       }
 
-      return {
-        content: validateContentBlocks(response.content),
-        stopReason: response.stop_reason ?? 'end_turn',
-        model: response.model,
-        usage: {
-          inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens,
-        },
-      };
+      return normalizeOpenAIResponse(choice as any, response.model, response.usage);
     },
 
     async *chatStream(model: ModelDefinition, params: ChatParams): AsyncGenerator<ModelStreamEvent> {
-      const stream = client.messages.stream({
+      const messages = convertToOpenAIMessagesWithTools(params);
+      const tools = params.tools ? convertToolsToOpenAI(params.tools) : undefined;
+
+      const stream = await client.chat.completions.create({
         model: model.modelName,
         max_tokens: params.maxTokens ?? model.maxTokens,
-        system: params.system as Anthropic.Messages.TextBlockParam[] | undefined,
-        tools: params.tools as Anthropic.Messages.Tool[] | undefined,
-        messages: params.messages as Anthropic.Messages.MessageParam[],
+        messages: messages as unknown as Parameters<typeof client.chat.completions.create>[0]['messages'],
+        ...(tools && tools.length > 0 ? { tools: tools as Parameters<typeof client.chat.completions.create>[0]['tools'] } : {}),
+        stream: true,
       });
 
-      for await (const event of stream) {
-        if (
-          event.type === 'content_block_delta' &&
-          event.delta.type === 'text_delta'
-        ) {
-          yield { type: 'text_delta', text: event.delta.text };
+      let fullText = '';
+      let finishReason = 'end_turn';
+      const toolCallAccumulator = new Map<number, { id: string; name: string; args: string }>();
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta;
+        if (delta?.content) {
+          fullText += delta.content;
+          yield { type: 'text_delta', text: delta.content };
+        }
+
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const existing = toolCallAccumulator.get(tc.index);
+            if (!existing) {
+              toolCallAccumulator.set(tc.index, {
+                id: tc.id ?? '',
+                name: tc.function?.name ?? '',
+                args: tc.function?.arguments ?? '',
+              });
+            } else {
+              if (tc.id) existing.id = tc.id;
+              if (tc.function?.name) existing.name += tc.function.name;
+              if (tc.function?.arguments) existing.args += tc.function.arguments;
+            }
+          }
+        }
+
+        if (chunk.choices[0]?.finish_reason) {
+          finishReason = mapOpenAIFinishReason(chunk.choices[0].finish_reason);
         }
       }
 
-      const finalMessage = await stream.finalMessage();
-      if (!isValidAnthropicResponse(finalMessage)) {
-        throw new Error('openrouter adapter: invalid final message shape from stream');
+      const content: ChatContentBlock[] = [];
+      if (fullText) {
+        content.push({ type: 'text', text: fullText });
+      }
+      for (const [, tc] of toolCallAccumulator) {
+        content.push({
+          type: 'tool_use',
+          id: tc.id,
+          name: tc.name,
+          input: safeJsonParse(tc.args || '{}'),
+        });
       }
 
       yield {
         type: 'message_done',
         response: {
-          content: validateContentBlocks(finalMessage.content),
-          stopReason: finalMessage.stop_reason ?? 'end_turn',
-          model: finalMessage.model,
-          usage: {
-            inputTokens: finalMessage.usage.input_tokens,
-            outputTokens: finalMessage.usage.output_tokens,
-          },
+          content,
+          stopReason: finishReason,
+          model: model.modelName,
         },
       };
     },
@@ -760,7 +790,7 @@ export class ModelRouter {
     // OpenRouter — eager if configured
     const orCfg = config.providers['openrouter'];
     if (orCfg && orCfg.provider === 'openrouter') {
-      router.adapters.set('openrouter', createOpenRouterAdapter(orCfg));
+      router.adapters.set('openrouter', await createOpenRouterAdapter(orCfg));
     }
 
     // OpenAI native — eager if configured

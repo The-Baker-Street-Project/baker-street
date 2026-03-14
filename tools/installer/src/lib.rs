@@ -9,6 +9,7 @@ pub mod images;
 pub mod interview;
 pub mod app;
 pub mod tui;
+pub mod validation;
 pub mod verify;
 pub mod deploy;
 pub mod cmd_install;

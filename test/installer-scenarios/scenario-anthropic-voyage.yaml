@@ -1,0 +1,37 @@
+# Scenario: Anthropic + Voyage Embeddings
+# Tests: Cloud AI with enhanced vector embeddings for memory.
+# Requires: ANTHROPIC_API_KEY and VOYAGE_API_KEY env vars.
+
+namespace: bakerst-test
+agentName: TestAgent
+
+secrets:
+  ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+  DEFAULT_MODEL: "claude-sonnet-4-20250514"
+  WORKER_MODEL: "claude-haiku-4-5-20251001"
+  OBSERVER_MODEL: "claude-haiku-4-5-20251001"
+  REFLECTOR_MODEL: "claude-sonnet-4-20250514"
+  VOYAGE_API_KEY: "${VOYAGE_API_KEY}"
+  AUTH_TOKEN: auto
+  AGENT_NAME: TestAgent
+
+features:
+  telegram: false
+  discord: false
+  github: false
+  perplexity: false
+  obsidian: false
+  voice: false
+  google-workspace: false
+  voyage: true
+
+verify:
+  expectedPods:
+    - brain-blue
+    - worker
+    - ui
+    - gateway
+    - nats
+    - qdrant
+  chatPrompt: "Respond with exactly: SCENARIO_TEST_PASSED"
+  timeoutSeconds: 300

@@ -1,0 +1,37 @@
+# Scenario: Anthropic with explicit Observer/Reflector models
+# Tests: All 4 model roles are configured and propagated to the brain pod.
+# Requires: ANTHROPIC_API_KEY env var
+# Purpose: Validates OBSERVER_MODEL and REFLECTOR_MODEL land on the brain pod.
+
+namespace: bakerst-test
+agentName: TestAgent
+
+secrets:
+  ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+  DEFAULT_MODEL: "claude-sonnet-4-20250514"
+  WORKER_MODEL: "claude-haiku-4-5-20251001"
+  OBSERVER_MODEL: "claude-haiku-4-5-20251001"
+  REFLECTOR_MODEL: "claude-sonnet-4-20250514"
+  AUTH_TOKEN: auto
+  AGENT_NAME: TestAgent
+
+features:
+  telegram: false
+  discord: false
+  github: false
+  perplexity: false
+  obsidian: false
+  voice: false
+  google-workspace: false
+  voyage: false
+
+verify:
+  expectedPods:
+    - brain-blue
+    - worker
+    - ui
+    - gateway
+    - nats
+    - qdrant
+  chatPrompt: "Respond with exactly: SCENARIO_TEST_PASSED"
+  timeoutSeconds: 300

@@ -1,0 +1,39 @@
+# Scenario: Dual Provider (Anthropic + Ollama)
+# Tests: Cloud agent model with local worker model.
+# Requires: ANTHROPIC_API_KEY env var + Ollama running on host.
+# This is the power-user setup: strong cloud model for agent reasoning,
+# fast local model for worker throughput tasks.
+
+namespace: bakerst-test
+agentName: TestAgent
+
+secrets:
+  ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+  OLLAMA_ENDPOINTS: "${OLLAMA_HOST:-host.docker.internal:11434}"
+  DEFAULT_MODEL: "claude-sonnet-4-20250514"
+  WORKER_MODEL: "qwen3.5:9b"
+  OBSERVER_MODEL: "qwen3.5:9b"
+  REFLECTOR_MODEL: "claude-sonnet-4-20250514"
+  AUTH_TOKEN: auto
+  AGENT_NAME: TestAgent
+
+features:
+  telegram: false
+  discord: false
+  github: false
+  perplexity: false
+  obsidian: false
+  voice: false
+  google-workspace: false
+  voyage: false
+
+verify:
+  expectedPods:
+    - brain-blue
+    - worker
+    - ui
+    - gateway
+    - nats
+    - qdrant
+  chatPrompt: "Respond with exactly: SCENARIO_TEST_PASSED"
+  timeoutSeconds: 300
